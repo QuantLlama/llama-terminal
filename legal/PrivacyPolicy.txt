@@ -1,0 +1,21 @@
+PRIVACY POLICY
+
+Your privacy is important to us. This Privacy Policy explains how Quantum Llama Trading Platform collects and uses information.
+
+1. DATA COLLECTION
+We collect Hardware ID (HWID) information to manage trial periods and license validation. We do not collect personal identifiable information (PII) unless voluntarily provided during registration.
+
+2. USAGE OF INFORMATION
+The collected HWID is used solely to prevent unauthorized usage and to enforce the 14-day trial limit and subscription tiers.
+
+3. DATA SECURITY
+We implement commercially reasonable security measures to protect your information stored in our database (Supabase).
+
+4. THIRD PARTY SERVICES
+The Software uses Supabase for authentication and license management. Please refer to Supabase's privacy policy for more details.
+
+5. CHANGES TO THIS POLICY
+We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.
+
+CONTACT US
+If you have any questions about this Privacy Policy, please contact us.

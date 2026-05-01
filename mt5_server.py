@@ -1,0 +1,115 @@
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any, Union
+import uvicorn
+import pandas as pd
+import json
+
+from src.live.mt5_native_connector import MT5Connector
+
+app = FastAPI(title="MT5 Wine Server", version="1.0.0")
+connector = MT5Connector()
+
+class ConnectRequest(BaseModel):
+    path: Optional[str] = None
+
+class OrderRequestModel(BaseModel):
+    symbol: str
+    order_type: Optional[str] = None
+    volume: Optional[float] = None
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    price: Optional[float] = None
+    mode: str = "MKT"
+    side: Optional[str] = None
+    amount: Optional[float] = None
+
+@app.post("/api/connect")
+def api_connect(req: ConnectRequest):
+    success = connector.connect(req.path)
+    return {"success": success}
+
+@app.post("/api/shutdown")
+def api_shutdown():
+    connector.shutdown()
+    return {"success": True}
+
+@app.get("/api/balance")
+def api_balance():
+    return {"balance": connector.get_balance()}
+
+@app.get("/api/account_info")
+def api_account_info():
+    info = connector.get_account_info()
+    if info is None:
+        raise HTTPException(status_code=500, detail="Not connected or info missing")
+    return info
+
+@app.get("/api/current_price/{symbol}")
+def api_current_price(symbol: str):
+    price = connector.get_current_price(symbol)
+    if price is None:
+        raise HTTPException(status_code=404, detail="Symbol not found or disconnected")
+    return {"price": price}
+
+@app.get("/api/latest_candles/{symbol}")
+def api_latest_candles(symbol: str, timeframe: str = "1m", n: int = 100):
+    df = connector.get_latest_candles(symbol, timeframe, n)
+    if df is None:
+        raise HTTPException(status_code=500, detail="Failed to get candles")
+    # Asegurarnos de que el tiempo se exporte correctamente a string
+    if 'time' in df.columns:
+        df['time'] = df['time'].astype(str)
+    return df.to_dict(orient="records")
+
+@app.get("/api/deals")
+def api_deals(date_from: Optional[str] = None, date_to: Optional[str] = None):
+    dt_from = pd.to_datetime(date_from) if date_from else None
+    dt_to = pd.to_datetime(date_to) if date_to else None
+    deals = connector.get_deals(date_from=dt_from, date_to=dt_to)
+    return [d._asdict() if hasattr(d, "_asdict") else dict(d) for d in deals]
+
+
+@app.get("/api/positions")
+def api_positions(symbol: Optional[str] = None, ticket: Optional[str] = None):
+    pos = connector.get_positions(symbol, ticket)
+    return [p._asdict() if hasattr(p, "_asdict") else dict(p) for p in pos]
+
+@app.get("/api/pending_orders")
+def api_pending_orders(symbol: Optional[str] = None):
+    return connector.get_pending_orders(symbol)
+
+@app.post("/api/place_order")
+def api_place_order(req: OrderRequestModel):
+    res = connector.place_order(
+        symbol=req.symbol,
+        order_type=req.order_type,
+        volume=req.volume,
+        sl=req.sl,
+        tp=req.tp,
+        price=req.price,
+        mode=req.mode,
+        side=req.side,
+        amount=req.amount
+    )
+    if res is None:
+        raise HTTPException(status_code=500, detail="Order failed completely")
+    return res._asdict() if hasattr(res, "_asdict") else res
+
+@app.post("/api/close_position/{ticket}")
+def api_close_position(ticket: int, symbol: Optional[str] = None, volume: Optional[float] = None):
+    res = connector.close_position(ticket, symbol, volume)
+    if not res:
+        raise HTTPException(status_code=500, detail="Failed to close position")
+    return res._asdict() if hasattr(res, "_asdict") else res
+
+@app.get("/api/daily_pnl")
+def api_daily_pnl():
+    return {"pnl": connector.get_daily_pnl()}
+
+@app.get("/api/symbol_details/{symbol}")
+def api_symbol_details(symbol: str):
+    return connector.get_symbol_details(symbol)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8081)

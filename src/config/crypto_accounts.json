@@ -1,0 +1,54 @@
+{
+    "f1e0c6d7": {
+        "id": "f1e0c6d7",
+        "name": "Binance",
+        "broker": "binance",
+        "api_key": "UlDCyndrviGUUZ1aQ02VI5tX0HSWxFSSkvPdE5JttTcBmPsEAWPXrPAaHBwU7aVh",
+        "api_secret": "gAAAAABptvM9EkwgvomRvbEa4Qa28Q7Z53Jo2GQiXpUDWVMLjx9RUb4A4vPI8gWivocPzzGDZqw5uDtp4kSkgf2S6hUISfVf6f6A8_OXvQrNnWTuFaVsgch6uFfJwTxG3D6RAgva4CStgGRZ4U3trUZ42fWKxM5UAnh6YggJMslLmPv7xnBukHY=",
+        "passphrase": "",
+        "account_type": "real",
+        "created_at": "2026-03-15T14:58:21.801648",
+        "status": "inactive",
+        "is_master": true,
+        "platform": "crypto"
+    },
+    "6cdeb195": {
+        "id": "6cdeb195",
+        "name": "Bitmex",
+        "broker": "bitmex",
+        "api_key": "Ays9qQymMRf5Y6pCpx3Jf6GP",
+        "api_secret": "gAAAAABpvUNiJeeXgruY1pb2ilV1VcLqa4ujBHj2zRxokF_FLMgSTeGLvyHHACUU7rvbTJWQ4V2mOduGYJN5kBpUC_STO6gVOEt8pRsOXrCXblmDbxjWiMHT5KSVVmON6KLTwEBGGch15bp8UuDfW65liqrBUOVZGg==",
+        "passphrase": "",
+        "account_type": "real",
+        "created_at": "2026-03-20T09:53:26.862012",
+        "status": "inactive",
+        "is_master": false,
+        "platform": "crypto"
+    },
+    "3d62c2fc": {
+        "id": "3d62c2fc",
+        "name": "BOLFIN",
+        "broker": "blofin",
+        "api_key": "a51fe8ddbf5542bc9c2334ebfa07dc37",
+        "api_secret": "gAAAAABpvVpX9NIEklVQLpNVVjN0_0k4HoLbtRnLmzFm-l67czvhOkfAPJZwUaZqBCpk7BldbzDUbNRShvo6tJDvMahofMd1hpvdTtyRsmirJ9fnFZQhRkbB6Tje-NtRcLP9Vp225ysu",
+        "passphrase": "gAAAAABpvVpXanUmc3nvEBIBDu1UEE3W13w_zwPEa0Q6rZbmrJOrEwIuCn9VASj-f6KnI4LxxI8Hx1pZher8dryUtuEJyAI6MUuwmnA19ZBPJ-OViRo4yvU=",
+        "account_type": "real",
+        "created_at": "2026-03-20T10:36:21.846717",
+        "status": "inactive",
+        "is_master": false,
+        "platform": "crypto"
+    },
+    "42521404": {
+        "id": "42521404",
+        "name": "bingx",
+        "broker": "bingx",
+        "api_key": "l3iSlAesnFwWdLgJgLvjLPuMix8Wb8hpEXJ9bXC5TKMm8k4SrUT21pbtNPaF2CVoAiuI3zWJ7kCulsjuw",
+        "api_secret": "gAAAAABpvyEuuVKE0us8KnyaUTn58LTxwgRe5BQbMg5LZjRBusMYS9ITLwgS6Ev1vXRpNkHZ1BAPk4WZeP-YGPzFX-HOGH1K0R8V8x-4CLO_SFEMVi8Xv2QYvVnYM_i0zpNVSOsR2Tpn0KkI4Q7G46Qtrf2GiSVY5LirJ31V3q-0w5XO3VrPMTbzZ7BDelltluEHActj11BZ",
+        "passphrase": "",
+        "account_type": "real",
+        "created_at": "2026-03-21T19:52:30.882885",
+        "status": "inactive",
+        "is_master": false,
+        "platform": "crypto"
+    }
+}

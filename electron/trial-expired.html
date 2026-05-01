@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trial Period Expired — Quantum Llama</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background-color: #0d0b08;
+      color: #e8e0d0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.07) 0%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .card {
+      position: relative;
+      z-index: 10;
+      background: #161008;
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      border-radius: 20px;
+      padding: 48px 56px;
+      max-width: 440px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 60px rgba(245, 158, 11, 0.04);
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    .logo {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 14px rgba(245, 158, 11, 0.5));
+      animation: pulse 2s infinite ease-in-out;
+      margin-bottom: 24px;
+    }
+
+    .badge {
+      display: inline-block;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+
+    .title span { color: #f59e0b; }
+
+    .subtitle {
+      font-size: 13px;
+      color: #8a7a60;
+      line-height: 1.75;
+      margin-bottom: 32px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid rgba(245, 158, 11, 0.1);
+      margin-bottom: 24px;
+    }
+
+    .btns {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      -webkit-app-region: no-drag;
+    }
+
+    .btn-primary {
+      display: block;
+      padding: 13px 24px;
+      background: #f59e0b;
+      color: #0d0b08;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 10px;
+      cursor: pointer;
+      border: none;
+      width: 100%;
+      letter-spacing: 0.3px;
+      transition: background 0.2s, transform 0.15s;
+      box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3);
+    }
+    .btn-primary:hover  { background: #fbbf24; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-secondary {
+      display: block;
+      padding: 11px 24px;
+      background: transparent;
+      color: #6b5a3e;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid rgba(245, 158, 11, 0.15);
+      border-radius: 10px;
+      cursor: pointer;
+      width: 100%;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-secondary:hover { color: #a08050; border-color: rgba(245, 158, 11, 0.35); }
+
+    .footer-note {
+      margin-top: 22px;
+      font-size: 10px;
+      color: #3a2e1e;
+      letter-spacing: 0.4px;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse {
+      0%   { transform: scale(0.98); opacity: 0.9; }
+      50%  { transform: scale(1.02); opacity: 1; }
+      100% { transform: scale(0.98); opacity: 0.9; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo"
+         src="../images/QuantumLLama.ico"
+         alt="QuantumLlama"
+         onerror="this.src='https://llamaterminal.nbmsystemas.com/llama-logo.png';" />
+
+    <div class="badge">Trial Expired</div>
+
+    <p class="title">Your <span>14-day</span> trial has ended</p>
+
+    <p class="subtitle">
+      To continue using Quantum Llama Professional,<br />
+      please upgrade to a Premium plan or contact support.
+    </p>
+
+    <hr class="divider" />
+
+    <div class="btns">
+      <button class="btn-primary" onclick="openUpgrade()">
+        Upgrade to Premium
+      </button>
+      <button class="btn-secondary" onclick="openSupport()">
+        Contact Support
+      </button>
+      <button class="btn-secondary" style="margin-top: 8px; border-color: transparent;" onclick="tryLogin()">
+        I am an Admin / Log In
+      </button>
+    </div>
+
+    <p class="footer-note">
+      Machine ID registered · Trial is non-renewable on this device
+    </p>
+  </div>
+
+  <script>
+    try {
+      const { shell, ipcRenderer } = require('electron');
+      function openUpgrade() {
+        shell.openExternal('https://llamaterminal.nbmsystemas.com/#pricing');
+      }
+      function openSupport() {
+        shell.openExternal('https://llamaterminal.nbmsystemas.com/#contact');
+      }
+      function tryLogin() {
+        // Enviar mensaje a main.js para forzar la carga de la app principal (y permitir login de admin)
+        ipcRenderer.send('force-main-app');
+      }
+    } catch (e) {
+      // Fallback for non-Electron environments
+      function openUpgrade() {
+        window.open('https://llamaterminal.nbmsystemas.com/#pricing', '_blank');
+      }
+      function openSupport() {
+        window.open('https://llamaterminal.nbmsystemas.com/#contact', '_blank');
+      }
+    }
+  </script>
+</body>
+</html>

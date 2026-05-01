@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="page-title">QUANTUM AI - Live Trading</title>
+    <link rel="icon" href="https://llamaterminal.nbmsystemas.com/llama-logo.png" type="image/png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        :root {
+            --bg-color: #0a0a0f;
+            --card-bg: #13131a;
+            --text-color: #e2e8f0;
+            --accent-color: #fbbf24;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 10px;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            /* Prevent body scroll */
+            display: flex;
+            flex-direction: column;
+        }
+        .container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            max-width: 100%;
+            margin: 0;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+            flex-shrink: 0;
+        }
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-img {
+            height: 30px;
+        }
+        .live-badge {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.75rem;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+        /* Top Stats Bar */
+        .stats-bar {
+            display: flex;
+            gap: 10px;
+            background: var(--card-bg);
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px solid #2d2d3a;
+            margin-bottom: 10px;
+            align-items: center;
+            flex-wrap: nowrap;
+            /* Prevent wrapping on large screens */
+            overflow-x: auto;
+            /* Allow scroll on very small screens */
+            flex-shrink: 0;
+        }
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            min-width: 70px;
+        }
+        .stat-label {
+            font-size: 0.65rem;
+            color: #888;
+            margin-bottom: 2px;
+            white-space: nowrap;
+        }
+        .stat-value {
+            font-size: 1rem;
+            font-weight: bold;
+            color: #fff;
+            white-space: nowrap;
+        }
+        .signal-badge {
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #2d2d3a;
+            border: 1px solid #444;
+            white-space: nowrap;
+        }
+        /* Main Layout */
+        .main-content {
+            display: flex;
+            flex: 1;
+            gap: 10px;
+            min-height: 0;
+            /* Critical for nested scrolling */
+        }
+        .chart-wrapper {
+            flex: 1;
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid #2d2d3a;
+            overflow: hidden;
+            position: relative;
+        }
+        #chart-container {
+            width: 100%;
+            height: 100%;
+        }
+        .sidebar-wrapper {
+            width: 260px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        /* Control Panel */
+        .control-panel {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid #2d2d3a;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .control-row label {
+            font-size: 0.8rem;
+            color: #ccc;
+        }
+        .compact-input {
+            width: 70px;
+            background: #0a0a0f;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            text-align: right;
+        }
+        .time-input {
+            width: 120px;
+            text-align: center;
+        }
+        /* Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 18px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #333;
+            transition: .4s;
+            border-radius: 18px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked+.slider {
+            background-color: var(--success-color);
+        }
+        input:checked+.slider:before {
+            transform: translateX(18px);
+        }
+        .btn-save {
+            width: 100%;
+            background: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 8px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .btn-save:hover {
+            opacity: 0.9;
+        }
+        .pnl-positive {
+            color: var(--success-color);
+        }
+        .pnl-negative {
+            color: var(--danger-color);
+        }
+        footer {
+            margin-top: 10px;
+            text-align: center;
+            color: #666;
+            font-size: 0.7em;
+            flex-shrink: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            padding: 5px 0;
+        }
+        .footer-logo-img {
+            height: 20px;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+            vertical-align: middle;
+        }
+        .footer-logo-img:hover {
+            opacity: 1;
+        }
+        /* Responsive Breakpoints */
+        @media (max-width: 1024px) {
+            .main-content {
+                flex-direction: column;
+            }
+            .sidebar-wrapper {
+                width: 100%;
+                height: auto;
+                max-height: 200px;
+                /* Limit height on mobile */
+                flex-direction: row;
+            }
+            .control-panel {
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 15px;
+                align-items: center;
+            }
+            .control-row {
+                gap: 5px;
+            }
+        }
+        @media (max-width: 768px) {
+            .sidebar-wrapper {
+                max-height: none;
+                flex-direction: column;
+            }
+            .control-panel {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .stats-bar {
+                overflow-x: auto;
+                padding-bottom: 10px;
+            }
+            footer {
+                flex-direction: column;
+                gap: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo-section">
+                <img src="https://llamaterminal.nbmsystemas.com/llama-logo.png" alt="Logo" class="logo-img">
+                <div>
+                    <a href="https://llamaterminal.nbmsystemas.com" target="_blank"
+                        style="text-decoration: none; color: inherit;">
+                        <h1 style="margin:0; font-size: 1.1rem;"><span id="strategy-name-header">QUANTUM GAN</span>
+                            <span style="color:var(--accent-color)">LIVE</span>
+                        </h1>
+                    </a>
+                </div>
+            </div>
+            <div class="live-badge">● EN VIVO</div>
+        </div>
+        <div class="stats-bar">
+            <div class="signal-badge" id="signal-box">
+                <span class="signal-icon">⏳</span>
+                <span class="signal-text">WAIT</span>
+            </div>
+            <div style="width: 1px; height: 25px; background: #333; margin: 0 5px;"></div>
+            <div class="stat-item">
+                <div class="stat-label">Estrategia</div>
+                <div class="stat-value" id="strategy-info" style="font-size: 0.8rem; color: #fbbf24;">---</div>
+            </div>
+            <div style="width: 1px; height: 25px; background: #333; margin: 0 5px;"></div>
+            <div class="stat-item">
+                <div class="stat-label">Precio</div>
+                <div class="stat-value" id="current-price">---</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Predicción</div>
+                <div class="stat-value" id="prediction-price" style="color: var(--accent-color);">---</div>
+            </div>
+            <div style="width: 1px; height: 25px; background: #333; margin: 0 5px;"></div>
+            <div class="stat-item">
+                <div class="stat-label">Balance</div>
+                <div class="stat-value" id="balance-val">---</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Equity</div>
+                <div class="stat-value" id="equity-val">---</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">PnL Día</div>
+                <div class="stat-value" id="pnl-val">---</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Trades</div>
+                <div class="stat-value" id="trades-val">0</div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="chart-wrapper">
+                <div id="chart-container"></div>
+            </div>
+            <div class="sidebar-wrapper">
+                <div class="control-panel">
+                    <div class="control-row">
+                        <span style="font-weight:bold; font-size:0.85rem;">Auto Trading</span>
+                        <label class="switch">
+                            <input type="checkbox" id="auto-switch" onchange="saveConfig()">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="height: 1px; background: #333; margin: 5px 0;"></div>
+                    <div class="control-row">
+                        <label>Volumen</label>
+                        <input type="number" id="cfg-volume" class="compact-input" step="0.01">
+                    </div>
+                    <div class="control-row">
+                        <label>Max Loss ($)</label>
+                        <input type="number" id="cfg-max-loss" class="compact-input">
+                    </div>
+                    <div class="control-row">
+                        <label>Target ($)</label>
+                        <input type="number" id="cfg-profit-target" class="compact-input">
+                    </div>
+                    <div class="control-row">
+                        <label>Max Trades</label>
+                        <input type="number" id="cfg-max-trades" class="compact-input">
+                    </div>
+                    <div class="control-row">
+                        <label>Horario</label>
+                        <div style="display: flex; gap: 3px;">
+                            <input type="time" id="cfg-start" class="compact-input time-input">
+                            <input type="time" id="cfg-end" class="compact-input time-input">
+                        </div>
+                    </div>
+                    <button class="btn-save" onclick="saveConfig()">GUARDAR</button>
+                    <div style="margin-top: auto; font-size: 0.7rem; color: #666; text-align: center;">
+                        <span id="status-msg">Sistema Listo</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <footer>
+            <a href="https://www.youtube.com/@puntoicomatrading" target="_blank" title="Punto&Coma Trading"
+                style="display: flex; align-items: center;">
+                <img src="../../images/puntoicoma.png" alt="Punto&Coma Trading" class="footer-logo-img">
+            </a>
+            <span>&copy; 2026 QUANTUM GAN System. Powered by <a href="https://nbmsystemas.com" target="_blank"
+                    style="color: var(--accent-color); text-decoration: none;">NBM Systems</a>.</span>
+            <img src="../../images/QuantumLLama.png" alt="Quantum" class="footer-logo-img">
+        </footer>
+    </div>
+    <script>
+        // Initialize Chart
+        const chartContainer = document.getElementById('chart-container');
+        const chart = LightweightCharts.createChart(chartContainer, {
+            layout: {
+                background: { type: 'solid', color: '#13131a' },
+                textColor: '#d1d5db',
+            },
+            grid: {
+                vertLines: { color: '#2d2d3a' },
+                horzLines: { color: '#2d2d3a' },
+            },
+            width: chartContainer.clientWidth,
+            height: chartContainer.clientHeight,
+            timeScale: {
+                timeVisible: true,
+                secondsVisible: false,
+            },
+        });
+        const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            borderVisible: false,
+            wickUpColor: '#10b981',
+            wickDownColor: '#ef4444',
+        });
+        // Resize handler
+        window.addEventListener('resize', () => {
+            chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+        });
+        let slLine = null;
+        let tpLine = null;
+        let entryLine = null;
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (!response.ok) throw new Error("Failed to load config");
+                const config = await response.json();
+                document.getElementById('auto-switch').checked = config.automation_enabled;
+                document.getElementById('cfg-volume').value = config.volume;
+                document.getElementById('cfg-max-loss').value = config.max_daily_loss;
+                document.getElementById('cfg-max-trades').value = config.max_trades_per_day;
+                document.getElementById('cfg-profit-target').value = config.daily_profit_target || 100;
+                document.getElementById('cfg-start').value = config.start_hour;
+                document.getElementById('cfg-end').value = config.end_hour;
+            } catch (e) {
+                console.error("Error loading config", e);
+            }
+        }
+        async function saveConfig() {
+            const config = {
+                automation_enabled: document.getElementById('auto-switch').checked,
+                volume: parseFloat(document.getElementById('cfg-volume').value),
+                max_daily_loss: parseFloat(document.getElementById('cfg-max-loss').value),
+                max_trades_per_day: parseInt(document.getElementById('cfg-max-trades').value),
+                daily_profit_target: parseFloat(document.getElementById('cfg-profit-target').value),
+                start_hour: document.getElementById('cfg-start').value,
+                end_hour: document.getElementById('cfg-end').value
+            };
+            try {
+                await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const statusMsg = document.getElementById('status-msg');
+                statusMsg.innerText = "Configuración Guardada";
+                statusMsg.style.color = "var(--success-color)";
+                setTimeout(() => {
+                    statusMsg.innerText = "Sistema Listo";
+                    statusMsg.style.color = "#666";
+                }, 2000);
+            } catch (e) {
+                alert('Error guardando configuración');
+            }
+        }
+        // Fourier Drawing State
+        let fourierCanvas = null;
+        let fourierCtx = null;
+        function initFourierCanvas() {
+            if (fourierCanvas) return;
+            fourierCanvas = document.createElement('canvas');
+            fourierCanvas.style.position = 'absolute';
+            fourierCanvas.style.top = '0';
+            fourierCanvas.style.left = '0';
+            fourierCanvas.style.width = '100%';
+            fourierCanvas.style.height = '100%';
+            fourierCanvas.style.pointerEvents = 'none';
+            fourierCanvas.style.zIndex = '10';
+            chartContainer.appendChild(fourierCanvas);
+            fourierCtx = fourierCanvas.getContext('2d');
+        }
+        function drawFourier(data) {
+            if (!data.fourier_data || !fourierCtx) return;
+            const f = data.fourier_data;
+            // Resize canvas to match display size
+            fourierCanvas.width = fourierCanvas.clientWidth;
+            fourierCanvas.height = fourierCanvas.clientHeight;
+            fourierCtx.clearRect(0, 0, fourierCanvas.width, fourierCanvas.height);
+            const timeScale = chart.timeScale();
+            // 1. Draw Projection (Wave)
+            if (f.projection && f.projection.length > 0) {
+                fourierCtx.beginPath();
+                fourierCtx.strokeStyle = '#fbbf24'; // Yellow
+                fourierCtx.lineWidth = 2;
+                fourierCtx.setLineDash([5, 5]);
+                f.projection.forEach((p, i) => {
+                    const x = timeScale.timeToCoordinate(p.time);
+                    const y = candleSeries.priceToCoordinate(p.value);
+                    if (x !== null && y !== null) {
+                        if (i === 0) fourierCtx.moveTo(x, y);
+                        else fourierCtx.lineTo(x, y);
+                    }
+                });
+                fourierCtx.stroke();
+                fourierCtx.setLineDash([]);
+            }
+            // 2. Draw Reconstruction (History)
+            if (f.reconstruction && f.reconstruction.length > 0) {
+                fourierCtx.beginPath();
+                fourierCtx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+                fourierCtx.lineWidth = 1;
+                f.reconstruction.forEach((p, i) => {
+                    const x = timeScale.timeToCoordinate(p.time);
+                    const y = candleSeries.priceToCoordinate(p.value);
+                    if (x !== null && y !== null) {
+                        if (i === 0) fourierCtx.moveTo(x, y);
+                        else fourierCtx.lineTo(x, y);
+                    }
+                });
+                fourierCtx.stroke();
+            }
+            // 3. Draw Harmonics (Bands)
+            if (f.harmonics) {
+                f.harmonics.forEach(h => {
+                    if (!h.points || h.points.length < 2) return;
+                    fourierCtx.beginPath();
+                    fourierCtx.strokeStyle = h.name === 'Main' ? '#22d3ee' : 'rgba(34, 211, 238, 0.15)';
+                    fourierCtx.lineWidth = h.name === 'Main' ? 1.5 : 1;
+                    h.points.forEach((p, i) => {
+                        const x = timeScale.timeToCoordinate(p.time);
+                        const y = candleSeries.priceToCoordinate(p.value);
+                        if (x !== null && y !== null) {
+                            if (i === 0) fourierCtx.moveTo(x, y);
+                            else fourierCtx.lineTo(x, y);
+                        }
+                    });
+                    fourierCtx.stroke();
+                });
+            }
+        }
+        async function updateDashboard() {
+            try {
+                const response = await fetch('../../live_status.json?t=' + new Date().getTime());
+                if (!response.ok) throw new Error("Network response was not ok");
+                const data = await response.json();
+                if (!data.current_price) {
+                    console.log("Waiting for data...");
+                    return;
+                }
+                // Update Algorithm Name and Title
+                const algoName = (data.strategy && data.strategy.name) || data.algorithm || "LIVE STRATEGY";
+                const displayAlgo = algoName.toUpperCase().replace('_', ' ');
+                document.getElementById('strategy-name-header').innerText = displayAlgo;
+                document.getElementById('page-title').innerText = `${displayAlgo} - Live Trading`;
+                // Update Stats Bar
+                document.getElementById('current-price').innerText = data.current_price.toFixed(2);
+                document.getElementById('prediction-price').innerText = data.prediction.toFixed(2);
+                if (data.strategy) {
+                    document.getElementById('strategy-info').innerText = `${data.strategy.timeframe} (Win: ${data.strategy.seq_length})`;
+                }
+                if (data.account) {
+                    document.getElementById('balance-val').innerText = '$' + data.account.balance.toFixed(2);
+                    document.getElementById('equity-val').innerText = '$' + data.account.equity.toFixed(2);
+                    document.getElementById('trades-val').innerText = data.account.daily_trades;
+                    const pnlEl = document.getElementById('pnl-val');
+                    pnlEl.innerText = '$' + data.account.daily_pnl.toFixed(2);
+                    pnlEl.className = 'stat-value ' + (data.account.daily_pnl >= 0 ? 'pnl-positive' : 'pnl-negative');
+                }
+                // Update Signal Badge
+                const signalBox = document.getElementById('signal-box');
+                const signalText = signalBox.querySelector('.signal-text');
+                const signalIcon = signalBox.querySelector('.signal-icon');
+                if (data.signal === 'BUY') {
+                    signalBox.style.borderColor = 'var(--success-color)';
+                    signalBox.style.color = 'var(--success-color)';
+                    signalText.innerText = 'BUY';
+                    signalIcon.innerText = '🚀';
+                } else if (data.signal === 'SELL') {
+                    signalBox.style.borderColor = 'var(--danger-color)';
+                    signalBox.style.color = 'var(--danger-color)';
+                    signalText.innerText = 'SELL';
+                    signalIcon.innerText = '🔻';
+                } else {
+                    signalBox.style.borderColor = '#444';
+                    signalBox.style.color = '#fbbf24';
+                    signalText.innerText = 'HOLD';
+                    signalIcon.innerText = '⏸️';
+                }
+                if (data.has_position) {
+                    signalBox.style.background = 'rgba(255, 255, 255, 0.1)';
+                    signalText.innerText += " (OPEN)";
+                } else {
+                    signalBox.style.background = '#2d2d3a';
+                }
+                // Update Chart
+                const chartData = data.last_candles.map(c => ({
+                    time: new Date(c.time).getTime() / 1000,
+                    open: c.Open,
+                    high: c.High,
+                    low: c.Low,
+                    close: c.Close
+                }));
+                candleSeries.setData(chartData);
+                // Add or Draw Fourier Layers
+                if (data.algorithm === 'FourierCycle' && data.fourier_data) {
+                    initFourierCanvas();
+                    drawFourier(data);
+                } else if (fourierCanvas) {
+                    fourierCtx.clearRect(0, 0, fourierCanvas.width, fourierCanvas.height);
+                }
+                if (slLine) { candleSeries.removePriceLine(slLine); slLine = null; }
+                if (tpLine) { candleSeries.removePriceLine(tpLine); tpLine = null; }
+                if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
+                if (data.entry_price > 0) {
+                    entryLine = candleSeries.createPriceLine({
+                        price: data.entry_price,
+                        color: '#3b82f6', // Blue
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Solid,
+                        axisLabelVisible: true,
+                        title: 'ENTRY',
+                    });
+                }
+                if (data.sl_price > 0) {
+                    slLine = candleSeries.createPriceLine({
+                        price: data.sl_price,
+                        color: '#ef4444',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Solid,
+                        axisLabelVisible: true,
+                        title: 'SL',
+                    });
+                }
+                if (data.tp_price > 0) {
+                    tpLine = candleSeries.createPriceLine({
+                        price: data.tp_price,
+                        color: '#10b981',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Solid,
+                        axisLabelVisible: true,
+                        title: 'TP',
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching live data:', error);
+            }
+        }
+        setInterval(updateDashboard, 2000);
+        // Sync drawing with chart visible range updates
+        chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+            fetch('../../live_status.json').then(r => r.json()).then(drawFourier).catch(() => { });
+        });
+        loadConfig();
+        updateDashboard();
+    </script>
+</body>
+</html>

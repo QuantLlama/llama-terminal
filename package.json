@@ -1,0 +1,94 @@
+{
+  "name": "Quantum-llama-Terminal",
+  "version": "0.1.7-beta",
+  "description": "Quantum Llama Trading Platform - Desktop Edition",
+  "main": "electron/index.js",
+  "scripts": {
+    "start": "electron .",
+    "obfuscate-backend": "node scripts/run-venv.js scripts/build_backend.py",
+    "obfuscate-js": "npx electron scripts/build_js.js",
+    "dist": "npm run obfuscate-backend && npm run obfuscate-js && electron-builder",
+    "pack": "npm run obfuscate-backend && npm run obfuscate-js && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.quantumllama.desktop",
+    "productName": "Quantum Llama Terminal",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "images/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/pyinstaller_dist/backend.exe",
+        "to": "."
+      },
+      {
+        "from": "build/pyinstaller_dist/Trainer.exe",
+        "to": "."
+      },
+      {
+        "from": "build/pyinstaller_dist/BrowserMode.exe",
+        "to": "."
+      },
+      {
+        "from": "build/obf_src/src/indicators",
+        "to": "src/indicators"
+      },
+      {
+        "from": "build/obf_src/src/algorithms",
+        "to": "src/algorithms"
+      },
+      {
+        "from": "build/obf_src/src/features/indicators.py",
+        "to": "src/features/indicators.py"
+      },
+      {
+        "from": "build/obf_src/.env",
+        "to": "."
+      },
+      {
+        "from": "outputs",
+        "to": "outputs"
+      },
+      {
+        "from": "src/live",
+        "to": "src/live"
+      },
+      {
+        "from": "src/doctecnicaalgos",
+        "to": "src/doctecnicaalgos"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "images/QuantumLLama.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "include": "nsis/installer.nsh",
+      "license": "legal/EULA.txt"
+    }
+  },
+  "author": "Trae",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/parser": "^7.29.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "bytenode": "^1.5.7",
+    "monaco-editor": "^0.44.0",
+    "tree-kill": "^1.2.2",
+    "wait-on": "^9.0.4"
+  }
+}

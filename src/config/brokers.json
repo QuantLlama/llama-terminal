@@ -1,0 +1,118 @@
+{
+    "brokers": [
+        {
+            "name": "AMP Global",
+            "servers": [
+                "AMPGlobal-Demo",
+                "AMPGlobal-Real",
+                "AMPGlobal-Live"
+            ]
+        },
+        {
+            "name": "IC Markets",
+            "servers": [
+                "ICMarkets-Demo",
+                "ICMarkets-Live",
+                "ICMarkets-MT5-1",
+                "ICMarkets-MT5-2"
+            ]
+        },
+        {
+            "name": "Pepperstone",
+            "servers": [
+                "Pepperstone-Demo",
+                "Pepperstone-Live",
+                "Pepperstone-MT5-01"
+            ]
+        },
+        {
+            "name": "AvaTrade",
+            "servers": [
+                "Ava-Real 1",
+                "Ava-Real 2",
+                "Ava-Demo"
+            ]
+        },
+        {
+            "name": "OANDA",
+            "servers": [
+                "OANDA-Demo-1",
+                "OANDA-Live-1",
+                "OANDA-v20-Live-1"
+            ]
+        },
+        {
+            "name": "XM",
+            "servers": [
+                "XMGlobal-MT5",
+                "XMGlobal-MT5-2",
+                "XMGlobal-Real-17"
+            ]
+        },
+        {
+            "name": "JustForex",
+            "servers": [
+                "JustForex-Live",
+                "JustForex-Demo"
+            ]
+        },
+        {
+            "name": "Exness",
+            "servers": [
+                "Exness-MT5Real",
+                "Exness-MT5Trial"
+            ]
+        },
+        {
+            "name": "RoboForex",
+            "servers": [
+                "RoboForex-Pro",
+                "RoboForex-ECN",
+                "RoboForex-Demo",
+                "RoboForex-ProCent"
+            ]
+        },
+        {
+            "name": "MetaQuotes",
+            "servers": [
+                "MetaQuotes-Demo",
+                "MetaQuotes-Server"
+            ]
+        },
+        {
+            "name": "FTMO",
+            "servers": [
+                "FTMO-Demo",
+                "FTMO-Server"
+            ]
+        },
+        {
+            "name": "Darwinex",
+            "servers": [
+                "Darwinex-Live",
+                "Darwinex-Demo"
+            ]
+        },
+        {
+            "name": "Admiral Markets",
+            "servers": [
+                "AdmiralMarkets-Live",
+                "AdmiralMarkets-Demo"
+            ]
+        },
+        {
+            "name": "BlackBull Markets",
+            "servers": [
+                "BlackBullMarkets-Live",
+                "BlackBullMarkets-Demo"
+            ]
+        },
+        {
+            "name": "Vantage",
+            "servers": [
+                "VantageFX-International-Live",
+                "VantageFX-International-Demo"
+            ]
+        }
+    ]
+}

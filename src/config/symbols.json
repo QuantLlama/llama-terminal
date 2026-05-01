@@ -1,0 +1,26 @@
+{
+    "Futures": {
+        "MNQ=F": "MNQM26",
+        "MES=F": "MESM26",
+        "NQ=F": "NQ",
+        "ES=F": "ES",
+        "GC=F": "XAUUSD",
+        "CL=F": "USOIL"
+    },
+    "Stocks": {
+        "AAPL": "AAPL",
+        "TSLA": "TSLA",
+        "NVDA": "NVDA",
+        "AMD": "AMD"
+    },
+    "Crypto": {
+        "BTC-USD": "BTC/USDT:USDT",
+        "ETH-USD": "ETHUSD",
+        "SOL-USD": "SOLUSD"
+    },
+    "ETF": {
+        "SPY": "SPY",
+        "QQQ": "QQQ",
+        "TQQQ": "TQQQ"
+    }
+}

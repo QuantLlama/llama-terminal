@@ -1,0 +1,14 @@
+{
+    "98ce5884": {
+        "id": "98ce5884",
+        "name": "NINJTRDER8",
+        "broker": "NinjaTrader",
+        "exchange_dir": "C:\\QuantumGAN\\Exchange",
+        "account_type": "demo",
+        "created_at": "2026-03-05T20:38:49.678943",
+        "status": "active",
+        "is_master": true,
+        "platform": "nt8",
+        "mirror_trading": true
+    }
+}

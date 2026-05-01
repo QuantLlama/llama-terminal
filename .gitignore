@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+venv_linux/
+venv_agent/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+
+# Environment & Secrets
+.env
+*.key
+.crypto_key
+.mt5_key
+.nt8_key
+.tradovate_key
+
+# Logs & Temp files
+*.log
+backend_err.log
+backend.log
+dom_debug.log
+server.log
+live_crash.log
+__nul
+__nul.txt
+out.txt
+pyarmor.error.log
+
+# Project Specific
+mt5_instances/
+outputs/
+history.json
+mirror_diagnostics.txt
+algolab_registry.json
+config/quantum_llama.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
