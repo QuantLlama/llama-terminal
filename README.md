@@ -17,6 +17,16 @@
 
 ---
 
+## 📖 Table of Contents
+- [🚀 Overview](#-overview)
+- [✨ Key Features](#-key-features)
+- [📸 Platform Screenshots](#-platform-screenshots)
+- [🛠️ Technology Stack](#-technology-stack)
+- [📥 Installation & Setup](#-installation--setup)
+- [🛡️ License](#-license)
+
+---
+
 ## 🚀 Overview
 
 **Quantum Llama Terminal** is a professional, institutional-grade desktop trading platform designed for modern algorithmic and manual trading. Powered by an **Electron** frontend and a high-performance **Python (FastAPI)** backend, it integrates bleeding-edge Machine Learning and Deep Learning models to provide unparalleled market insights.
@@ -84,21 +94,25 @@ Whether you are trading Traditional Finance (TradFi) or Cryptocurrencies (DeFi),
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/nbmsystemas/QuantumLlamaTerminal.git
-cd QuantumLlamaTerminal
+git clone https://github.com/QuantLlama/Plataforma_LamaTerminal_V0.1.7b.git
+cd Plataforma_LamaTerminal_V0.1.7b
 ```
 
-### 2. Setup Backend (Python)
+### 2. Environment Setup
+We provide automation scripts for a quick setup:
+
+**Windows:**
+```powershell
+./setup_env.bat
+```
+
+**Linux / macOS:**
 ```bash
-# Create and activate virtual environment
-python -m venv venv
-venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+chmod +x setup_env.sh
+./setup_env.sh
 ```
 
-### 3. Setup Frontend (Electron)
+### 3. Frontend Setup
 ```bash
 npm install
 ```
@@ -106,21 +120,22 @@ npm install
 ### 4. Run Development Servers
 **Start Backend:**
 ```bash
+# Windows
 venv\Scripts\python.exe run.py
-# Alternatively: start_server.bat
+# Linux / macOS
+source venv_linux/bin/activate
+python run.py
 ```
 
-**Start Desktop App (in a new terminal):**
+**Start Desktop App:**
 ```bash
 npm start
-# Alternatively: start_desktop.bat
 ```
 
 ### 5. Build for Production
 ```bash
 npm run dist
 ```
-*This command will obfuscate both the Python backend and JavaScript frontend, then package the application using `electron-builder`.*
 
 ---
 
