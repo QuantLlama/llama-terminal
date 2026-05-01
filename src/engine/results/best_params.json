@@ -1,0 +1,14 @@
+{
+  "best_params": {
+    "delta_threshold": 137,
+    "lookback_period": 14,
+    "imbalance_threshold": 0.7184465430568966,
+    "stop_loss_ticks": 11,
+    "take_profit_ticks": 16,
+    "rr_ratio": 1.0156010140435747,
+    "min_volume": 252,
+    "atr_multiplier": 2.6171509996325817,
+    "timeframe": "1T"
+  },
+  "best_fitness": 0.7809654849266097
+}
