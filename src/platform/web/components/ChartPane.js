@@ -198,6 +198,7 @@ const ChartPane = React.memo(({
   onUpdateSettings,
   setLastCandleTime,
   isPopout = false,
+  platform,
   onSymbolChange,
   onTFChange,
   onOpenSymbolSearch,
@@ -233,7 +234,7 @@ const ChartPane = React.memo(({
         console.error("Failed to load native timeframes:", err);
       }
     };
-    const initialPlatform = localStorage.getItem('platform') || 'mt5';
+    const initialPlatform = detectPlatformType();
     fetchTFs(initialPlatform);
     const handlePlatformChange = (e) => fetchTFs(e.detail.newPlatform);
     window.addEventListener('platform_changed', handlePlatformChange);
@@ -326,12 +327,9 @@ const ChartPane = React.memo(({
       }
     };
     fetchHistory();
-    const handleSettingsUpdate = () => fetchHistory();
-    window.addEventListener('settings_updated', handleSettingsUpdate);
     return () => {
       ctrl.abort();
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-      window.removeEventListener('settings_updated', handleSettingsUpdate);
     };
   }, [mappedSymbol, tf, platformType, refreshKey]);
 
@@ -533,6 +531,8 @@ const ChartPane = React.memo(({
         url.searchParams.set("popout", "true");
         url.searchParams.set("symbol", symbol);
         url.searchParams.set("tf", tf);
+        const currentPlat = platform || (window.detectPlatformType ? window.detectPlatformType(symbol) : (localStorage.getItem("platform") || "mt5"));
+        url.searchParams.set("platform", currentPlat);
         if (sessionData && sessionData.access_token) {
           try {
             localStorage.setItem("ql_transfer_session", JSON.stringify(sessionData));

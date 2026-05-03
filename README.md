@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-0.1.7--beta-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.8.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/Electron-Desktop-333333.svg" alt="Electron">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
@@ -94,8 +94,8 @@ Whether you are trading Traditional Finance (TradFi) or Cryptocurrencies (DeFi),
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/QuantLlama/Plataforma_LamaTerminal_V0.1.7b.git
-cd Plataforma_LamaTerminal_V0.1.7b
+git clone https://github.com/QuantLlama/Plataforma_LamaTerminal_V1.8.1b.git
+cd Plataforma_LamaTerminal_V1.8.1b
 ```
 
 ### 2. Environment Setup

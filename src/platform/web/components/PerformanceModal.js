@@ -299,7 +299,7 @@ const PerformanceModal = ({ isOpen, onClose }) => {
                         </div>
                     </div>
                     <div className="text-[9px] font-bold text-zinc-700 uppercase tracking-[0.3em]">
-                        Quantum Llama v0.1.7 - Experimental Analysis
+                        Quantum Llama v1.8.1 - Experimental Analysis
                     </div>
                 </div>
             </div>

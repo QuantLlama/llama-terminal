@@ -11,7 +11,7 @@ def setup_environment():
     venv_path = os.path.join(base_path, 'venv')
     
     print("----------------------------------------------------------------")
-    print("      QUANTUM LLAMA Beta 0.1.7 Stable - SCRIPT DE CONFIGURACION      ")
+    print("      QUANTUM LLAMA 1.8.1 - SCRIPT DE CONFIGURACION      ")
     print("----------------------------------------------------------------")
 
     # --- 1. Creación del Entorno Virtual ---

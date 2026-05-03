@@ -106,17 +106,23 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
     } else if (currentVix < 14 && vixMom < 0 && symMom > 0 && Math.abs(vixMom) > 0.3) {
       confidence = Math.min(95, Math.abs(vixMom) * 4 + symMom * 1.5);
       if (confidence > 60) {signal = 'SELL';reason = `Complacency peak: VIX ${currentVix.toFixed(1)} falling (${vixMom.toFixed(2)}%) while price rises (${symMom.toFixed(2)}%). Probable exhaustion.`;}
-    } else if (corr > -0.2 && Math.abs(symMom) > 0.5 && Math.abs(vixMom) > 0.5) {
+    } else if (Math.abs(corr) > 0.4 && Math.abs(symMom) > 0.3 && Math.abs(vixMom) > 0.3) {
       confidence = Math.min(88, 45 + Math.abs(symMom) * 8 + Math.abs(vixMom) * 6);
-      if (confidence > 65) {
-        if (symMom > 0 && vixMom < 0) {signal = 'SELL';reason = `Correlation breakdown: Price up / VIX down — divergence may reverse.`;} else
-        if (symMom < 0 && vixMom > 0) {signal = 'BUY';reason = `Correlation breakdown: Price down / VIX up — divergence may reverse.`;}
+      if (confidence > 60) {
+        if (corr < -0.6) {
+          // Correlación negativa fuerte (normal): Seguir la tendencia inversa
+          if (vixMom > 0 && symMom < 0) { signal = 'BUY'; reason = 'Strong negative correlation: VIX rising suggests local bottom in price.'; }
+          else if (vixMom < 0 && symMom > 0) { signal = 'SELL'; reason = 'Strong negative correlation: VIX falling suggests local top in price.'; }
+        } else if (corr > 0.4) {
+          // Correlación positiva (anormal): Divergencia peligrosa
+          if (symMom > 0 && vixMom > 0) { signal = 'SELL'; reason = 'Abnormal correlation: Both Price and VIX rising. Danger of sharp reversal.'; }
+        }
       }
     } else if (vixSpike && currentVix > 18) {
-      confidence = 72;signal = 'BUY';
-      reason = `VIX spike detected at ${currentVix.toFixed(1)} — sharp fear event may be near exhaustion.`;
+      confidence = 75; signal = 'BUY';
+      reason = `VIX spike detected at ${currentVix.toFixed(1)} — volatility surge often precedes a price bounce.`;
     }
-    return signal && confidence > 62 ? { type: signal, reason, confidence: Math.round(confidence) } : null;
+    return signal && confidence > 55 ? { type: signal, reason, confidence: Math.round(confidence) } : null;
   };
   const parseTime = (t) => {
     if (!t) return Math.floor(Date.now() / 1000);
@@ -236,6 +242,9 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
       handleScale: {
         axisPressedMouseMove: true, axisRightMouseDown: true,
         mouseWheel: true, pinch: true
+      },
+      watermark: {
+        visible: false
       }
     });
     const symbolSeries = chart.addLineSeries({
@@ -349,7 +358,8 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
           const lastSymT = lineDataSym[lineDataSym.length - 1].time;
           const lastVixT = parseTime(rawSecondary[rawSecondary.length - 1].time);
           const rawOffset = lastSymT - lastVixT;
-          offset = Math.abs(rawOffset) > 30 && Math.abs(rawOffset) <= 14400 ? rawOffset : 0;
+          // Aumentar el límite de desfase a 12 horas (43200s) para soportar más zonas horarias
+          offset = Math.abs(rawOffset) > 30 && Math.abs(rawOffset) <= 43200 ? rawOffset : 0;
         }
         timeOffsetRef.current = offset;
         const vixAgg = {};
@@ -425,16 +435,41 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
             if (best !== null) {alignedS.push(sp.value);alignedV.push(best);}
           });
           const corrN = alignedS.length;
-          if (corrN > 5) {
-            const meanX = alignedS.reduce((a, b) => a + b, 0) / corrN;
-            const meanY = alignedV.reduce((a, b) => a + b, 0) / corrN;
-            let num = 0,denX = 0,denY = 0;
-            for (let i = 0; i < corrN; i++) {
-              const dx = alignedS[i] - meanX,dy = alignedV[i] - meanY;
-              num += dx * dy;denX += dx * dx;denY += dy * dy;
+          if (corrN > 3) {
+            // Calcular correlación sobre los cambios porcentuales (retornos) para mayor precisión técnica
+            const returnsS = [], returnsV = [];
+            for (let i = 1; i < corrN; i++) {
+              if (alignedS[i-1] !== 0 && alignedV[i-1] !== 0) {
+                returnsS.push((alignedS[i] - alignedS[i-1]) / alignedS[i-1]);
+                returnsV.push((alignedV[i] - alignedV[i-1]) / alignedV[i-1]);
+              }
             }
-            const corr = num / (Math.sqrt(denX) * Math.sqrt(denY));
-            setCorrelation(isNaN(corr) ? 0 : corr);
+            
+            const n = returnsS.length;
+            if (n > 2) {
+              const meanX = returnsS.reduce((a, b) => a + b, 0) / n;
+              const meanY = returnsV.reduce((a, b) => a + b, 0) / n;
+              let num = 0, denX = 0, denY = 0;
+              for (let i = 0; i < n; i++) {
+                const dx = returnsS[i] - meanX, dy = returnsV[i] - meanY;
+                num += dx * dy; denX += dx * dx; denY += dy * dy;
+              }
+              const denominator = Math.sqrt(denX) * Math.sqrt(denY);
+              const corr = denominator === 0 ? 0 : num / denominator;
+              setCorrelation(corr);
+            } else {
+              // Fallback a correlación de precios si no hay suficientes retornos
+              const meanX = alignedS.reduce((a, b) => a + b, 0) / corrN;
+              const meanY = alignedV.reduce((a, b) => a + b, 0) / corrN;
+              let num = 0, denX = 0, denY = 0;
+              for (let i = 0; i < corrN; i++) {
+                const dx = alignedS[i] - meanX, dy = alignedV[i] - meanY;
+                num += dx * dy; denX += dx * dx; denY += dy * dy;
+              }
+              const denominator = Math.sqrt(denX) * Math.sqrt(denY);
+              const corr = denominator === 0 ? 0 : num / denominator;
+              setCorrelation(corr);
+            }
             if (secondaryIsVix) {
               const MOM = 10;
               const symM = lineDataSym.slice(-MOM);
@@ -600,6 +635,23 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   React.createElement("div", { className: `relative flex flex-col bg-panel border-t border-border p-2 shrink-0 transition-all duration-300 ${isMaximized ?
     'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[2000000] pointer-events-auto w-[900px] h-[520px] shadow-2xl rounded-lg border border-border bg-black/95' :
     'h-52'}` },
+  React.createElement("style", null, `
+    .tv-embed-widget-wrapper__footer,
+    .tradingview-widget-copyright,
+    a[href*="tradingview.com"],
+    [class*="tv-watermark"],
+    [class*="tv-logo"],
+    div[class*="tv-logo"],
+    div[class*="tradingview-logo"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
+    }
+  `),
   isLoading &&
   React.createElement("div", { className: "absolute inset-0 bg-black/40 z-10 rounded grid place-items-center" },
   React.createElement("div", { className: "flex items-center justify-center gap-1" },

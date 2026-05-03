@@ -783,7 +783,24 @@ const AlgoLab = ({ isOpen }) => {
         };
 
         ws.onmessage = (event) => {
-          term.write(event.data);
+          let data = event.data;
+          // Apply professional terminal colorization for standard algorithm execution logs
+          if (typeof data === 'string' && !data.includes('\x1b[')) {
+            data = data
+              // Timestamps [YYYY-MM-DD HH:MM:SS] or [HH:MM:SS]
+              .replace(/\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]/g, '\x1b[90m$&\x1b[0m')
+              .replace(/\[\d{2}:\d{2}:\d{2}\]/g, '\x1b[90m$&\x1b[0m')
+              // Log levels and common keywords
+              .replace(/\b(INFO|Info|info)\b/g, '\x1b[1;36m$1\x1b[0m')
+              .replace(/\b(DEBUG|Debug|debug)\b/g, '\x1b[1;34m$1\x1b[0m')
+              .replace(/\b(WARNING|WARN|Warning|Warn|warn)\b/g, '\x1b[1;33m$1\x1b[0m')
+              .replace(/\b(ERROR|Error|error|FAIL|Fail|fail|Exception|Traceback)\b/g, '\x1b[1;31m$1\x1b[0m')
+              .replace(/\b(SUCCESS|Success|success|OK|Ok|ok)\b/g, '\x1b[1;32m$1\x1b[0m')
+              // Python specific keywords
+              .replace(/\b(True|False|None)\b/g, '\x1b[1;35m$1\x1b[0m')
+              .replace(/\b(import|from|def|class|return)\b/g, '\x1b[1;35m$1\x1b[0m');
+          }
+          term.write(data);
         };
 
         ws.onerror = (error) => {

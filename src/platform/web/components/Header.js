@@ -1,4 +1,4 @@
-const Header = ({ connectionStatus, systemStatus, accountData, activeSymbol, activeTF, onSymbolChange, onTFChange, onOpenSettings, onOpenSymbolSearch, currentView, onViewChange, showTape, toggleTape, showOrderEntry, toggleOrderEntry, showDom, toggleDom, onSaveWorkspace, layout, onLayoutChange, chartType, onChartTypeChange, realizedDailyPnl, lastMessageTime }) => {
+const Header = ({ connectionStatus, systemStatus, accountData, platform, activeSymbol, activeTF, onSymbolChange, onTFChange, onOpenSettings, onOpenSymbolSearch, currentView, onViewChange, showTape, toggleTape, showOrderEntry, toggleOrderEntry, showDom, toggleDom, onSaveWorkspace, layout, onLayoutChange, chartType, onChartTypeChange, realizedDailyPnl, lastMessageTime }) => {
   const { useState, useEffect, useRef } = React;
   const [saveStatus, setSaveStatus] = useState('idle');
   const [availableTimeframes, setAvailableTimeframes] = useState([]);
@@ -218,6 +218,31 @@ const Header = ({ connectionStatus, systemStatus, accountData, activeSymbol, act
     )
     ),
     React.createElement("div", { className: "flex items-center gap-6 text-xs font-mono" },
+    (() => {
+      const acc = accountData || systemStatus?.account || {};
+      const typeStr = (acc.account_type || acc.type || acc.environment || acc.server || '').toLowerCase();
+      let isDemo = acc.is_demo === true || acc.is_paper === true || typeStr.includes('demo') || typeStr.includes('paper') || typeStr.includes('simulation');
+      if (!isDemo && platform === 'crypto') {
+         if (typeStr.includes('test') || (activeSymbol && activeSymbol.includes('TEST'))) isDemo = true;
+         else isDemo = false; 
+      } else if (typeStr === '' && !isDemo) isDemo = true;
+
+      const badgeColor = isDemo ? '#f59e0b' : '#10b981';
+      return React.createElement("div", { className: "flex flex-col items-end" },
+        React.createElement("span", { className: "text-muted text-[10px]" }, "STATUS"),
+        React.createElement("span", { 
+          style: { 
+            backgroundColor: `${badgeColor}22`, 
+            color: badgeColor, 
+            border: `1px solid ${badgeColor}44`,
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '9px',
+            fontWeight: '900'
+          } 
+        }, isDemo ? "DEMO" : "LIVE")
+      );
+    })(),
     React.createElement("div", { className: "flex flex-col items-end" },
     React.createElement("span", { className: "text-muted text-[10px]" }, "BALANCE"),
     React.createElement("span", { className: "text-white font-bold" }, "$", (accountData?.balance ?? systemStatus?.account?.balance ?? 0).toFixed(2))

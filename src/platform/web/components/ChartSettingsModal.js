@@ -462,7 +462,7 @@ const ChartSettingsModal = ({
                   React.createElement("span", { className: "text-[10px] text-gray-500 w-6" }, Math.round((localSettings.indicators.volumeProfile.params.opacity ?? 0.5) * 100), "%")
                 )
               ),
-              React.createElement("div", { className: "grid grid-cols-3 gap-2 p-2" },
+              React.createElement("div", { className: "grid grid-cols-2 gap-2 p-2" },
                 React.createElement("label", { className: "flex items-center gap-2 cursor-pointer" },
                   React.createElement("input", { type: "checkbox", checked: localSettings.indicators.volumeProfile.params.showPoc, onChange: (e) => updateLocal('indicators.volumeProfile.params.showPoc', e.target.checked), className: "w-3 h-3 accent-accent" }),
                   React.createElement("span", { className: "text-[9px] text-gray-400 uppercase font-bold" }, "POC")
@@ -474,12 +474,23 @@ const ChartSettingsModal = ({
                 React.createElement("label", { className: "flex items-center gap-2 cursor-pointer" },
                   React.createElement("input", { type: "checkbox", checked: localSettings.indicators.volumeProfile.params.showLabels, onChange: (e) => updateLocal('indicators.volumeProfile.params.showLabels', e.target.checked), className: "w-3 h-3 accent-accent" }),
                   React.createElement("span", { className: "text-[9px] text-gray-400 uppercase font-bold" }, "Labels")
+                ),
+                React.createElement("label", { className: "flex items-center gap-2 cursor-pointer" },
+                  React.createElement("input", { type: "checkbox", checked: localSettings.indicators.volumeProfile.params.extendLines, onChange: (e) => updateLocal('indicators.volumeProfile.params.extendLines', e.target.checked), className: "w-3 h-3 accent-accent" }),
+                  React.createElement("span", { className: "text-[9px] text-gray-400 uppercase font-bold" }, "Extend Lines")
                 )
               ),
               React.createElement("div", { className: "grid grid-cols-2 gap-3 p-2 border-t border-white/5 mt-2" },
                 React.createElement("div", { className: "space-y-1" },
-                  React.createElement("label", { className: "text-[8px] text-gray-500 uppercase font-bold px-0.5" }, "Histogram (Up/Down)"),
-                  React.createElement("div", { className: "flex gap-2" },
+                  React.createElement("div", { className: "flex items-center justify-between px-0.5" },
+                    React.createElement("label", { className: "text-[8px] text-gray-500 uppercase font-bold" }, "Histogram Color"),
+                    React.createElement("select", { value: localSettings.indicators.volumeProfile.params.colorStyle || "spectral", onChange: (e) => updateLocal('indicators.volumeProfile.params.colorStyle', e.target.value), className: "text-[8px] bg-white/5 border border-white/10 rounded px-1 py-0.5 text-white outline-none" },
+                      React.createElement("option", { value: "spectral" }, "Spectral"),
+                      React.createElement("option", { value: "solid" }, "Up/Down")
+                    )
+                  ),
+                  localSettings.indicators.volumeProfile.params.colorStyle === "solid" &&
+                  React.createElement("div", { className: "flex gap-2 animate-in fade-in zoom-in duration-200" },
                     React.createElement("input", { type: "color", value: ensureHex(localSettings.indicators.volumeProfile.params.colorUp, "#26a69a"), onChange: (e) => updateLocal('indicators.volumeProfile.params.colorUp', e.target.value), className: "flex-1 h-6 bg-transparent border-0 rounded cursor-pointer", title: "Up Color" }),
                     React.createElement("input", { type: "color", value: ensureHex(localSettings.indicators.volumeProfile.params.colorDown, "#ef5350"), onChange: (e) => updateLocal('indicators.volumeProfile.params.colorDown', e.target.value), className: "flex-1 h-6 bg-transparent border-0 rounded cursor-pointer", title: "Down Color" })
                   )

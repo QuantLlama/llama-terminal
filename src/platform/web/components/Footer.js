@@ -27,7 +27,7 @@ const Footer = ({ connected, latency, dataSource, platform }) => {
     React.createElement("button", {
       onClick: () => setAboutOpen(true),
       className: "text-muted hover:text-accent transition-colors cursor-pointer hover:underline" },
-    "Beta 0.1.7 Stable PROFESSIONAL"
+    "1.8.1 PROFESSIONAL"
     ),
     React.createElement("a", { href: "https://llamaterminal.nbmsystemas.com", target: "_blank", rel: "noopener noreferrer", className: "text-accent hover:text-yellow-300 transition-colors cursor-pointer" }, "QUANTUM LLAMA SYSTEMS"
     )
