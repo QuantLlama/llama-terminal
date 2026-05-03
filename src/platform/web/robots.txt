@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Block sensitive areas if they exist in future
+Disallow: /api/
+Disallow: /private/
+
+Sitemap: https://quantumllama.ai/sitemap.xml

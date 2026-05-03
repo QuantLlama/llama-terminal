@@ -9,6 +9,7 @@ const App = () => {
     return stored || 'EURUSD';
   });
   const [activeTimeframe, setActiveTimeframe] = useState(localStorage.getItem('activeTimeframe') || '5m');
+  const [platform, setPlatform] = useState(localStorage.getItem('platform') || 'mt5');
   const [liveData, setLiveData] = useState(null);
   const [historicalData, setHistoricalData] = useState([]);
   const [tickData, setTickData] = useState(null);
@@ -221,7 +222,15 @@ const App = () => {
         window.dispatchEvent(new CustomEvent('market_big_trade', { detail: btData }));
       }
     };
+
+    const handlePlatformChange = (e) => {
+      setPlatform(e.detail.newPlatform);
+      localStorage.setItem('platform', e.detail.newPlatform);
+    };
+    window.addEventListener('platform_changed', handlePlatformChange);
+
     return () => {
+      window.removeEventListener('platform_changed', handlePlatformChange);
       if (ws.current && ws.current.readyState === WebSocket.OPEN) ws.current.close();
       if (feedWs.current && feedWs.current.readyState === WebSocket.OPEN) feedWs.current.close();
     };
@@ -299,6 +308,7 @@ const App = () => {
       connectionStatus: wsConnected,
       systemStatus: systemStatus,
       accountData: accountInfo?.account || accountInfo,
+      platform: platform,
       realizedDailyPnl: accountInfo?.account?.realized_today || 0,
       activeSymbol: activeSymbol,
       activeTF: activeTimeframe,
@@ -373,6 +383,7 @@ const App = () => {
     ),
     React.createElement("div", { className: "flex-1 flex flex-col" },
     React.createElement(ChartComponent, {
+      key: `${activeSymbol}-${activeTimeframe}-${platform}`,
       liveData: liveData,
       historicalData: historicalData,
       tickData: tickData,

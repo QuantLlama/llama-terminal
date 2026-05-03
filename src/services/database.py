@@ -432,6 +432,16 @@ def get_all_workspaces(user_id: str = "default_user") -> Dict[str, Dict[str, Any
                 "updated_at": row["updated_at"],
             }
         return workspaces
+
+def delete_workspace(session_name: str, user_id: str = "default_user") -> bool:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM workspaces WHERE user_id = ? AND session_name = ?",
+            (user_id, session_name),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 def get_ai_chat_history(
     limit: int = 50, user_id: str = "default_user"
 ) -> List[Dict[str, Any]]:

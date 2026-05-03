@@ -91,6 +91,8 @@ from src.services.database import (
     save_ai_chat_message,
     save_algolab_state,
     set_last_active_workspace,
+    get_all_workspaces as db_get_all_workspaces,
+    delete_workspace as db_delete_workspace
 )
 from src.services.database import get_settings as db_get_settings
 from src.services.database import get_workspace as db_get_workspace
@@ -1589,6 +1591,25 @@ async def save_workspace(session: str, workspace: Dict[str, Any] = Body(...)):
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/workspaces")
+async def list_workspaces():
+    try:
+        workspaces = db_get_all_workspaces()
+        return workspaces
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/workspace/{session}")
+async def delete_workspace(session: str):
+    try:
+        success = db_delete_workspace(session)
+        if success:
+            return {"status": "ok", "message": f"Workspace '{session}' eliminado"}
+        else:
+            raise HTTPException(status_code=404, detail=f"Workspace '{session}' no encontrado")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/timeframes")
 async def get_timeframes(platform: str = Query("mt5", description="crypto or mt5")):
     try:
@@ -1740,21 +1761,22 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
         return s
     def _fetch_tv_price(session):
         try:
-            payload = {
-                "symbols": {"tickers": ["CBOE:VIX", "TVC:VIX"], "query": {"types": []}},
-                "columns": ["close", "time"]
-            }
-            r = session.post(
-                "https://scanner.tradingview.com/america/scan",
-                json=payload, timeout=8
-            )
-            if not r.ok:
-                return None, None
-            data = r.json().get("data", [])
-            for item in data:
-                d = item.get("d") or []
-                if len(d) >= 1 and isinstance(d[0], (int, float)) and d[0] > 0:
-                    return float(d[0]), d[1] if len(d) > 1 else None
+            # Intentar con múltiples fuentes de TradingView para mayor robustez
+            for ticker in ["CBOE:VIX", "TVC:VIX", "CAPITALCOM:VIX"]:
+                payload = {
+                    "symbols": {"tickers": [ticker], "query": {"types": []}},
+                    "columns": ["close", "time"]
+                }
+                r = session.post(
+                    "https://scanner.tradingview.com/america/scan",
+                    json=payload, timeout=5
+                )
+                if r.ok:
+                    data = r.json().get("data", [])
+                    if data:
+                        d = data[0].get("d") or []
+                        if len(d) >= 1 and isinstance(d[0], (int, float)) and d[0] > 0:
+                            return float(d[0]), d[1] if len(d) > 1 else None
         except Exception:
             pass
         return None, None
@@ -1856,12 +1878,15 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
                     VIX_LIVE_CACHE["last_fetch"] = 0
                     VIX_LIVE_CACHE["stale_count"] = 0
         if df is None or df.empty:
-
+            # Generar datos simulados con FECHAS ACTUALES para evitar problemas de correlación
+            now = datetime.now()
+            # Asegurarse de que el intervalo sea compatible con pandas
+            pd_freq = interval if interval != "1m" else "1min"
+            times = pd.date_range(end=now, periods=limit, freq=pd_freq)
             import random
-            times = pd.date_range(end=datetime.now(), periods=100, freq=interval)
             closes = [20.0]
-            for _ in range(99):
-                closes.append(closes[-1] + random.uniform(-0.1, 0.1))
+            for _ in range(len(times) - 1):
+                closes.append(closes[-1] + random.uniform(-0.15, 0.15))
             df = pd.DataFrame(
                 {"Open": closes, "High": closes, "Low": closes,
                  "Close": closes, "Volume": 0},

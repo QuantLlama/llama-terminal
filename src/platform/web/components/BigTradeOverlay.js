@@ -1,4 +1,4 @@
-const BigTradeOverlay = ({ chart, series, trades, settings, visible = true }) => {
+const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSeconds = 0 }) => {
   const { useEffect, useRef } = React;
   const canvasRef = useRef(null);
   const chartRef = useRef(chart);
@@ -6,6 +6,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true }) =>
   const tradesRef = useRef(trades);
   const settingsRef = useRef(settings);
   const visibleRef = useRef(visible);
+  const tfSecondsRef = useRef(tfSeconds);
   const sortedTradesRef = useRef([]);
   const lastRectRef = useRef({ width: 0, height: 0 });
   useEffect(() => {
@@ -14,6 +15,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true }) =>
     tradesRef.current = trades;
     settingsRef.current = settings;
     visibleRef.current = visible;
+    tfSecondsRef.current = tfSeconds;
     if (trades) {
       sortedTradesRef.current = [...trades].sort((a, b) => {
         const aType = a.bt_type === 'cumulative' || a.bt_type === 'agg' ? 1 : 0;
@@ -23,7 +25,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true }) =>
     } else {
       sortedTradesRef.current = [];
     }
-  }, [chart, series, trades, settings, visible]);
+  }, [chart, series, trades, settings, visible, tfSeconds]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -39,6 +41,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true }) =>
       const currentSeries = seriesRef.current;
       const sortedTrades = sortedTradesRef.current;
       const currentSettings = settingsRef.current;
+      const tfSecs = tfSecondsRef.current || 0;
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       if (rect.width !== lastRectRef.current.width || rect.height !== lastRectRef.current.height || canvas.width !== rect.width * dpr) {
@@ -54,8 +57,16 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true }) =>
         let vTime = t.time;
         if (typeof vTime === 'string') {
           if (/^\d{2}:\d{2}:\d{2}$/.test(vTime)) return;
-          vTime = new Date(vTime.replace(" ", "T")).getTime() / 1000;
+          let timeStr = vTime.replace(" ", "T");
+          if (!timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
+          vTime = new Date(timeStr).getTime() / 1000;
         }
+        
+        // Alinear al centro de la vela usando el timeframe activo
+        if (tfSecs > 0) {
+          vTime = Math.floor(vTime / tfSecs) * tfSecs;
+        }
+        
         const x = timeScale.timeToCoordinate(vTime);
         const y = currentSeries.priceToCoordinate(t.price);
         if (x !== null && y !== null && x >= 0 && x <= rect.width) {

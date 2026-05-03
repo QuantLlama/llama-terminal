@@ -42,15 +42,15 @@ const FootprintRenderer = (() => {
     deltaNeg: 'rgba(230, 40, 75, 0.90)',
     priceLine: 'rgba(255,215,  0, 0.55)'
   };
-  function _rgba([r, g, b], a) {return `rgba(${r},${g},${b},${a.toFixed(3)})`;}
+  function _rgba([r, g, b], a) { return `rgba(${r},${g},${b},${a.toFixed(3)})`; }
   function _lerpRgb(c1, c2, t) {
     return [c1[0] + (c2[0] - c1[0]) * t | 0, c1[1] + (c2[1] - c1[1]) * t | 0, c1[2] + (c2[2] - c1[2]) * t | 0];
   }
   function _heatColor(r) {
     const stops = C.heatA;
-    let s0 = stops[0],s1 = stops[stops.length - 1];
+    let s0 = stops[0], s1 = stops[stops.length - 1];
     for (let i = 1; i < stops.length; i++) {
-      if (r <= stops[i][0]) {s0 = stops[i - 1];s1 = stops[i];break;}
+      if (r <= stops[i][0]) { s0 = stops[i - 1]; s1 = stops[i]; break; }
     }
     const span = s1[0] - s0[0];
     const t = span < 1e-9 ? 0 : (r - s0[0]) / span;
@@ -114,6 +114,7 @@ const FootprintRenderer = (() => {
       this._fills = _buildFills(this._sellRgb, this._buyRgb);
       this._bodyBullColor = 'rgba(0,220,110,0.55)';
       this._bodyBearColor = 'rgba(230,40,75,0.55)';
+      this._lastBarTime = 0;
       this._rafId = null;
       this._isRunning = false;
       this._resizeObs = null;
@@ -127,9 +128,11 @@ const FootprintRenderer = (() => {
       this._p2yB = 0;
       this._W = 0;
       this._H = 0;
+      this._fonts = new Map();
+      this.lastPrice = null;
+      this.priceLineConfig = { color: 'rgba(255,215,0,0.55)', width: 1, style: [5, 5] };
       this._yTopsBuf = new Int32Array(4096);
       this._imbBuf = new Array(4096).fill(null).map(() => ({ buy: false, sell: false, stackBuy: false, stackSell: false }));
-      this._fonts = new Map();
     }
     init(container, chart, mainSeries) {
       if (this.canvas) this.destroy();
@@ -156,8 +159,8 @@ const FootprintRenderer = (() => {
       if (this._rafId) cancelAnimationFrame(this._rafId);
       if (this._resizeObs) this._resizeObs.disconnect();
       if (this.canvas?.parentNode) this.canvas.parentNode.removeChild(this.canvas);
-      this.canvas = null;this.ctx = null;
-      this._bgCanvas = null;this._bgCtx = null;
+      this.canvas = null; this.ctx = null;
+      this._bgCanvas = null; this._bgCtx = null;
     }
     setData(d) {
       if (!d) {
@@ -185,7 +188,7 @@ const FootprintRenderer = (() => {
       const lastC = this.footprintData.candles[this.footprintData.candles.length - 1];
       if (!this._liveState || time > this._liveState.time) {
         const prevClose = this._liveState && this._liveState.close !== 0 ?
-        this._liveState.close : lastC.close;
+          this._liveState.close : lastC.close;
         this._liveState = {
           time, open: prevClose,
           high: price, low: price, close: price,
@@ -230,17 +233,30 @@ const FootprintRenderer = (() => {
         s.levelsSorted.push(lv);
         s.levelsSorted.sort((a, b) => a.price - b.price);
       }
-      if (isBuy) lv.ask += volume;else lv.bid += volume;
+      if (isBuy) lv.ask += volume; else lv.bid += volume;
       lv.total += volume;
       lv._fmtDirty = true;
     }
-    setLivePrice() {}
-    setMode(v) {this.mode = v;this._invalidateBg();}
-    setFontSize(v) {this.fontSize = v;this._fonts.clear();this._invalidateBg();}
-    setShowWicks(v) {this.showWicks = v;this._invalidateBg();}
-    setShowPOC(v) {this.showPOC = v;this._invalidateBg();}
-    setShowDelta(v) {this.showDelta = v;this._invalidateBg();}
-    setWickThickness(v) {this.wickThickness = v;this._invalidateBg();}
+    setLivePrice(price) {
+      this.lastPrice = price;
+    }
+    setPriceLineConfig(cfg) {
+      if (!cfg) return;
+      this.priceLineConfig = {
+        enabled: cfg.enabled !== false,
+        color: cfg.color || 'rgba(255,215,0,0.55)',
+        width: cfg.lineWidth || cfg.width || 1,
+        style: cfg.lineStyle === 1 ? [5, 5] : (cfg.lineStyle === 2 ? [2, 2] : []),
+        fullWidth: !!cfg.fullWidth
+      };
+      this._invalidateBg();
+    }
+    setMode(v) { this.mode = v; this._invalidateBg(); }
+    setFontSize(v) { this.fontSize = v; this._fonts.clear(); this._invalidateBg(); }
+    setShowWicks(v) { this.showWicks = v; this._invalidateBg(); }
+    setShowPOC(v) { this.showPOC = v; this._invalidateBg(); }
+    setShowDelta(v) { this.showDelta = v; this._invalidateBg(); }
+    setWickThickness(v) { this.wickThickness = v; this._invalidateBg(); }
     setColors(c) {
       if (c.buy) this._buyRgb = hexToRgb(c.buy) || this._buyRgb;
       if (c.sell) this._sellRgb = hexToRgb(c.sell) || this._sellRgb;
@@ -255,57 +271,57 @@ const FootprintRenderer = (() => {
       if (this.canvas) this.canvas.style.display = v ? 'block' : 'none';
       if (v) this._invalidateBg();
     }
-    _draw() {this._invalidateBg();}
-    _invalidateBg() {this._bgKey = '';}
+    _draw() { this._invalidateBg(); }
+    _invalidateBg() { this._bgKey = ''; }
     _syncSize() {
       if (!this.canvas) return;
       const dpr = window.devicePixelRatio || 1;
       const rect = this.canvas.parentNode.getBoundingClientRect();
-      const W = rect.width | 0,H = rect.height | 0;
+      const W = rect.width | 0, H = rect.height | 0;
       if (!W || !H) return;
-      const pw = W * dpr | 0,ph = H * dpr | 0;
-      this.canvas.width = pw;this.canvas.height = ph;
-      this._bgCanvas.width = pw;this._bgCanvas.height = ph;
+      const pw = W * dpr | 0, ph = H * dpr | 0;
+      this.canvas.width = pw; this.canvas.height = ph;
+      this._bgCanvas.width = pw; this._bgCanvas.height = ph;
       this.canvas.style.width = `${W}px`;
       this.canvas.style.height = `${H}px`;
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       this._bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this._W = W;this._H = H;
+      this._W = W; this._H = H;
       this._invalidateBg();
     }
     _tick() {
       if (!this._isRunning) return;
-      try {this._renderFrame();} catch (e) {console.error('[FP v4.0]', e);}
+      try { this._renderFrame(); } catch (e) { console.error('[FP v4.0]', e); }
       this._rafId = requestAnimationFrame(() => this._tick());
     }
     _buildTransform(H) {
       const s = this.mainSeries;
       if (!s) return false;
-      const yM = H / 2,yT = H * 0.05,yB = H * 0.95;
-      const pM = s.coordinateToPrice(yM),pT = s.coordinateToPrice(yT),pB = s.coordinateToPrice(yB);
+      const yM = H / 2, yT = H * 0.05, yB = H * 0.95;
+      const pM = s.coordinateToPrice(yM), pT = s.coordinateToPrice(yT), pB = s.coordinateToPrice(yB);
       if (pM === null || pT === null || pB === null) return false;
       const dp = pB - pT;
       if (Math.abs(dp) < 1e-12) return false;
       const b = (yB - yT) / dp;
       if (b >= 0) return false;
-      this._p2yB = b;this._p2yA = yT - pT * b;
+      this._p2yB = b; this._p2yA = yT - pT * b;
       return true;
     }
     _renderFrame() {
       const { ctx, chart, mainSeries, footprintData } = this;
       if (!this.enabled || !ctx || !chart || !mainSeries || !footprintData?.candles?.length) {
-        ctx?.clearRect(0, 0, this._W, this._H);return;
+        ctx?.clearRect(0, 0, this._W, this._H); return;
       }
       const ts = chart.timeScale();
       const vlr = ts.getVisibleLogicalRange();
       if (!vlr) return;
-      const W = this._W,H = this._H;
+      const W = this._W, H = this._H;
       if (!W || !H) return;
       const barSpacing = ts.options().barSpacing;
       const candles = footprintData.candles;
       const lastIdx = candles.length - 1;
       const lastC = candles[lastIdx];
-      if (!this._buildTransform(H)) {ctx.clearRect(0, 0, W, H);return;}
+      if (!this._buildTransform(H)) { ctx.clearRect(0, 0, W, H); return; }
       const p2yF = (p) => this._p2yA + p * this._p2yB;
       let drawCandle = lastC;
       let isSynthetic = false;
@@ -347,28 +363,36 @@ const FootprintRenderer = (() => {
         this._invalidateBg();
       }
       const bgKey = [
-      viewKey, candles.length, this.mode, this.tickSize,
-      this.showPOC, this.showWicks, this.showDelta, this.fontSize, this.wickThickness,
-      this._buyRgb.join(), this._sellRgb.join(), this._pocRgb.join(),
-      pHighT, pLowT].
-      join('|');
+        viewKey, candles.length, this.mode, this.tickSize,
+        this.showPOC, this.showWicks, this.showDelta, this.fontSize, this.wickThickness,
+        this._buyRgb.join(), this._sellRgb.join(), this._pocRgb.join(),
+        pHighT, pLowT
+      ].join('|');
       const liveKey = `${drawCandle.time}|${liveClose}|${liveHigh}|${liveLow}|${drawCandle.volume}`;
       const bgDirty = bgKey !== this._bgKey;
       const liveDirty = liveKey !== this._lastLiveKey;
       if (!bgDirty && !liveDirty) return;
-      const visT0 = ts.coordinateToTime(-barSpacing * 2) || candles[0].time;
-      let si = 0;
-      {
-        let lo = 0,hi = candles.length - 1;
-        while (lo <= hi) {
-          const m = lo + hi >>> 1;
-          if (candles[m].time < visT0) lo = m + 1;else
-          {si = m;hi = m - 1;}
+
+      const si = Math.max(0, Math.floor(vlr.from) - 2);
+      const realSpacing = Math.max(0.1, barSpacing || 1);
+      const cellW = realSpacing;
+      const halfW = cellW / 2;
+
+      const idxToX = (i) => {
+        const candleTime = candles[i].time;
+        const x = ts.timeToCoordinate(candleTime);
+        if (x !== null && Number.isFinite(x)) return x;
+        // Fallback si la vela no está en el TimeScale
+        const lastX = ts.timeToCoordinate(candles[lastIdx].time);
+        if (lastX !== null && Number.isFinite(lastX)) {
+           return lastX + (i - lastIdx) * realSpacing;
         }
-        si = Math.max(0, si - 1);
-      }
-      const cellW = Math.max(2, barSpacing - 1) | 0;
-      const halfW = cellW / 2 | 0;
+        return 0;
+      };
+
+      const xcAnchor = idxToX(lastIdx);
+      if (!Number.isFinite(xcAnchor)) { ctx.clearRect(0, 0, W, H); return; }
+
       if (bgDirty) {
         this._bgKey = bgKey;
         const bg = this._bgCtx;
@@ -377,34 +401,39 @@ const FootprintRenderer = (() => {
         bg.setLineDash([]);
         bg.lineWidth = 1;
         bg.clearRect(0, 0, W, H);
-        if (this.showWicks) {
-          bg.strokeStyle = C.wick;
-          bg.lineWidth = this.wickThickness;
-          bg.beginPath();
-          const wickEnd = isSynthetic ? lastIdx + 1 : lastIdx;
-          for (let i = si; i < wickEnd; i++) {
-            const c = candles[i];
-            const xc = ts.timeToCoordinate(c.time);
-            if (xc === null || xc < -cellW) continue;
-            if (xc > W + cellW) break;
-            const xi = Math.round(xc);
-            bg.moveTo(xi, Math.round(p2yF(c.high)));
-            bg.lineTo(xi, Math.round(p2yF(c.low)));
-          }
-          bg.stroke();
-        }
-        const histEnd = isSynthetic ? lastIdx + 1 : lastIdx;
+
+        // Cuando hay vela sintética: el historial dibuja hasta lastIdx inclusive
+        // Cuando NO hay vela sintética: el historial dibuja hasta lastIdx-1
+        // (la última la dibuja el bloque live abajo)
+        const histEnd = lastIdx;
+
         for (let i = si; i < histEnd; i++) {
           const candle = candles[i];
-          const xc = ts.timeToCoordinate(candle.time);
-          if (xc === null || xc < -cellW) continue;
+          const xc = idxToX(i);
+
+          if (xc < -cellW) continue;
           if (xc > W + cellW) break;
+
+          const x = Math.floor(xc - halfW);
+          const drawW = Math.ceil(xc + halfW) - x;
+
+          if (this.showWicks) {
+            bg.strokeStyle = C.wick;
+            bg.lineWidth = this.wickThickness;
+            const xi = Math.round(xc);
+            bg.beginPath();
+            bg.moveTo(xi, Math.round(p2yF(candle.high)));
+            bg.lineTo(xi, Math.round(p2yF(candle.low)));
+            bg.stroke();
+          }
+
           this._drawCandleFull(
             bg, candle, candle.high, candle.low,
-            Math.round(xc - halfW), xc, cellW, p2yF, pMin, pMax, false, H
+            x, xc, drawW, p2yF, pMin, pMax, false, H
           );
         }
       }
+
       if (bgDirty || liveDirty) {
         this._lastLiveKey = liveKey;
         ctx.globalAlpha = 1;
@@ -412,10 +441,22 @@ const FootprintRenderer = (() => {
         ctx.setLineDash([]);
         ctx.lineWidth = 1;
         ctx.clearRect(0, 0, W, H);
-        ctx.drawImage(this._bgCanvas, 0, 0, W, H, 0, 0, W, H);
-        const xcLast = ts.timeToCoordinate(drawCandle.time);
-        if (xcLast !== null && xcLast >= -cellW && xcLast <= W + cellW) {
-          const x = Math.round(xcLast - halfW);
+        ctx.drawImage(this._bgCanvas, 0, 0, W, H);
+
+        let xcLast;
+        if (isSynthetic) {
+          xcLast = ts.timeToCoordinate(drawCandle.time);
+          if (xcLast === null || !Number.isFinite(xcLast)) {
+            xcLast = idxToX(lastIdx) + realSpacing;
+          }
+        } else {
+          xcLast = idxToX(lastIdx);
+        }
+
+        if (xcLast >= -cellW && xcLast <= W + cellW) {
+          const x = Math.floor(xcLast - halfW);
+          const drawW = Math.ceil(xcLast + halfW) - x;
+
           if (this.showWicks) {
             ctx.strokeStyle = C.wick;
             ctx.lineWidth = this.wickThickness;
@@ -424,10 +465,40 @@ const FootprintRenderer = (() => {
             ctx.lineTo(Math.round(xcLast), Math.round(p2yF(liveLow)));
             ctx.stroke();
           }
+
           this._drawCandleFull(
             ctx, drawCandle, liveHigh, liveLow,
-            x, xcLast, cellW, p2yF, pMin, pMax, true, H
+            x, xcLast, drawW, p2yF, pMin, pMax, true, H
           );
+        }
+
+        const currentPrice = this.lastPrice || liveClose;
+        if (Number.isFinite(currentPrice)) {
+          const yPrice = Math.round(p2yF(currentPrice));
+          if (yPrice >= 0 && yPrice <= H) {
+            const cfg = this.priceLineConfig;
+            if (cfg.enabled === false) return;
+            ctx.save();
+            ctx.strokeStyle = cfg.color;
+            ctx.lineWidth = cfg.width;
+            ctx.setLineDash(cfg.style);
+            const startX = cfg.fullWidth ? 0 : xcLast;
+            ctx.beginPath();
+            ctx.moveTo(startX, yPrice);
+            ctx.lineTo(W, yPrice);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.fillStyle = cfg.color;
+            ctx.font = 'bold 11px "JetBrains Mono", monospace';
+            ctx.textAlign = 'right';
+            const priceText = currentPrice.toFixed(this.digits);
+            const txtW = ctx.measureText(priceText).width;
+            ctx.fillRect(W - txtW - 10, yPrice - 18, txtW + 10, 16);
+            ctx.fillStyle = '#000';
+            ctx.fillText(priceText, W - 5, yPrice - 10);
+            ctx.restore();
+          }
         }
       }
     }
@@ -457,7 +528,7 @@ const FootprintRenderer = (() => {
         } else {
           let mx = -1;
           for (let j = 0; j < levels.length; j++) {
-            if (levels[j].total > mx) {mx = levels[j].total;pocPrice = levels[j].price;}
+            if (levels[j].total > mx) { mx = levels[j].total; pocPrice = levels[j].price; }
           }
         }
       }
@@ -473,20 +544,20 @@ const FootprintRenderer = (() => {
       for (let j = 0; j < N; j++) {
         const imb = imbs[j];
         const lv = levels[j];
-        const ask = lv.ask || 0,bid = lv.bid || 0;
-        imb.buy = false;imb.sell = false;imb.stackBuy = false;imb.stackSell = false;
+        const ask = lv.ask || 0, bid = lv.bid || 0;
+        imb.buy = false; imb.sell = false; imb.stackBuy = false; imb.stackSell = false;
         if (j < N - 1) {
           const aboveBid = levels[j + 1].bid || 0;
           if (ask > MIN_VOL && aboveBid > MIN_VOL && ask >= aboveBid * IMBALANCE_RATIO)
-          imb.buy = true;
+            imb.buy = true;
         }
         if (j > 0) {
           const belowAsk = levels[j - 1].ask || 0;
           if (bid > MIN_VOL && belowAsk > MIN_VOL && bid >= belowAsk * IMBALANCE_RATIO)
-          imb.sell = true;
+            imb.sell = true;
         }
       }
-      let runBuy = 0,runSell = 0;
+      let runBuy = 0, runSell = 0;
       for (let j = 0; j < N; j++) {
         runBuy = imbs[j].buy ? runBuy + 1 : 0;
         runSell = imbs[j].sell ? runSell + 1 : 0;
@@ -514,8 +585,8 @@ const FootprintRenderer = (() => {
         const isPOC = pocPrice !== null && Math.abs(lv.price - pocPrice) < this.tickSize * 0.05;
         this._drawCell(ctx, x, yTop, cellW, h, lv, idx255, intensity, isPOC);
         const imb = imbs[j];
-        if (imb.stackBuy) {ctx.fillStyle = C.imbStackBuy;ctx.fillRect(x, yTop, cellW, Math.max(1, h - 1));}
-        if (imb.stackSell) {ctx.fillStyle = C.imbStackSell;ctx.fillRect(x, yTop, cellW, Math.max(1, h - 1));}
+        if (imb.stackBuy) { ctx.fillStyle = C.imbStackBuy; ctx.fillRect(x, yTop, cellW, Math.max(1, h - 1)); }
+        if (imb.stackSell) { ctx.fillStyle = C.imbStackSell; ctx.fillRect(x, yTop, cellW, Math.max(1, h - 1)); }
         if (imb.buy || imb.sell) {
           this._drawImbTriangle(ctx, x, yTop, cellW, h, imb.buy);
         }
@@ -549,7 +620,7 @@ const FootprintRenderer = (() => {
     }
     _drawLiveHighlight(ctx, high, low, x, xc, cellW, p2yF, H) {
       if (!isFinite(high) || !isFinite(low)) return;
-      const yTopF = p2yF(high),yBotF = p2yF(low);
+      const yTopF = p2yF(high), yBotF = p2yF(low);
       const yTop = Math.max(0, Math.round(Math.min(yTopF, yBotF)));
       const yBot = Math.min(H, Math.round(Math.max(yTopF, yBotF)));
       const ht = Math.max(1, yBot - yTop);
@@ -565,7 +636,7 @@ const FootprintRenderer = (() => {
       ctx.restore();
     }
     _drawBody(ctx, candle, x, cellW, p2yF) {
-      const open = candle.open,close = candle.close;
+      const open = candle.open, close = candle.close;
       if (!isFinite(open) || !isFinite(close)) return;
       const yO = Math.round(p2yF(open));
       const yC = Math.round(p2yF(close));
@@ -609,8 +680,8 @@ const FootprintRenderer = (() => {
           const bidFrac = (lv.bid || 0) / total;
           const bidW = bidFrac * w + 0.5 | 0;
           const askW = w - bidW;
-          if (bidW > 0) {ctx.fillStyle = this._fills.bid[idx255];ctx.fillRect(x, y, bidW, h);}
-          if (askW > 0) {ctx.fillStyle = this._fills.ask[idx255];ctx.fillRect(x + bidW, y, askW, h);}
+          if (bidW > 0) { ctx.fillStyle = this._fills.bid[idx255]; ctx.fillRect(x, y, bidW, h); }
+          if (askW > 0) { ctx.fillStyle = this._fills.ask[idx255]; ctx.fillRect(x + bidW, y, askW, h); }
         } else if (this.mode === 'delta') {
           const delta = (lv.ask || 0) - (lv.bid || 0);
           const ratio = Math.min(Math.abs(delta) / Math.max(lv.total, MIN_VOL), 1);
@@ -645,9 +716,9 @@ const FootprintRenderer = (() => {
         lv._fmtDirty = false;
       }
       let mode;
-      if (h >= LABEL_DUAL_PX && this.mode === 'bidask') mode = 'dual';else
-      if (h >= LABEL_SINGLE_PX) mode = 'single';else
-      mode = 'micro';
+      if (h >= LABEL_DUAL_PX && this.mode === 'bidask') mode = 'dual'; else
+        if (h >= LABEL_SINGLE_PX) mode = 'single'; else
+          mode = 'micro';
       const fontCap = Math.min(this.fontSize, h - 1);
       let finalSz;
       if (mode === 'dual') {

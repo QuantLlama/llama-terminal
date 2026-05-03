@@ -140,7 +140,7 @@ const ChartComponent = React.memo(({
     if (!range || !chartId || !chartRef.current) return;
     const timeRange = chartRef.current.timeScale().getVisibleRange();
     const data = { ...range, totalBars, timeRange };
-    
+
     // 1. Timeframe-specific key (Legacy & Exact)
     const tfKey = `chart_range_${chartId}_${activeSymbol}_${activeTimeframe}`;
     localStorage.setItem(tfKey, JSON.stringify(data));
@@ -1353,10 +1353,19 @@ const ChartComponent = React.memo(({
           const height = chartContainerRef.current.clientHeight;
           if (width > 0 && height > 0) {
             chartRef.current.resize(width, height);
-            if (lastWidth === 0 || lastHeight === 0) {
-              // Only trigger a simple resize on initial mount/unhide
-              // The main data loading effect already handles range restoration
+            
+            // Si el cambio de dimensiones es significativo (layout change), forzamos ajuste
+            const widthDiff = Math.abs(width - lastWidth);
+            const heightDiff = Math.abs(height - lastHeight);
+            
+            if (lastWidth === 0 || lastHeight === 0 || widthDiff > 20 || heightDiff > 20) {
+              requestAnimationFrame(() => {
+                if (chartRef.current) {
+                  chartRef.current.timeScale().fitContent();
+                }
+              });
             }
+            
             lastWidth = width;
             lastHeight = height;
           } else {
@@ -1900,6 +1909,8 @@ const ChartComponent = React.memo(({
             allBarsRef.current[lastIdx] = finalCandle;
           } else if (!existingBar || finalCandle.time > existingBar.time) {
             allBarsRef.current.push(finalCandle);
+            setLocalLastCandleTime(finalCandle.time);
+            if (setLastCandleTime) setLastCandleTime(finalCandle.time);
           }
         } catch (e) { }
       }
@@ -2060,6 +2071,8 @@ const ChartComponent = React.memo(({
             delta: hasValidServerDelta ? serverDelta : (isFinite(volForDelta) ? volForDelta * (directionUp ? 1 : -1) : 0)
           };
           allBarsRef.current.push(currentCandle);
+          setLocalLastCandleTime(tickBarTime);
+          if (setLastCandleTime) setLastCandleTime(tickBarTime);
           lastLerpTimeRef.current = tickBarTime;
         } else {
           const prevDelta = currentCandle.delta || 0;
@@ -2109,6 +2122,7 @@ const ChartComponent = React.memo(({
         }
         if (fpRendererRef.current && footprintMode !== 'off') {
           fpRendererRef.current.updateLiveState(currentCandle.time, currentCandle.close, tickVol, tickSide);
+          fpRendererRef.current.setLivePrice(currentCandle.close);
         }
         lastTick = tick;
       }
@@ -2318,15 +2332,30 @@ const ChartComponent = React.memo(({
     if (!isChartReady || !candleSeriesRef.current || !areaSeriesRef.current || !lineSeriesRef.current || !barSeriesRef.current) return;
     let precision = { digits: 5, tick_size: 0.00001 };
     if (window.getSymbolPrecision) precision = window.getSymbolPrecision(activeSymbol, detectPlatformType());
-    const precisionOptions = { priceFormat: { type: "price", precision: precision.digits, minMove: precision.tick_size } };
+
+    const hideLabel = footprintMode !== 'off' || chartType === 'tpo';
+    const precisionOptions = {
+      priceFormat: { type: "price", precision: precision.digits, minMove: precision.tick_size },
+      lastValueLabelVisible: !hideLabel,
+      lastValueVisible: !hideLabel, // Agregado para compatibilidad total
+      priceLineVisible: false
+    };
+
     candleSeriesRef.current.applyOptions(precisionOptions);
     areaSeriesRef.current.applyOptions(precisionOptions);
     lineSeriesRef.current.applyOptions(precisionOptions);
     barSeriesRef.current.applyOptions(precisionOptions);
+
+    const labelOpts = { lastValueLabelVisible: !hideLabel, lastValueVisible: !hideLabel };
+    if (volumeSeriesRef.current) volumeSeriesRef.current.applyOptions(labelOpts);
+    if (deltaSeriesRef.current) deltaSeriesRef.current.applyOptions(labelOpts);
+    if (deltaCumCandleSeriesRef.current) deltaCumCandleSeriesRef.current.applyOptions(labelOpts);
+    if (deltaCumLineSeriesRef.current) deltaCumLineSeriesRef.current.applyOptions(labelOpts);
+
     if (chartRef.current) {
       chartRef.current.applyOptions({ localization: { priceFormatter: (price) => price.toFixed(precision.digits) } });
     }
-  }, [activeSymbol, isChartReady]);
+  }, [activeSymbol, isChartReady, footprintMode, chartType]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -2531,7 +2560,13 @@ const ChartComponent = React.memo(({
   useEffect(() => {
     const handleBackendBigTrade = (e) => {
       const bt = e.detail;
-      if (bt.symbol !== activeSymbol) return;
+      if (!bt || !activeSymbol) return;
+      
+      // Comparación robusta de símbolos (ignora mayúsculas/minúsculas y normaliza)
+      const normActive = activeSymbol.split(':')[0].toUpperCase();
+      const normIncoming = bt.symbol.split(':')[0].toUpperCase();
+      if (normActive !== normIncoming) return;
+
       setBigTrades((prev) => {
         const id = bt.id || bt.timestamp + Math.random();
         if (prev.some((t) => t.id === id)) return prev;
@@ -2695,42 +2730,47 @@ const ChartComponent = React.memo(({
       fpRendererRef.current.setShowPOC(savedShowPOC);
       fpRendererRef.current.setWickThickness(savedThickness);
       fpRendererRef.current.setColors({ buy: savedBuyColor, sell: savedSellColor, poc: savedPocColor });
+      if (chartSettings?.appearance?.priceLine) {
+        fpRendererRef.current.setPriceLineConfig(chartSettings.appearance.priceLine);
+      }
     }
     if (fpRendererRef.current) {
       fpRendererRef.current.setMode(footprintMode);
       fpRendererRef.current.setEnabled(true);
-      if (footprintData) fpRendererRef.current.setData(footprintData);
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.applyOptions({
-          visible: true,
-          upColor: hideCandles ? 'rgba(0,0,0,0)' : chartSettings?.appearance?.upColor || "#00d084",
-          downColor: hideCandles ? 'rgba(0,0,0,0)' : chartSettings?.appearance?.downColor || "#ff4757",
-          borderVisible: !hideCandles, wickVisible: !hideCandles,
-          priceLineColor: hideCandles ? '#ffffff' : '', lastValueLabelVisible: true
-        });
+      if (chartSettings?.appearance?.priceLine) {
+        fpRendererRef.current.setPriceLineConfig(chartSettings.appearance.priceLine);
       }
-      if (areaSeriesRef.current) {
-        areaSeriesRef.current.applyOptions({
-          visible: true, lineColor: "rgba(0,0,0,0)",
-          topColor: "rgba(0,0,0,0)", bottomColor: "rgba(0,0,0,0)"
-        });
-      }
-    } else if (hideCandles) {
+
       if (candleSeriesRef.current) {
         candleSeriesRef.current.applyOptions({
           visible: true,
           upColor: 'rgba(0,0,0,0)',
           downColor: 'rgba(0,0,0,0)',
-          borderVisible: false, wickVisible: false,
-          priceLineColor: '#ffffff', lastValueLabelVisible: true
+          borderVisible: false,
+          wickVisible: false,
+          priceLineVisible: false,
+          lastValueLabelVisible: false
         });
       }
-      if (areaSeriesRef.current) {
-        areaSeriesRef.current.applyOptions({
-          visible: true, lineColor: "rgba(0,0,0,0)",
-          topColor: "rgba(0, 0, 0, 0)", bottomColor: "rgba(0, 0, 0, 0)"
+      if (areaSeriesRef.current) areaSeriesRef.current.applyOptions({ visible: false });
+      if (lineSeriesRef.current) lineSeriesRef.current.applyOptions({ visible: false });
+      if (barSeriesRef.current) barSeriesRef.current.applyOptions({ visible: false });
+    } else if (hideCandles) {
+      // Caso para TPO u otros modos que ocultan velas
+      if (candleSeriesRef.current) {
+        candleSeriesRef.current.applyOptions({
+          visible: true,
+          upColor: 'rgba(0,0,0,0)',
+          downColor: 'rgba(0,0,0,0)',
+          borderVisible: false,
+          wickVisible: false,
+          priceLineVisible: false,
+          lastValueLabelVisible: false
         });
       }
+      if (areaSeriesRef.current) areaSeriesRef.current.applyOptions({ visible: false });
+      if (lineSeriesRef.current) lineSeriesRef.current.applyOptions({ visible: false });
+      if (barSeriesRef.current) barSeriesRef.current.applyOptions({ visible: false });
     }
     return () => {
       if (fpRendererRef.current && footprintMode === 'off') {
@@ -2738,7 +2778,7 @@ const ChartComponent = React.memo(({
         fpRendererRef.current = null;
       }
     };
-  }, [footprintMode, isChartReady, footprintData, chartType]);
+  }, [footprintMode, isChartReady, chartType]);
 
   useEffect(() => {
     setFootprintData(null);
@@ -2805,18 +2845,41 @@ const ChartComponent = React.memo(({
   }, [footprintMode, activeSymbol, activeTimeframe]);
 
   const effectiveFootprintData = useMemo(() => {
-    if (footprintData) return footprintData;
-    if (footprintMode !== 'off' && historicalData && historicalData.length > 0) {
+    if (footprintMode === 'off') return null;
+
+    const baseCandles = allBarsRef.current?.length
+      ? allBarsRef.current
+      : historicalData?.length
+        ? aggregateData(historicalData)
+        : [];
+
+    if (baseCandles.length > 0) {
+      const footprintByTime = new Map();
+      for (const candle of footprintData?.candles || []) {
+        footprintByTime.set(Number(candle.time), candle);
+      }
+
       return {
-        symbol: activeSymbol, timeframe: activeTimeframe,
-        candles: historicalData.map((c) => ({
-          time: c.time, open: c.open, high: c.high, low: c.low, close: c.close,
-          total: c.tick_volume || c.volume || 0, levels: []
-        }))
+        ...(footprintData || {}),
+        symbol: activeSymbol,
+        timeframe: activeTimeframe,
+        candles: baseCandles.map((base) => {
+          const fp = footprintByTime.get(Number(base.time));
+          return {
+            ...base,
+            volume: fp?.volume ?? base.volume ?? base.tick_volume ?? 0,
+            levels: fp?.levels || [],
+            poc: fp?.poc,
+            delta: fp?.delta ?? base.delta ?? 0,
+            fidelity: fp?.fidelity || 'chart'
+          };
+        })
       };
     }
+
+    if (footprintData?.candles?.length) return footprintData;
     return null;
-  }, [footprintData, footprintMode, historicalData, activeSymbol, activeTimeframe]);
+  }, [footprintData, footprintMode, historicalData, activeSymbol, activeTimeframe, aggregateData, localLastCandleTime]);
 
   useEffect(() => {
     if (fpRendererRef.current) fpRendererRef.current.setData(effectiveFootprintData);
@@ -2880,7 +2943,7 @@ const ChartComponent = React.memo(({
     window[`updateVP_${chartId}`] = updateVP;
     
     return () => {
-      timeScale.unsubscribeVisibleTimeRangeChange(handleVisibleRangeChange);
+      timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       if (rafId) cancelAnimationFrame(rafId);
       delete window[`updateVP_${chartId}`];
     };
@@ -3067,7 +3130,8 @@ const ChartComponent = React.memo(({
                   } : baseSettings;
                   return React.createElement(Overlay, {
                     chart: chartRef.current, series: candleSeriesRef.current,
-                    trades: bigTrades, settings: mergedSettings, visible: isVisible
+                    trades: bigTrades, settings: mergedSettings, visible: isVisible,
+                    tfSeconds: typeof getTimeframeSeconds === 'function' ? getTimeframeSeconds(activeTimeframe) : 0
                   });
                 }
                 return null;

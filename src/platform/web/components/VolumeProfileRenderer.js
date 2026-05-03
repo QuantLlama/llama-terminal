@@ -16,10 +16,6 @@ class VolumeProfileRenderer {
     this.container.appendChild(this.canvas);
     this.ctx = this.canvas.getContext("2d");
     this._pixelRatio = window.devicePixelRatio || 1;
-    this._profilesState = new Map();
-    this._latestProfiles = null;
-    this._latestParams = null;
-    this._latestSeries = null;
     this._rafId = null;
     this._animate = this._animate.bind(this);
     this._rafId = requestAnimationFrame(this._animate);
@@ -53,28 +49,12 @@ class VolumeProfileRenderer {
     this.ctx.restore();
   }
   _renderSingleProfile(profile, params, series, canvasW, timeScale) {
-    const { buckets, pocIndex, priceMin, priceMax, vahPrice, valPrice } = profile;
+    const { buckets, pocIndex, priceMin, priceMax, vahPrice, valPrice, pocPrice } = profile;
     const profileId = profile.id || profile.timeStart;
-    let state = this._profilesState.get(profileId);
-    if (!state) {
-      const initialMaxVol = buckets[pocIndex]?.volumeTotal || 1;
-      state = {
-        maxVol: initialMaxVol,
-        pocPrice: profile.pocPrice,
-        vahPrice: profile.vahPrice || 0,
-        valPrice: profile.valPrice || 0,
-        frameCount: 0
-      };
-      this._profilesState.set(profileId, state);
-    }
-    state.frameCount++;
-    const smoothing = state.frameCount < 5 ? 1.0 : 0.15;
-    let targetMaxVol = buckets[pocIndex]?.volumeTotal || 1;
-    if (targetMaxVol === 0) targetMaxVol = 1;
-    state.maxVol += (targetMaxVol - state.maxVol) * smoothing;
-    if (profile.pocPrice) state.pocPrice += (profile.pocPrice - state.pocPrice) * smoothing;
-    if (profile.vahPrice) state.vahPrice += (profile.vahPrice - state.vahPrice) * smoothing;
-    if (profile.valPrice) state.valPrice += (profile.valPrice - state.valPrice) * smoothing;
+    
+    let maxVol = buckets[pocIndex]?.volumeTotal || 1;
+    if (maxVol === 0) maxVol = 1;
+
     let xStart = 0;
     let xEnd = canvasW;
     if (params.rangeMode !== "visible" && timeScale) {
@@ -94,77 +74,113 @@ class VolumeProfileRenderer {
       if (xEnd <= xStart) return;
     }
     const profileWidth = xEnd - xStart;
-    const histW = profileWidth * ((params.histogramWidth || 70) / 100);
+    // Estilo ATAS: Los perfiles no suelen ocupar toda la pantalla. 35% por defecto.
+    const histW = profileWidth * ((params.histogramWidth || 35) / 100);
     const isLeft = params.histogramSide === "left";
+    
     if (params.showHistogram !== false) {
       this.ctx.save();
-      this.ctx.globalAlpha = params.opacity ?? 0.65;
+      
+      // Crear gradiente espectral horizontal (Estilo ATAS Spectral)
+      const grad = this.ctx.createLinearGradient(
+        isLeft ? xStart : xEnd, 
+        0, 
+        isLeft ? xStart + histW : xEnd - histW, 
+        0
+      );
+      grad.addColorStop(0.0, "rgba(30, 58, 138, 0.95)");  // Deep Blue
+      grad.addColorStop(0.2, "rgba(6, 182, 212, 0.95)");  // Cyan
+      grad.addColorStop(0.5, "rgba(16, 185, 129, 0.95)"); // Emerald Green
+      grad.addColorStop(0.8, "rgba(245, 158, 11, 0.95)"); // Amber/Yellow
+      grad.addColorStop(1.0, "rgba(239, 68, 68, 0.95)");  // Red
+
       for (let i = 0; i < buckets.length; i++) {
         const bucket = buckets[i];
         if (params.noiseThreshold > 0) {
-          if (bucket.volumeTotal / state.maxVol * 100 < params.noiseThreshold) continue;
+          if (bucket.volumeTotal / maxVol * 100 < params.noiseThreshold) continue;
         }
         const yTop = series.priceToCoordinate(bucket.priceMax);
         const yBot = series.priceToCoordinate(bucket.priceMin);
         if (yTop === null || yBot === null) continue;
-        const h = Math.abs(yBot - yTop);
+        
+        // Ajuste para evitar gaps entre barras y dar estilo sólido profesional
+        const h = Math.max(1.8, Math.abs(yBot - yTop));
         const y = Math.min(yTop, yBot);
-        const ratio = bucket.volumeTotal / state.maxVol;
+        
+        const ratio = bucket.volumeTotal / maxVol;
         const barW = histW * ratio;
         const x = isLeft ? xStart : xEnd - barW;
-        let color = params.colorUp || "#26a69a";
-        if (params.profileMode === "delta") {
+        
+        let color = grad;
+        // Si el usuario eligió estilo sólido o estamos en modo delta
+        if (params.colorStyle === "solid" && params.profileMode !== "delta") {
+          color = bucket.volumeUp < bucket.volumeDown ? (params.colorDown || "#ef5350") : (params.colorUp || "#26a69a");
+        } else if (params.profileMode === "delta") {
           color = bucket.delta >= 0 ? params.colorDeltaPos || "#26a69a" : params.colorDeltaNeg || "#ef5350";
-        } else if (bucket.volumeUp < bucket.volumeDown) {
-          color = params.colorDown || "#ef5350";
         }
+        
+        // Estilo ATAS: Resaltar Nodos de Valor (Value Area) reduciendo opacidad afuera
+        const isVA = bucket.priceMax <= vahPrice && bucket.priceMin >= valPrice;
+        this.ctx.globalAlpha = isVA ? (params.opacity ?? 0.85) : (params.opacity ?? 0.85) * 0.20;
+        
         this.ctx.fillStyle = color;
-        this.ctx.fillRect(x, y, barW, h);
+        this.ctx.fillRect(x, Math.floor(y), barW, Math.ceil(h));
       }
       this.ctx.restore();
     }
-    const renderVah = state.vahPrice;
-    const renderVal = state.valPrice;
+    
+    const renderVah = vahPrice;
+    const renderVal = valPrice;
+    // Si están extendidas, van hasta el final de la pantalla (canvasW)
+    // Si no, van hasta el final de la sesión (xEnd) para cubrir toda la duración del perfil
+    const lineEndX = params.extendLines ? canvasW : xEnd;
+    
     if (params.showVa !== false && renderVah && renderVal) {
       const vahY = series.priceToCoordinate(renderVah);
       const valY = series.priceToCoordinate(renderVal);
       if (vahY !== null && valY !== null) {
-        this.ctx.strokeStyle = params.colorVah || "rgba(255, 255, 255, 0.3)";
+        this.ctx.strokeStyle = params.colorVah || "rgba(255, 255, 255, 0.4)";
         this.ctx.lineWidth = params.vaLineWidth || 1;
-        if (params.vaLineStyle === 2) this.ctx.setLineDash([4, 4]);else
-        this.ctx.setLineDash([]);
+        this.ctx.setLineDash(params.vaLineStyle === 2 ? [4, 4] : []);
         this.ctx.beginPath();
         this.ctx.moveTo(xStart, vahY);
-        this.ctx.lineTo(xStart + profileWidth, vahY);
+        this.ctx.lineTo(lineEndX, vahY);
         this.ctx.stroke();
-        this.ctx.strokeStyle = params.colorVal || "rgba(255, 255, 255, 0.3)";
+        
+        this.ctx.strokeStyle = params.colorVal || "rgba(255, 255, 255, 0.4)";
         this.ctx.beginPath();
         this.ctx.moveTo(xStart, valY);
-        this.ctx.lineTo(xStart + profileWidth, valY);
+        this.ctx.lineTo(lineEndX, valY);
         this.ctx.stroke();
         this.ctx.setLineDash([]);
+        
         if (params.showLabels) {
           this.ctx.font = "9px Inter, sans-serif";
-          this.ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+          this.ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
           this.ctx.fillText(`VAH ${renderVah.toFixed(2)}`, xStart + 5, vahY - 3);
           this.ctx.fillText(`VAL ${renderVal.toFixed(2)}`, xStart + 5, valY + 11);
         }
       }
     }
-    const renderPoc = state.pocPrice;
+    const renderPoc = pocPrice;
     if (params.showPoc !== false && renderPoc) {
       const yPoc = series.priceToCoordinate(renderPoc);
       if (yPoc !== null) {
         this.ctx.beginPath();
-        this.ctx.strokeStyle = params.colorPoc || "#3b82f6";
+        this.ctx.strokeStyle = params.colorPoc || "#fbbf24"; // Amarillo dorado más llamativo
         this.ctx.lineWidth = 2;
         this.ctx.setLineDash([]);
         this.ctx.moveTo(xStart, yPoc);
-        this.ctx.lineTo(xEnd, yPoc);
+        this.ctx.lineTo(lineEndX, yPoc);
         this.ctx.stroke();
+        
+        // Destello central POC
+        this.ctx.fillStyle = params.colorPoc || "#fbbf24";
+        this.ctx.fillRect(isLeft ? xStart : xStart + histW - 3, yPoc - 1.5, 3, 3);
+        
         if (params.showLabels) {
           this.ctx.font = "bold 10px Inter, sans-serif";
-          this.ctx.fillStyle = params.colorPoc || "#3b82f6";
+          this.ctx.fillStyle = params.colorPoc || "#fbbf24";
           this.ctx.fillText(`POC ${renderPoc.toFixed(2)}`, xStart + 5, yPoc - 4);
         }
       }

@@ -1,167 +1,135 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
     <script>
 (function () {
   try {
     const lastCharts = localStorage.getItem("last_charts");
-    if (
-    lastCharts &&
-    lastCharts.includes("BTC/USDT") &&
-    !lastCharts.includes(":"))
-    {
-      console.warn(
-        "Legacy symbol format detected. Purging localStorage to prevent ghost positions."
-      );
+    if (lastCharts && lastCharts.includes("BTC/USDT") && !lastCharts.includes(":")) {
+      console.warn("Legacy symbol format detected. Purging localStorage.");
       localStorage.removeItem("last_charts");
       localStorage.removeItem("last_symbol");
       localStorage.removeItem("mt5_positions");
     }
-  } catch (e) {
-    console.error("Cleanup script failed:", e);
-  }
+  } catch (e) {}
 })();
 </script>
+    <style>
+        html, body { background-color: #050505 !important; color: #e2e8f0 !important; margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        #root { background-color: #050505 !important; width: 100%; height: 100%; }
+        #platform-loader { background-color: #050505 !important; }
+        
+        /* Global Selector & Dropdown Styles - Force Professional Dark Theme */
+        select, option, datalist, input { 
+            background-color: #0a0a0a !important; 
+            color: #ffffff !important; 
+            border: 1px solid #222222 !important;
+            font-family: 'Inter', 'JetBrains Mono', sans-serif !important;
+        }
+        
+        /* Ensure dropdown options are ALWAYS dark even on browser native pickers */
+        option {
+            background-color: #0a0a0a !important;
+            color: #ffffff !important;
+            padding: 10px !important;
+        }
+
+        select {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+            padding-right: 28px !important;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23f59e0b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") !important;
+            background-repeat: no-repeat !important;
+            background-position: right 8px center !important;
+            background-size: 14px !important;
+            cursor: pointer;
+            border-radius: 4px !important;
+        }
+
+        select:focus, input:focus { 
+            outline: none !important; 
+            border-color: #f59e0b !important;
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2) !important;
+        }
+
+        /* ABSOLUTE SUPPRESSION of TradingView / LightweightCharts Branding */
+        .tv-embed-widget-wrapper__footer,
+        .tradingview-widget-copyright,
+        a[href*="tradingview.com"],
+        [class*="tv-watermark"],
+        [class*="tv-logo"],
+        div[class*="tv-logo"],
+        div[class*="tradingview-logo"],
+        span[class*="tv-logo"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
+            position: absolute !important;
+            left: -9999px !important;
+        }
+    </style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-    <title>Quantum Llama - Professional Terminal</title>
+    <meta name="description" content="Quantum Llama - Terminal de Trading Profesional." />
+    <title>Quantum Llama - Professional Trading Terminal</title>
     <link rel="icon" href="/images/QuantumLLama.png" type="image/png" />
+    
     <script crossorigin src="/lib/react.production.min.js"></script>
     <script crossorigin src="/lib/react-dom.production.min.js"></script>
     <script src="/lib/babel.min.js"></script>
     <script src="/lib/lightweight-charts.standalone.production.js?v=4.2.1"></script>
     <script src="/lib/supabase-js.js"></script>
-    <script>
-const originalWarn = console.warn;
-console.warn = function (...args) {
-  if (args[0] && typeof args[0] === "string") {
-    if (args[0].includes("cdn.tailwindcss.com")) return;
-    if (args[0].includes("in-browser Babel transformer")) return;
-    if (args[0].includes("Browsing Topics API")) return;
-  }
-  originalWarn.apply(console, args);
-};
-</script>
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <script src="components/VolumeProfileEngine.js?v=2.4.7"></script>
     <script src="components/VolumeProfileRenderer.js?v=2.4.7"></script>
-    <script src="components/FootprintRenderer.js?v=1.0.1"></script>
+    <script src="components/FootprintRenderer.js?v=1.0.2"></script>
     <script type="text/babel" src="components/DashboardModal.js?v=2.4.7"></script>
     <script type="text/babel" src="components/BacktestPanel.js?v=2.4.7"></script>
-    <script type="text/babel" src="components/PlatformLoader.js?v=2.4.7"></script>
-    <script type="text/babel" src="components/GridSplitter.js?v=1.0.1">
-</script>
-    <script type="text/babel" src="components/ChartPane.js?v=2.8.0">
-</script>
-    <script type="text/babel" src="components/DOMEngine.js?v=2.4.8">
-</script>
-    <script type="text/babel" src="components/DOMRenderer.js?v=2.4.8">
-</script>
-    <script type="text/babel" src="components/DOMHeatmapOverlay.js?v=1.0.14">
-</script>
-    <script type="text/babel" src="components/DOMHistogramOverlay.js?v=2.4.18">
-</script>
-    <script type="text/babel" src="components/DOMPanel.js?v=2.4.8">
-</script>
-    <script type="text/babel" src="components/PriceSmoothingOverlay.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="components/UserDrawingOverlay.js?v=2.8.8">
-</script>
-    <script type="text/babel" src="components/OrderFlowOverlay.js?v=2.4.8">
-</script>
-    <script type="text/babel" src="components/PositionOverlay.js?v=2.5.1">
-</script>
-    <script type="text/babel" src="components/ChartComponent.js?v=2.7.4">
-</script>
-    <script type="text/babel" src="components/VixCorrelationPanel.js?v=2.4.9">
-</script>
-    <script type="text/babel" src="components/ChartSettingsModal.js?v=2.5.0">
-</script>
-    <script type="text/babel" src="components/DeltaGridOverlay.js?v=2.1.2">
-</script>
-    <script type="text/babel" src="components/TpoRenderer.js?v=1.0.0">
-</script>
-    <script type="text/babel" src="components/BigTradeOverlay.js?v=2.1.2">
-</script>
-    <script type="text/babel" src="components/NumInput.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="components/OrderEntry_Professional.js?v=2.4.7">
-</script>
-    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.2/css/all.min.css" rel="stylesheet"
-        crossorigin="anonymous" />
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
-        rel="stylesheet" />
-    <script>
-if (typeof require !== 'undefined') {
-  window.nodeRequire = require;
-  window.nodeModule = module;
-  window.nodeExports = typeof exports !== 'undefined' ? exports : undefined;
-  window.require = undefined;
-  window.module = undefined;
-  window.exports = undefined;
-}
-</script>
+    <!-- <script type="text/babel" src="components/PlatformLoader.js?v=2.4.7"></script> -->
+    <script type="text/babel" src="components/GridSplitter.js?v=1.0.1"></script>
+    <script type="text/babel" src="components/ChartPane.js?v=2.8.0"></script>
+    <script type="text/babel" src="components/DOMEngine.js?v=2.4.8"></script>
+    <script type="text/babel" src="components/DOMRenderer.js?v=2.4.8"></script>
+    <script type="text/babel" src="components/DOMHeatmapOverlay.js?v=1.0.14"></script>
+    <script type="text/babel" src="components/DOMHistogramOverlay.js?v=2.4.18"></script>
+    <script type="text/babel" src="components/DOMPanel.js?v=2.4.8"></script>
+    <script type="text/babel" src="components/PriceSmoothingOverlay.js?v=2.4.7"></script>
+    <script type="text/babel" src="components/UserDrawingOverlay.js?v=2.8.8"></script>
+    <script type="text/babel" src="components/OrderFlowOverlay.js?v=2.4.8"></script>
+    <script type="text/babel" src="components/PositionOverlay.js?v=2.5.1"></script>
+    <script type="text/babel" src="components/ChartComponent.js?v=2.7.5"></script>
+    <script type="text/babel" src="components/VixCorrelationPanel.js?v=2.4.9"></script>
+    <script type="text/babel" src="components/ChartSettingsModal.js?v=2.5.0"></script>
+    <script type="text/babel" src="components/WorkspacesModal.js?v=1.0.0"></script>
+    <script type="text/babel" src="components/DeltaGridOverlay.js?v=2.1.2"></script>
+    <script type="text/babel" src="components/TpoRenderer.js?v=1.0.0"></script>
+    <script type="text/babel" src="components/BigTradeOverlay.js?v=2.1.2"></script>
+    <script type="text/babel" src="components/NumInput.js?v=2.4.7"></script>
+    <script type="text/babel" src="components/OrderEntry_Professional.js?v=2.4.7"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.2/css/all.min.css" rel="stylesheet" crossorigin="anonymous" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
     <script src="lib/monaco/vs/loader.js"></script>
-    <script>
-if (window.nodeRequire) {
-  window.monacoRequire = window.require;
-  window.module = undefined;
-  window.exports = undefined;
-} else {
-  window.monacoRequire = window.require;
-}
-if (window.monacoRequire) {
-  window.monacoRequire.config({
-    paths: { 'vs': 'lib/monaco/vs' },
-    // Prevent "Can only have one anonymous define call" when language modules
-    // are required multiple times (e.g. each time the AlgoLab editor opens).
-    ignoreDuplicateModules: [
-      'vs/basic-languages/python/python',
-      'vs/basic-languages/javascript/javascript',
-      'vs/basic-languages/typescript/typescript',
-      'vs/basic-languages/html/html',
-      'vs/basic-languages/css/css',
-      'vs/basic-languages/json/json',
-    ]
-  });
-  window.monacoRequire(['vs/editor/editor.main'], function () {
-    // Monaco loaded — expose it globally for components that poll for window.monaco
-    window.monaco = monaco;
-  });
-}
-</script>
-    <script type="text/babel" src="/components/SymbolSearchModal.js?v=2.4.8">
-</script>
-    <script type="text/babel" src="/components/WizardModal.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/MappingEditor.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/AlgoPanel.js?v=2.4.8">
-</script>
-    <script type="text/babel" src="/components/DashboardModals.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/SettingsModal.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/EconomicCalendar.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/CandleTimer.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="components/PriceChangeIndicator.js?v=1.0.0">
-</script>
-    <script type="text/babel" src="components/AlgoLab.js?v=2.5.0">
-</script>
-    <script type="text/babel" src="/components/useTradeStream.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/TapeConfigModal.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/TapePanel.js?v=2.4.7">
-</script>
-    <script type="text/babel" src="/components/LoginModal.js?v=2.4.7">
-</script>
+    <script type="text/babel" src="/components/SymbolSearchModal.js?v=2.4.8"></script>
+    <script type="text/babel" src="/components/WizardModal.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/MappingEditor.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/AlgoPanel.js?v=2.4.8"></script>
+    <script type="text/babel" src="/components/DashboardModals.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/SettingsModal.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/EconomicCalendar.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/CandleTimer.js?v=2.4.7"></script>
+    <script type="text/babel" src="components/PriceChangeIndicator.js?v=1.0.0"></script>
+    <script type="text/babel" src="components/AlgoLab.js?v=2.5.0"></script>
+    <script type="text/babel" src="/components/useTradeStream.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/TapeConfigModal.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/TapePanel.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/LoginModal.js?v=2.4.7"></script>
     <script>
 window.addEventListener('error', function (e) {
   console.error('[GLOBAL_ERROR]', e.message, 'at', e.filename, ':', e.lineno);
@@ -190,149 +158,17 @@ tailwind.config = {
   }
 };
 </script>
-    <style type="text/tailwindcss">
-        body, html, #root {
-                height: 100%;
-                width: 100%;
-                margin: 0;
-                padding: 0;
-                background-color: #050505 !important;
-                color: #e2e8f0;
-                overflow: hidden;
-            }
-            * {
-                scrollbar-color: #333 #050505;
-            }
-            .glass-panel {
-                background: rgba(17, 17, 17, 0.95);
-                border: 1px solid #222;
-            }
-            /* Custom Scrollbar */
-            ::-webkit-scrollbar {
-                width: 5px;
-                height: 5px;
-            }
-            ::-webkit-scrollbar-track {
-                background: #050505;
-            }
-            ::-webkit-scrollbar-thumb {
-                background: #333;
-                border-radius: 2px;
-            }
-            ::-webkit-scrollbar-thumb:hover {
-                background: #555;
-            }
-            .no-scrollbar::-webkit-scrollbar {
-                display: none;
-            }
-            .no-scrollbar {
-                -ms-overflow-style: none;
-                scrollbar-width: none;
-            }
-            /* FORCE DARK THEME ON ALL INPUTS AND SELECTS */
-            input, select, textarea {
-                background-color: #050505 !important;
-                color: #e2e8f0 !important;
-                border: 1px solid #222 !important;
-            }
-                        input:focus, select:focus, textarea:focus {
-                border-color: #f59e0b !important;
-                outline: none !important;
-            }
-            /* Order Entry overrides */
-            .order-entry-panel, .oe-field-container {
-                background-color: #050505 !important;
-            }
-            .btn-tab {
-                padding: 0.5rem 1rem;
-                font-size: 0.75rem;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                color: #64748b;
-                border-bottom: 2px solid transparent;
-                transition: all 0.2s;
-            }
-            .btn-tab:hover {
-                color: white;
-            }
-            .btn-tab.active {
-                color: var(--accent);
-                border-bottom-color: var(--accent);
-            }
-            .input-dark {
-                background-color: black;
-                border: 1px solid var(--border);
-                border-radius: 0.25rem;
-                padding: 0.375rem 0.5rem;
-                font-size: 0.75rem;
-                color: white;
-                outline: none;
-                width: 100%;
-                font-family:
-                    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-                    "Liberation Mono", "Courier New", monospace;
-                text-align: right;
-            }
-            .input-dark:focus {
-                border-color: var(--accent);
-            }
-            .order-btn {
-                width: 100%;
-                padding-top: 0.4rem;
-                padding-bottom: 0.4rem;
-                border-radius: 0.5rem;
-                font-weight: 600;
-                font-size: 0.75rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                transition: all 0.2s;
-                box-shadow:
-                    0 4px 6px -1px rgba(0, 0, 0, 0.1),
-                    0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            }
-            .order-btn:active {
-                transform: scale(0.95);
-            }
-            /* Hide number input spinners */
-            input[type="number"]::-webkit-inner-spin-button,
-            input[type="number"]::-webkit-outer-spin-button {
-                -webkit-appearance: none;
-                margin: 0;
-            }
-            /* Animations */
-            @keyframes fadeIn {
-                from {
-                    opacity: 0;
-                }
-                to {
-                    opacity: 1;
-                }
-            }
-            /* Global TradingView Visual Fixes (Avoid Flash) */
-            div[class*="tv-logo"],
-            div[class*="tradingview-logo"],
-            a[href*="tradingview.com"] {
-                display: none !important;
-                visibility: hidden !important;
-                opacity: 0 !important;
-                pointer-events: none !important;
-            }
-            /* Resizing Global State */
-            body.resizing-active .chart-pane-container {
-                pointer-events: none !important;
-            }
-            body.resizing-active * {
-                user-select: none !important;
-                cursor: inherit !important;
-            }
-        </style>
 </head>
 <body>
+    <!-- SEO Header (Hidden) -->
+    <h1 style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;">
+        Quantum Llama Professional Trading Terminal - Order Flow, Footprint & DOM
+    </h1>
+
     <div id="platform-loader" style="
                 position: fixed;
                 inset: 0;
-                background: rgba(255, 255, 255, 0.005);
+                background: #050505;
                 backdrop-filter: blur(3px) saturate(180%);
                 -webkit-backdrop-filter: blur(3px) saturate(180%);
                 z-index: 9999;
@@ -481,7 +317,7 @@ const WizardModal = window.WizardModal;
 const AlgoPanel = window.AlgoPanel;
 const DashboardModal = window.DashboardModal;
 const BacktestPanel = window.BacktestPanel;
-const PlatformLoader = window.PlatformLoader;
+// const PlatformLoader = window.PlatformLoader;
 const DashboardModals = window.DashboardModals;
 const SettingsModal = window.SettingsModal;
 const EconomicCalendar = window.EconomicCalendar;
@@ -495,6 +331,7 @@ const getDefaultChartSettings = window.getDefaultChartSettings;
 const ChartSettingsModal = window.ChartSettingsModal;
 const ErrorBoundary = window.ErrorBoundary;
 const ChartComponent = window.ChartComponent;
+const WorkspacesModal = window.WorkspacesModal;
 const useConfig = (
 key,
 defaultValue = null,
@@ -684,18 +521,32 @@ const getUniversalSymbol = (symbol, platform = null) => {
   return s.trim();
 };
 const detectPlatformType = (symbol = null) => {
+  const params = new URLSearchParams(window.location.search);
+  const urlPlatform = params.get("platform");
+  if (urlPlatform && ["mt5", "nt8", "crypto", "tradovate"].includes(urlPlatform)) {
+    return urlPlatform;
+  }
+  
   const sym = (symbol || window.activeSymbol || "").toUpperCase();
-  const selectedPlatform = localStorage.getItem("platform") || localStorage.getItem("broker_platform");
-  if (sym.includes("USDT") || sym.includes("USDC") || sym.includes("ETH-") || sym.includes("BTC-") ||
-  sym.includes("SOL-") || sym.includes("XRP-") || sym.includes("BNB-")) {
+  
+  // Prioritize Symbol-based detection if it matches known Crypto patterns
+  if (sym.includes("USDT") || sym.includes("USDC") || sym.includes("/") || sym.includes("ETH-") || sym.includes("BTC-") ||
+      sym.includes("SOL-") || sym.includes("XRP-") || sym.includes("BNB-")) {
     return "crypto";
   }
+  
+  // Known MT5/Futures symbols (NQ, ES, MNQ, MES, CL, GC, etc.)
+  if (sym.startsWith("MNQ") || sym.startsWith("NQ") || sym.startsWith("ES") || sym.startsWith("MES") || 
+      sym.startsWith("CL") || sym.startsWith("GC") || sym.startsWith("YM") || sym.startsWith("RTY") || 
+      sym.includes("=F") || sym.includes(".V") || sym.includes(".M")) {
+    return "mt5";
+  }
+
+  const selectedPlatform = localStorage.getItem("platform") || localStorage.getItem("broker_platform");
   if (selectedPlatform && ["mt5", "nt8", "crypto", "tradovate"].includes(selectedPlatform)) {
     return selectedPlatform;
   }
-  if (sym.includes(" ") && (sym.includes("-2") || sym.includes("-0"))) {
-    return "nt8";
-  }
+  
   return "mt5";
 };
 window.getUniversalSymbol = getUniversalSymbol;
@@ -1312,8 +1163,8 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 window.Modal = Modal;
 const AboutModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
-  const currentVersion = "Beta 0.1.7 Stable";
-  const latestVersion = "Beta 0.1.7 Stable";
+  const currentVersion = "1.8.1";
+  const latestVersion = "1.8.1";
   const hasUpdate = latestVersion !== currentVersion;
   const [pos, setPos] = useState({ x: window.innerWidth / 2 - 250, y: 150 });
   const [dragging, setDragging] = useState(false);
@@ -1380,7 +1231,7 @@ const AboutModal = ({ isOpen, onClose }) => {
     React.createElement("span", { className: "text-white font-mono text-sm font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10" }, "v",
     currentVersion
     ),
-    React.createElement("span", { className: "text-[10px] text-yellow-500 font-black uppercase tracking-widest border border-yellow-500/30 px-1.5 rounded" }, "Beta Stable"
+    React.createElement("span", { className: "text-[10px] text-yellow-500 font-black uppercase tracking-widest border border-yellow-500/30 px-1.5 rounded" }, "Stable Version"
     )
     ),
     React.createElement("p", { className: "text-xs text-muted leading-relaxed font-medium" }, "High-performance quantitative platform integrating artificial intelligence and market microstructure analysis for professional algorithmic trading."
@@ -1425,8 +1276,8 @@ const AboutModal = ({ isOpen, onClose }) => {
     React.createElement("a", { href: "mailto:nbm.systemas.ar@gmail.com", className: "text-[9px] text-muted hover:text-white flex items-center gap-2" },
     React.createElement("i", { className: "fas fa-envelope text-[8px] opacity-50" }), " nbm.systemas.ar"
     ),
-    React.createElement("a", { href: "https://github.com/pabloezm", target: "_blank", className: "text-[9px] text-muted hover:text-white flex items-center gap-2" },
-    React.createElement("i", { className: "fab fa-github text-[8px] opacity-50" }), " pabloezm"
+    React.createElement("a", { href: "https://github.com/QuantLlama", target: "_blank", className: "text-[9px] text-muted hover:text-white flex items-center gap-2" },
+    React.createElement("i", { className: "fab fa-github text-[8px] opacity-50" }), " Quant Llama"
     )
     )
     )
@@ -1442,34 +1293,39 @@ const AboutModal = ({ isOpen, onClose }) => {
     ));
 };
 window.ResizablePanel = ResizablePanel;
-const Header = ({
-  connectionStatus,
-  systemStatus,
-  accountData,
-  activeSymbol,
-  activeTF,
-  onSymbolChange,
-  onTFChange,
-  onOpenSettings,
-  onOpenSymbolSearch,
-  currentView,
-  onViewChange,
-  showTape,
-  toggleTape,
-  showOrderEntry,
-  toggleOrderEntry,
-  showDom,
-  toggleDom,
-  onSaveWorkspace,
-  layout,
-  onLayoutChange,
-  marketStatus,
-  lastCandleTime,
-  chartType,
-  onChartTypeChange,
-  realizedDailyPnl,
-  setCurrentPlatform
-}) => {
+const Header = (props) => {
+  const {
+    connectionStatus,
+    systemStatus,
+    accountData,
+    activeSymbol,
+    activeTF,
+    onSymbolChange,
+    onTFChange,
+    onOpenSettings,
+    onOpenSymbolSearch,
+    currentView,
+    onViewChange,
+    showTape,
+    toggleTape,
+    showOrderEntry,
+    toggleOrderEntry,
+    showDom,
+    toggleDom,
+    onOpenWorkspaces,
+    onSaveWorkspace,
+    workspaces,
+    onLoadWorkspace,
+    layout,
+    onLayoutChange,
+    marketStatus,
+    lastCandleTime,
+    chartType,
+    onChartTypeChange,
+    realizedDailyPnl,
+    setCurrentPlatform,
+    activeWorkspaceName
+  } = props;
   const [saveStatus, setSaveStatus] = useState('idle');
   useEffect(() => {
     const handleStatus = (e) => {
@@ -1537,7 +1393,7 @@ const Header = ({
     ),
     React.createElement("div", { className: "flex items-center gap-1 mt-0.5" },
     React.createElement("span", { className: "text-[7px] text-white/30 font-bold uppercase tracking-tighter bg-white/5 px-1 rounded" }, "PLATFORM"),
-    React.createElement("span", { className: "text-[7px] text-accent/70 font-bold px-1 bg-accent/10 rounded" }, "v0.1.7")
+    React.createElement("span", { className: "text-[7px] text-accent/70 font-bold px-1 bg-accent/10 rounded" }, "v1.8.1")
     )
     )
     ),
@@ -1633,6 +1489,39 @@ const Header = ({
     )
     )
     ),
+    React.createElement("div", { className: "flex items-center gap-1 bg-black/40 rounded border border-white/5 p-0.5" },
+      React.createElement(Tooltip, { text: activeWorkspaceName ? `Current Workspace: ${activeWorkspaceName.toUpperCase()}` : "Select Workspace" },
+        React.createElement("select", {
+          className: "bg-transparent text-[9px] font-black text-accent uppercase tracking-tighter outline-none cursor-pointer px-2 py-1 hover:text-white transition-colors border-r border-white/5 min-w-[120px]",
+          onChange: (e) => {
+            const val = e.target.value;
+            if (val) onLoadWorkspace(val);
+          },
+          value: activeWorkspaceName || ""
+        },
+          React.createElement("option", { value: activeWorkspaceName || "", disabled: true }, activeWorkspaceName ? activeWorkspaceName.toUpperCase() : "WORKSPACES"),
+          Object.keys(workspaces || {}).sort().filter(n => n !== activeWorkspaceName).map(name => 
+            React.createElement("option", { key: name, value: name, className: "bg-[#0d0d0d] text-white" }, name.toUpperCase())
+          )
+        )
+      ),
+      React.createElement(Tooltip, { text: "Manage / New Workspace" },
+        React.createElement("button", {
+          onClick: onOpenWorkspaces,
+          className: "flex items-center justify-center w-6 h-6 text-accent hover:text-white transition-all hover:bg-white/5 rounded"
+        },
+          React.createElement("i", { className: "fas fa-plus-circle text-[10px]" })
+        )
+      ),
+      React.createElement(Tooltip, { text: "Quick Save" },
+        React.createElement("button", {
+          onClick: saveStatus === 'saving' ? undefined : () => onSaveWorkspace("last-active"),
+          className: "flex items-center justify-center w-6 h-6 text-accent hover:text-white transition-all hover:bg-white/5 rounded"
+        },
+          React.createElement("i", { className: `fas ${saveStatus === 'saving' ? 'fa-circle-notch fa-spin' : 'fa-save'} text-[10px]` })
+        )
+      )
+    ),
     React.createElement("button", {
       onClick: onOpenSymbolSearch,
       className: "flex items-center gap-1 text-[9px] font-bold text-white hover:text-accent transition-colors py-1 bg-black/50 px-2 rounded border border-border hover:border-accent/30" },
@@ -1698,6 +1587,29 @@ const Header = ({
     )
     ),
     React.createElement("div", { className: "flex items-center gap-3 text-xs" },
+    (() => {
+      const acc = accountData || systemStatus?.account || {};
+      const typeStr = (acc.account_type || acc.type || acc.environment || acc.server || '').toLowerCase();
+      const platform = detectPlatformType();
+      let isDemo = acc.is_demo === true || acc.is_paper === true || typeStr.includes('demo') || typeStr.includes('paper') || typeStr.includes('simulation');
+      if (!isDemo && platform === 'crypto') {
+         if (typeStr.includes('test') || (activeSymbol && activeSymbol.includes('TEST'))) isDemo = true;
+         else isDemo = false; 
+      } else if (typeStr === '' && !isDemo) {
+         isDemo = true;
+      }
+      const badgeColor = isDemo ? '#f59e0b' : '#10b981';
+      return React.createElement("div", { className: "flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded border border-white/5 shadow-inner" },
+        React.createElement("span", { 
+          style: { 
+            color: badgeColor, 
+            fontSize: '9px', 
+            fontWeight: '900',
+            letterSpacing: '0.05em'
+          } 
+        }, isDemo ? "DEMO" : "LIVE")
+      );
+    })(),
     React.createElement("div", { className: "flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded border border-white/5 shadow-inner" },
     React.createElement("span", { className: "text-white/50 text-[10px] font-black tracking-tight uppercase" }, "BAL"
     ),
@@ -1747,32 +1659,6 @@ const Header = ({
         formatted
         ));
     })()
-    ),
-    React.createElement(Tooltip, { text: "Save Workspace to Cloud" },
-    React.createElement("button", {
-      onClick: saveStatus === 'saving' ? undefined : onSaveWorkspace,
-      className: `relative w-8 h-8 flex items-center justify-center transition-colors rounded-full ${saveStatus === 'saved' ? 'text-green-500' : saveStatus === 'error' ? 'text-red-500' : 'text-muted hover:text-accent hover:bg-white/5'}` },
-    React.createElement("i", { className: `fas ${saveStatus === 'saved' ? 'fa-check' : saveStatus === 'error' ? 'fa-times' : 'fa-cloud-upload-alt'} text-[10px] z-10 transition-transform ${saveStatus === 'saved' ? 'animate-in zoom-in' : ''}` }),
-    saveStatus === 'saving' &&
-    React.createElement("svg", { className: "absolute inset-0 w-full h-full -rotate-90 animate-[spin_1s_linear_infinite]", viewBox: "0 0 24 24" },
-    React.createElement("circle", { className: "opacity-20", cx: "12", cy: "12", r: "11", stroke: "currentColor", strokeWidth: "1.5", fill: "none" }),
-    React.createElement("circle", { className: "text-accent", cx: "12", cy: "12", r: "11", stroke: "currentColor", strokeWidth: "1.5", fill: "none", strokeDasharray: "69", strokeDashoffset: "17", strokeLinecap: "round" })
-    ),
-    saveStatus === 'saved' &&
-    React.createElement("svg", { className: "absolute inset-0 w-full h-full -rotate-90", viewBox: "0 0 24 24" },
-    React.createElement("circle", {
-      className: "text-green-500 animate-[dash_0.6s_ease-out_forwards]",
-      cx: "12", cy: "12", r: "11",
-      stroke: "currentColor",
-      strokeWidth: "1.5",
-      fill: "none",
-      strokeDasharray: "69",
-      strokeDashoffset: "69",
-      strokeLinecap: "round" }
-    ),
-    React.createElement("style", null, `@keyframes dash { to { stroke-dashoffset: 0; } }`)
-    )
-    )
     ),
     React.createElement("div", { className: "flex items-center gap-1 bg-black/50 px-2 py-1 rounded border border-border" },
     React.createElement("i", { className: "fas fa-exchange-alt text-accent text-[10px]" }),
@@ -1945,7 +1831,7 @@ const Footer = ({ connected, latency, dataSource, platform }) => {
     React.createElement("button", {
       onClick: () => setAboutOpen(true),
       className: "text-muted hover:text-accent transition-colors cursor-pointer group flex items-center gap-1.5" },
-    React.createElement("span", { className: "w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" }), "VBeta 0.1.7 Stable"
+    React.createElement("span", { className: "w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" }), "v1.8.1"
     ),
     React.createElement("a", {
       href: "https://llamaterminal.nbmsystemas.com",
@@ -3632,8 +3518,10 @@ window.CurrentPriceLineOverlay = ({
         const badgeEl = badgeRef.current;
         const color = settings.color || "#ffffff";
         if (actualLineEl && badgeEl) {
+          const modeChanged = (settings.fullWidth && cache.left !== '0') || (!settings.fullWidth && cache.left === '0');
+
           if (settings.fullWidth) {
-            if (cache.left !== '0') {
+            if (modeChanged || cache.left !== '0') {
               lineEl.style.left = '0';
               lineEl.style.width = '100%';
               cache.left = '0';
@@ -3645,11 +3533,16 @@ window.CurrentPriceLineOverlay = ({
               const barSpacing = chartRef.current.timeScale().options().barSpacing;
               const startX = Math.max(0, lastX + barSpacing / 2);
               const newLeft = `${startX}px`;
-              if (cache.left !== newLeft) {
+              if (modeChanged || cache.left !== newLeft) {
                 lineEl.style.left = newLeft;
                 lineEl.style.width = `calc(100% - ${newLeft})`;
                 cache.left = newLeft;
               }
+            } else if (modeChanged) {
+              // Fallback si no hay coordenadas: poner al 50% para que no parezca full
+              lineEl.style.left = '50%';
+              lineEl.style.width = '50%';
+              cache.left = '50%';
             }
           }
           if (cache.color !== color) {
@@ -4529,6 +4422,22 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
   const [historicalData, setHistoricalData] = useState(null);
   const [connected, setConnected] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showWorkspacesModal, setShowWorkspacesModal] = useState(false);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState({});
+  const fetchWorkspaces = async () => {
+    try {
+      const res = await fetch("/api/workspaces");
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableWorkspaces(data || {});
+      }
+    } catch (e) {
+      console.error("Error fetching workspaces:", e);
+    }
+  };
+  useEffect(() => {
+    fetchWorkspaces();
+  }, []);
   const [availableAccounts, setAvailableAccounts] = useState([]);
   const [connectionStatus, setConnectionStatus] =
   useState("disconnected");
@@ -4908,8 +4817,22 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
   useState(false);
   const [settingsChartId, setSettingsChartId] = useState(null);
   const [charts, setCharts] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isPopout = params.get("popout") === "true";
+    const popoutSym = params.get("symbol");
+    const popoutTf = params.get("tf");
     const platform = detectPlatformType();
-    const defaultSymbol = getDefaultSymbolForPlatform(platform);
+    const defaultSymbol = popoutSym || getDefaultSymbolForPlatform(platform);
+    
+    if (isPopout && popoutSym) {
+      return [{
+        id: "popout-main",
+        symbol: popoutSym,
+        tf: popoutTf || "5m",
+        settings: getDefaultChartSettings()
+      }];
+    }
+    
     try {
       const saved = localStorage.getItem("last_charts");
       let parsedCharts = saved ?
@@ -5024,12 +4947,12 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     setChartSettingsOpen(true);
   };
   const getChartPaneProps = (chart) => {
-    const currentPlatform = detectPlatformType();
     return {
       key: chart.id,
       chartId: chart.id,
       symbol: chart.symbol,
       tf: chart.tf,
+      platform: currentPlatform,
       chartSettings: chart.settings || getDefaultChartSettings(),
       onOpenSettings: () => openChartSettings(chart.id),
       onUpdateSettings: (newSettings) => updateChartSettings(chart.id, newSettings),
@@ -5048,7 +4971,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       mt5PendingOrders: mt5PendingOrders,
       setLastCandleTime: setLastCandleTime,
       chartType: chartType,
-      onSymbolChange: setActiveSymbol,
+      onSymbolChange: handleSymbolChange,
       onTFChange: setActiveTF,
       onOpenSymbolSearch: () => setSymbolSearchOpen(true),
       setBigTradeConfig: setBigTradeConfig,
@@ -5161,9 +5084,20 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       return hasChanges ? updatedCharts : prevCharts;
     });
   }, [currentPlatform]);
-  const [activeChartId, setActiveChartId] = useState(
-    () => charts[0]?.id || 1
+  const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => 
+    localStorage.getItem("active_workspace_name") || "WORKSPACE 1"
   );
+  useEffect(() => {
+    const handleActiveWorkspaceUpdate = (e) => {
+      if (e.detail?.name) {
+        setActiveWorkspaceName(e.detail.name);
+        localStorage.setItem("active_workspace_name", e.detail.name);
+      }
+    };
+    window.addEventListener('active_workspace_updated', handleActiveWorkspaceUpdate);
+    return () => window.removeEventListener('active_workspace_updated', handleActiveWorkspaceUpdate);
+  }, []);
+  const [activeChartId, setActiveChartId] = useState(() => charts[0]?.id || 1);
   const globalBigTradesRef = useRef({});
   useEffect(() => {
     const cleanupInterval = setInterval(
@@ -5291,6 +5225,12 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     };
     fetchSymbolInfo();
   }, [activeSymbol]);
+  const handlePlatformChange = (newPlatform) => {
+    setCurrentPlatform(newPlatform);
+    localStorage.setItem("platform", newPlatform);
+    localStorage.setItem("broker_platform", newPlatform);
+    window.dispatchEvent(new CustomEvent("platform_switched", { detail: { platform: newPlatform } }));
+  };
   const setActiveSymbol = (sym, platform = null) => {
     setCharts((prev) =>
     prev.map((c) =>
@@ -5301,15 +5241,8 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     const liveBrokerType = symbolMetadata?.broker_type || detectPlatformType();
     localStorage.setItem(`last_symbol_${liveBrokerType}`, sym);
     if (platform) {
-      setCurrentPlatform(platform);
-      localStorage.setItem("broker_platform", platform);
-      localStorage.setItem("platform", platform);
+      handlePlatformChange(platform);
       localStorage.setItem(`last_symbol_${platform}`, sym);
-      window.dispatchEvent(
-        new CustomEvent("platform_switched", {
-          detail: { platform }
-        })
-      );
     }
   };
   const setActiveTF = (tf) => {
@@ -5319,6 +5252,9 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     )
     );
     localStorage.setItem("last_tf", tf);
+  };
+  const handleSymbolChange = (newSymbol) => {
+    setActiveSymbol(newSymbol, detectPlatformType(newSymbol));
   };
   const [activeTool, setActiveTool] = useState("cursor");
   useEffect(() => {
@@ -5800,32 +5736,39 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       }
     })();
   }, [accountData]);
-  const handleSaveWorkspace = async () => {
+  const handleSaveWorkspace = async (name = "last-active") => {
+    if (name !== "last-active" && name !== "last-charts") {
+      setActiveWorkspaceName(name);
+      localStorage.setItem("active_workspace_name", name);
+    }
     window.dispatchEvent(new CustomEvent('save_status', { detail: 'saving' }));
-    const drawings = JSON.parse(
-      localStorage.getItem("user_drawings_v2") || "[]"
-    );
+    const drawings = JSON.parse(localStorage.getItem("user_drawings_v2") || "[]");
     const visibilitySettings = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (
-      key.startsWith("show_volume_") ||
-      key.startsWith("show_delta_"))
-      {
+      if (key.startsWith("show_volume_") || key.startsWith("show_delta_")) {
         visibilitySettings[key] = localStorage.getItem(key);
       }
     }
-    const workspace = {
+    const workspaceData = {
       layout,
-      charts,
+      charts: charts.map(c => ({
+        ...c,
+        settings: {
+          ...(c.settings || {}),
+          indicators: c.settings?.indicators || c.indicators || {}
+        }
+      })),
       activeChartId,
       showTape,
       showOrderEntry,
       showDom,
       drawings,
       indicators: JSON.parse(localStorage.getItem("trading_indicators") || "{}"),
-      theme: localStorage.getItem("theme"),
-      platform: localStorage.getItem("platform"),
+      indicator_settings: JSON.parse(localStorage.getItem("trading_indicators") || "{}"),
+      theme: localStorage.getItem("theme") || "dark",
+      app_theme: localStorage.getItem("app_theme") || "dark",
+      platform: localStorage.getItem("platform") || detectPlatformType(),
       bt_min_vol: localStorage.getItem("bt_min_vol"),
       bt_buy_color: localStorage.getItem("bt_buy_color"),
       bt_sell_color: localStorage.getItem("bt_sell_color"),
@@ -5836,34 +5779,156 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       global_candle_border_visible: localStorage.getItem("global_candle_border_visible"),
       global_candle_border_color: localStorage.getItem("global_candle_border_color"),
       visibility_settings: visibilitySettings,
+      panel_sizes: {
+        tapeWidth,
+        orderEntryWidth,
+        tape1Height,
+        tape2Height,
+        domWidth
+      },
       tapeWidth,
       orderEntryWidth,
       tape1Height,
-      tape2Height
+      tape2Height,
+      domWidth,
+      bigTradeConfig,
+      updated_at: new Date().toISOString()
     };
     try {
-      const res = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace })
-      });
-      if (res.ok) {
-        window.dispatchEvent(new CustomEvent('save_status', { detail: 'saved' }));
-      } else {
-        window.dispatchEvent(new CustomEvent('save_status', { detail: 'error' }));
+      // 1. Save to the requested name (usually 'last-active' from the cloud button)
+      const success = await WorkspaceManager.saveWorkspace(name, workspaceData);
+      
+      // 2. CRITICAL: If saving to 'last-active' (Cloud Button), also save to the current platform session
+      // This ensures that when switching back to this platform, the changes are there.
+      if (name === "last-active") {
+        const currentPlat = detectPlatformType(activeSymbol);
+        await WorkspaceManager.saveWorkspace(`session_${currentPlat}`, workspaceData);
       }
+      
+      if (success) {
+        window.dispatchEvent(new CustomEvent('save_status', { detail: 'saved' }));
+        await fetchWorkspaces();
+        if (name === "last-active") {
+           await fetch("/api/config", {
+             method: "POST",
+             headers: { "Content-Type": "application/json" },
+             body: JSON.stringify({ workspace: workspaceData })
+           });
+        }
+        return true;
+      }
+      throw new Error("Failed to save to database");
     } catch (e) {
       console.error(e);
       window.dispatchEvent(new CustomEvent('save_status', { detail: 'error' }));
-      window.dispatchEvent(
-        new CustomEvent("notify", {
-          detail: {
-            type: "error",
-            title: "Save Failed",
-            message: "Could not save workspace."
-          }
-        })
-      );
+      window.dispatchEvent(new CustomEvent("notify", {
+        detail: { type: "error", title: "Save Failed", message: `Could not save workspace '${name}'.` }
+      }));
+      return false;
+    }
+  };
+
+  const handleLoadWorkspace = async (name, workspace) => {
+    if (!workspace) return;
+    setActiveWorkspaceName(name);
+    localStorage.setItem("active_workspace_name", name);
+    window.dispatchEvent(new CustomEvent('save_status', { detail: 'loading' }));
+    try {
+      if (workspace.layout) setLayout(workspace.layout);
+      if (workspace.charts) {
+        const hydrated = workspace.charts.map(chart => {
+          const defaults = typeof getDefaultChartSettings === 'function' ? getDefaultChartSettings() : {};
+          const currentSettings = chart.settings || {};
+          const currentAppearance = currentSettings.appearance || {};
+          const normalizedAppearance = {
+            ...(defaults.appearance || {}),
+            ...currentAppearance
+          };
+          return {
+            ...chart,
+            settings: {
+              ...defaults,
+              ...currentSettings,
+              indicators: {
+                ...(defaults.indicators || {}),
+                ...(currentSettings.indicators || {})
+              },
+              overlays: {
+                ...(defaults.overlays || {}),
+                ...(currentSettings.overlays || {})
+              },
+              filters: {
+                ...(defaults.filters || {}),
+                ...(currentSettings.filters || {})
+              },
+              layout: {
+                ...(defaults.layout || {}),
+                ...(currentSettings.layout || {})
+              },
+              appearance: normalizedAppearance,
+              dom: {
+                ...(defaults.dom || {}),
+                ...(currentSettings.dom || {})
+              }
+            }
+          };
+        });
+        setCharts(hydrated);
+        localStorage.setItem("last_charts", JSON.stringify(hydrated));
+      }
+      if (workspace.activeChartId) setActiveChartId(workspace.activeChartId);
+      
+      if (workspace.showTape !== undefined) setShowTape(workspace.showTape);
+      if (workspace.showOrderEntry !== undefined) setShowOrderEntry(workspace.showOrderEntry);
+      if (workspace.showDom !== undefined) setShowDom(workspace.showDom);
+      
+      if (workspace.tapeWidth || workspace.panel_sizes?.tapeWidth) setTapeWidth(workspace.tapeWidth || workspace.panel_sizes.tapeWidth);
+      if (workspace.orderEntryWidth || workspace.panel_sizes?.orderEntryWidth) setOrderEntryWidth(workspace.orderEntryWidth || workspace.panel_sizes.orderEntryWidth);
+      if (workspace.tape1Height || workspace.panel_sizes?.tape1Height) setTape1Height(workspace.tape1Height || workspace.panel_sizes.tape1Height);
+      if (workspace.tape2Height || workspace.panel_sizes?.tape2Height) setTape2Height(workspace.tape2Height || workspace.panel_sizes.tape2Height);
+      if (workspace.domWidth || workspace.panel_sizes?.domWidth) setDomWidth(workspace.domWidth || workspace.panel_sizes.domWidth);
+      
+      if (workspace.drawings) localStorage.setItem("user_drawings_v2", JSON.stringify(workspace.drawings));
+      
+      const indicatorData = workspace.indicator_settings || workspace.indicators;
+      if (indicatorData && typeof indicatorData === "object") {
+        localStorage.setItem("trading_indicators", JSON.stringify(indicatorData));
+        if (typeof setIndicators === "function") setIndicators(indicatorData);
+      }
+      
+      if (workspace.bigTradeConfig) setBigTradeConfig(workspace.bigTradeConfig);
+      
+      if (workspace.theme) {
+        localStorage.setItem("theme", workspace.theme);
+        localStorage.setItem("app_theme", workspace.theme);
+      } else if (workspace.app_theme) {
+        localStorage.setItem("theme", workspace.app_theme);
+        localStorage.setItem("app_theme", workspace.app_theme);
+      }
+      if (workspace.layout) {
+        localStorage.setItem("last_layout", workspace.layout);
+      }
+      if (workspace.bt_min_vol) localStorage.setItem("bt_min_vol", workspace.bt_min_vol);
+      if (workspace.bt_buy_color) localStorage.setItem("bt_buy_color", workspace.bt_buy_color);
+      if (workspace.bt_sell_color) localStorage.setItem("bt_sell_color", workspace.bt_sell_color);
+      if (workspace.bt_opacity) localStorage.setItem("bt_opacity", workspace.bt_opacity);
+      if (workspace.global_chart_bg_color) localStorage.setItem("global_chart_bg_color", workspace.global_chart_bg_color);
+      if (workspace.global_candle_up_color) localStorage.setItem("global_candle_up_color", workspace.global_candle_up_color);
+      if (workspace.global_candle_down_color) localStorage.setItem("global_candle_down_color", workspace.global_candle_down_color);
+      if (workspace.global_candle_border_visible) localStorage.setItem("global_candle_border_visible", workspace.global_candle_border_visible);
+      if (workspace.global_candle_border_color) localStorage.setItem("global_candle_border_color", workspace.global_candle_border_color);
+      
+      if (workspace.visibility_settings) {
+        Object.entries(workspace.visibility_settings).forEach(([k, v]) => localStorage.setItem(k, v));
+      }
+      
+      window.dispatchEvent(new Event("theme_changed"));
+      window.dispatchEvent(new CustomEvent("notify", {
+        detail: { type: "success", title: "Workspace Loaded", message: `Environment '${name}' restored.` }
+      }));
+      window.dispatchEvent(new CustomEvent('save_status', { detail: 'idle' }));
+    } catch (e) {
+      console.error("Error loading workspace:", e);
     }
   };
   useEffect(() => {
@@ -6398,7 +6463,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
         realizedDailyPnl: realizedDailyPnl,
         onOpenSettings: () =>
         setChartSettingsOpen(true),
-        onSymbolChange: setActiveSymbol,
+        onSymbolChange: handleSymbolChange,
         onTFChange: setActiveTF,
         onOpenSymbolSearch: () =>
         setSymbolSearchOpen(true),
@@ -6432,7 +6497,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
         mt5Positions: mt5Positions,
         mt5PendingOrders: mt5PendingOrders,
         oneClick: oneClick,
-        onSymbolChange: setActiveSymbol,
+        onSymbolChange: handleSymbolChange,
         setOneClick: (val) => {
           setOneClick(val);
           localStorage.setItem(
@@ -6450,7 +6515,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       React.createElement(SymbolSearchModal, {
         isOpen: symbolSearchOpen,
         onClose: () => setSymbolSearchOpen(false),
-        onSelect: setActiveSymbol,
+        onSelect: handleSymbolChange,
         availableSymbols: availableSymbols,
         currentPlatform: currentPlatform }
       ),
@@ -6530,7 +6595,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       accountData: accountData,
       activeSymbol: activeSymbol,
       activeTF: activeTF,
-      onSymbolChange: setActiveSymbol,
+      onSymbolChange: handleSymbolChange,
       onTFChange: setActiveTF,
       onOpenSettings: () => setSettingsOpen(true),
       onOpenSymbolSearch: () => setSymbolSearchOpen(true),
@@ -6538,9 +6603,15 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       onViewChange: setCurrentView,
       showTape: showTape,
       toggleTape: () => setShowTape((p) => !p),
-      showOrderEntry: showOrderEntry,
       toggleOrderEntry: () =>
       setShowOrderEntry((p) => !p),
+      onOpenWorkspaces: () => setShowWorkspacesModal(true),
+      workspaces: availableWorkspaces,
+      onLoadWorkspace: (name) => {
+        if (availableWorkspaces[name]) {
+          handleLoadWorkspace(name, availableWorkspaces[name]);
+        }
+      },
       onSaveWorkspace: handleSaveWorkspace,
       layout: layout,
       onLayoutChange: setLayout,
@@ -6567,7 +6638,8 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       showDom: showDom,
       toggleDom: () => setShowDom((p) => !p),
       realizedDailyPnl: realizedDailyPnl,
-      setCurrentPlatform: setCurrentPlatform }
+      setCurrentPlatform: handlePlatformChange,
+      activeWorkspaceName: activeWorkspaceName }
     ),
     React.createElement("div", { className: "flex flex-1 overflow-hidden min-h-0" },
     React.createElement(RightSidePanel, {
@@ -6612,39 +6684,39 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       } },
     layout === "single" && charts.length > 0 &&
     React.createElement("div", { className: "w-full h-full" },
-    React.createElement(ChartPane, getChartPaneProps(charts[0]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[0]), key: `pane-0-${layout}` })
     ),
     layout === "2v" && charts.length >= 2 &&
     React.createElement(React.Fragment, null,
-    React.createElement(ChartPane, getChartPaneProps(charts[0])),
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[0]), key: `pane-0-${layout}` }),
     React.createElement(GridSplitter, { direction: "vertical", index: 0, onResize: (_, pos) => handleGridResize('vertical', pos) }),
-    React.createElement(ChartPane, getChartPaneProps(charts[1]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[1]), key: `pane-1-${layout}` })
     ),
     layout === "2h" && charts.length >= 2 &&
     React.createElement(React.Fragment, null,
-    React.createElement(ChartPane, getChartPaneProps(charts[0])),
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[0]), key: `pane-0-${layout}` }),
     React.createElement(GridSplitter, { direction: "horizontal", index: 0, onResize: (_, pos) => handleGridResize('horizontal', pos) }),
-    React.createElement(ChartPane, getChartPaneProps(charts[1]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[1]), key: `pane-1-${layout}` })
     ),
     layout === "4" && charts.length >= 4 &&
     React.createElement(React.Fragment, null,
     React.createElement("div", { style: { gridColumn: 1, gridRow: 1 } },
-    React.createElement(ChartPane, getChartPaneProps(charts[0]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[0]), key: `pane-0-${layout}` })
     ),
     React.createElement("div", { style: { gridColumn: 2, gridRow: '1 / span 3' } },
     React.createElement(GridSplitter, { direction: "vertical", index: 0, onResize: (_, pos) => handleGridResize('vertical', pos) })
     ),
     React.createElement("div", { style: { gridColumn: 3, gridRow: 1 } },
-    React.createElement(ChartPane, getChartPaneProps(charts[1]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[1]), key: `pane-1-${layout}` })
     ),
     React.createElement("div", { style: { gridRow: 2, gridColumn: '1 / span 3' } },
     React.createElement(GridSplitter, { direction: "horizontal", index: 0, onResize: (_, pos) => handleGridResize('horizontal', pos) })
     ),
     React.createElement("div", { style: { gridColumn: 1, gridRow: 3 } },
-    React.createElement(ChartPane, getChartPaneProps(charts[2]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[2]), key: `pane-2-${layout}` })
     ),
     React.createElement("div", { style: { gridColumn: 3, gridRow: 3 } },
-    React.createElement(ChartPane, getChartPaneProps(charts[3]))
+    React.createElement(ChartPane, { ...getChartPaneProps(charts[3]), key: `pane-3-${layout}` })
     )
     )
     ),
@@ -6661,7 +6733,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       oneClick: oneClick,
       setOneClick: setOneClick,
       indicators: indicators,
-      onSymbolChange: setActiveSymbol,
+      onSymbolChange: handleSymbolChange,
       availableAccounts: availableAccounts,
       symbolMetadata: symbolMetadata,
       isInitialRender: isInitialRender,
@@ -6714,7 +6786,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     React.createElement(SymbolSearchModal, {
       isOpen: symbolSearchOpen,
       onClose: () => setSymbolSearchOpen(false),
-      onSelect: setActiveSymbol,
+      onSelect: handleSymbolChange,
       currentPlatform: currentPlatform }
     ),
     React.createElement(Modal, {
@@ -6831,7 +6903,13 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     React.createElement(EconomicCalendar, {
       isOpen: showCalendar,
       onClose: () => setShowCalendar(false) }
-    )
+    ),
+    showWorkspacesModal && React.createElement(WorkspacesModal, {
+      isOpen: showWorkspacesModal,
+      onClose: () => setShowWorkspacesModal(false),
+      onSave: handleSaveWorkspace,
+      onLoad: handleLoadWorkspace
+    })
     ));
 };
 const initApp = async () => {
