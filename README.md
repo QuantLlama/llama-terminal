@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/Electron-Desktop-333333.svg" alt="Electron">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
-</p>
+</p> 
 
 ---
 
