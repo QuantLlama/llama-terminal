@@ -1,6 +1,16 @@
 import os
 import sys
 
+def get_appdata_dir():
+    app_name = "QuantumLlama"
+    if sys.platform == "win32":
+        base_dir = os.environ.get("APPDATA", os.path.expanduser("~"))
+    elif sys.platform == "darwin":
+        base_dir = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    else:
+        base_dir = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+    return os.path.join(base_dir, app_name)
+
 def get_root_dir():
     """
     Returns the persistent directory for the application.
@@ -26,7 +36,10 @@ def get_data_path(*path_parts):
     Resolves a path to a location where we can READ AND WRITE data.
     This is always relative to ROOT_DIR.
     """
-    base = get_root_dir()
+    if getattr(sys, 'frozen', False):
+        base = get_appdata_dir()
+    else:
+        base = get_root_dir()
     full_path = os.path.join(base, *path_parts)
     # Ensure parents exist
     os.makedirs(os.path.dirname(full_path), exist_ok=True)

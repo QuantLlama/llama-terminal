@@ -17,7 +17,7 @@ const NumInput = ({ value, onChange, highlight = false, autoSelect = false }) =>
       className: `w-full px-2 py-1 bg-black border rounded text-white font-mono text-sm ${highlight ? 'border-accent' : 'border-border'} focus:border-accent outline-none` }
     ));
 };
-const OrderEntry = ({ systemStatus, config, onOrder, symbol, tickData, mt5Positions, oneClick, setOneClick }) => {
+const OrderEntry = ({ systemStatus, config, onOrder, symbol, tickData, mt5Positions, oneClick, setOneClick, isLocked }) => {
   const { useState, useEffect, useRef, useMemo, useCallback } = React;
   const [orderType, setOrderType] = useState('MKT');
   const [action, setAction] = useState('BUY');
@@ -255,15 +255,17 @@ const OrderEntry = ({ systemStatus, config, onOrder, symbol, tickData, mt5Positi
     React.createElement("div", { className: "grid grid-cols-2 gap-2 p-2" },
     React.createElement("button", {
       onClick: () => {setAction('SELL');handlePlaceOrder();},
-      disabled: !isConnected,
-      className: "order-btn bg-red-600 hover:bg-red-500 text-white disabled:opacity-50 disabled:cursor-not-allowed" },
+      disabled: !isConnected || isLocked,
+      className: `order-btn text-white disabled:opacity-50 disabled:cursor-not-allowed ${isLocked ? 'bg-zinc-800' : 'bg-red-600 hover:bg-red-500'}` },
+    isLocked ? React.createElement("i", { className: "fas fa-lock mr-2" }) : null,
     "SELL ",
     volume
     ),
     React.createElement("button", {
       onClick: () => {setAction('BUY');handlePlaceOrder();},
-      disabled: !isConnected,
-      className: "order-btn bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 disabled:cursor-not-allowed" },
+      disabled: !isConnected || isLocked,
+      className: `order-btn text-white disabled:opacity-50 disabled:cursor-not-allowed ${isLocked ? 'bg-zinc-800' : 'bg-green-600 hover:bg-green-500'}` },
+    isLocked ? React.createElement("i", { className: "fas fa-lock mr-2" }) : null,
     "BUY ",
     volume
     )

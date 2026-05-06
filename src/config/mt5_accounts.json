@@ -1,17 +1,4 @@
 {
-    "19f50b2e": {
-        "id": "19f50b2e",
-        "name": "DEMO-MT5",
-        "broker": "AMPGlobalUSA",
-        "server": "AMPGlobalUSA-Demo",
-        "login": "1564960",
-        "password": "gAAAAABpkPZo38CmgDNuBgxxR68WMZx51XA_wdkpTpoiOfutJA0WQb1qrZiET7TN1t8ueCwMMxqheyc9hQjdwSj3ruOm_l92mg==",
-        "account_type": "demo",
-        "created_at": "2026-02-13T12:28:28.186065",
-        "status": "inactive",
-        "is_master": false,
-        "instance_path": null
-    },
     "a10d7963": {
         "id": "a10d7963",
         "name": "Accounts-Live",
@@ -22,20 +9,7 @@
         "account_type": "real",
         "created_at": "2026-03-27T11:10:14.418848",
         "status": "inactive",
-        "is_master": false,
-        "instance_path": "Z:\\home\\pabloezm\\.wine\\Terminal Llama\\mt5_instances\\mt5_a10d7963"
-    },
-    "56820c63": {
-        "id": "56820c63",
-        "name": "95006833",
-        "broker": "AvaTrade",
-        "server": "AvaTradeMarkets-Real 1-MT5",
-        "login": "95006833",
-        "password": "gAAAAABp9m74CqWAczOp31WoQBYKeCNxcvSyK6WnzWgi9QwpYTYKkcsaEYu1RJU3_OmWEiRdbze4a27QIkXtS1bS4YMYhPv9hA==",
-        "account_type": "real",
-        "created_at": "2026-05-02T18:36:19.804627",
-        "status": "inactive",
         "is_master": true,
-        "instance_path": null
+        "instance_path": "Z:\\home\\pabloezm\\.wine\\Terminal Llama\\mt5_instances\\mt5_a10d7963"
     }
 }

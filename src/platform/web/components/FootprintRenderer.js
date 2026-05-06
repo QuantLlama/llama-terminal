@@ -506,6 +506,34 @@ const FootprintRenderer = (() => {
       const isBull = candle.close >= candle.open;
       const yHighC = Math.round(p2yF(high));
       const yLowC = Math.round(p2yF(low));
+
+      // 1. Colapso a Mapa de Calor (cellW < 3px) - LOD Optimization
+      if (cellW < 3) {
+        const yO = Math.round(p2yF(candle.open));
+        const yC = Math.round(p2yF(candle.close));
+        const top = Math.min(yO, yC);
+        const bot = Math.max(yO, yC);
+        const hC = Math.max(2, bot - top);
+        
+        const vol = candle.volume || 1;
+        // Simple opacity calc simulating volume heatmap
+        const opacity = Math.min(0.9, 0.15 + (vol / 2000));
+        
+        ctx.fillStyle = isBull ? `rgba(0,220,110,${opacity})` : `rgba(230,40,75,${opacity})`;
+        ctx.fillRect(x, top, cellW, hC);
+        
+        if (this.showWicks) {
+           const xi = Math.round(xc);
+           ctx.strokeStyle = C.wick;
+           ctx.lineWidth = this.wickThickness;
+           ctx.beginPath();
+           ctx.moveTo(xi, Math.round(p2yF(candle.high)));
+           ctx.lineTo(xi, Math.round(p2yF(candle.low)));
+           ctx.stroke();
+        }
+        return; // Rompe el bucle, ahorrando ~149 operaciones por vela
+      }
+
       ctx.fillStyle = isBull ? 'rgba(0,220,110,0.07)' : 'rgba(230,40,75,0.07)';
       ctx.fillRect(x, yHighC, cellW, Math.max(1, yLowC - yHighC));
       const levels = candle.levels || [];
@@ -706,7 +734,8 @@ const FootprintRenderer = (() => {
       }
     }
     _drawLabels(ctx, x, y, cellW, h, lv, imb, isPOC) {
-      if (h < LABEL_MICRO_PX || cellW < 6) return;
+      // 2. Text Culling Agresivo (cellW < 10px) - Linux Hardware Accel Optimization
+      if (cellW < 10 || h < LABEL_MICRO_PX) return;
       if (lv._fmtDirty || lv.sB === undefined) {
         lv.sB = fmtATAS(lv.bid || 0, this.digits);
         lv.sA = fmtATAS(lv.ask || 0, this.digits);

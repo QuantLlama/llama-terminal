@@ -44,16 +44,18 @@ import joblib
 console = Console()
 def load_model_and_scaler(ticker, timeframe="1h"):
     safe_ticker = ticker.replace("=", "").replace("-", "")
-    models_dir = "outputs/models"
-    model_prefix = f"{models_dir}/{safe_ticker}_{timeframe}"
+    from src.services.database import get_outputs_dir
+    outputs_dir = get_outputs_dir()
+    models_dir = os.path.join(outputs_dir, "models")
+    model_prefix = os.path.join(models_dir, f"{safe_ticker}_{timeframe}")
     model_path = f"{model_prefix}_generator.pth"
     scaler_path = f"{model_prefix}_scaler.pkl"
     config_path = f"{model_prefix}_config.json"
     if not os.path.exists(model_path):
         console.print(f"[yellow]Modelo específico no encontrado: {model_path}. Intentando fallback...[/yellow]")
-        model_path = "outputs/generator.pth"
-        scaler_path = "outputs/scaler.pkl"
-        config_path = "outputs/model_config.json"
+        model_path = os.path.join(outputs_dir, "generator.pth")
+        scaler_path = os.path.join(outputs_dir, "scaler.pkl")
+        config_path = os.path.join(outputs_dir, "model_config.json")
     if not os.path.exists(model_path) or not os.path.exists(scaler_path):
         raise FileNotFoundError(f"No se encontraron los archivos del modelo para {ticker} ({timeframe}). Ejecute un entrenamiento primero.")
     scaler = joblib.load(scaler_path)
@@ -155,9 +157,13 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
     consecutive_signals = 0
     gateway = get_order_gateway()
     gateway.switch_platform(platform)
+    def safe_get(obj, key, default=None):
+        return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+
     try:
         while True:
-            config_path = "src/config/live_config.json"
+            from src.utils.paths import get_data_path
+            config_path = get_data_path("src", "config", "live_config.json")
             config = {
                 "automation_enabled": False,
                 "volume": 1.0,
@@ -179,8 +185,24 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                         config.update(json.load(f)) 
                 except:
                     pass
+            
+            if algo_config:
+                config.update(algo_config)
+                
+            # Robust boolean parsing
+            auto_str = str(config.get("automation_enabled", "False")).lower()
+            config["automation_enabled"] = auto_str == "true" or auto_str == "1"
+            
             current_balance = connector.get_balance()
             current_equity = connector.get_equity()
+            
+            # Risk-based volume calculation if risk_pct is provided
+            if "risk_pct" in config and float(config["risk_pct"]) > 0:
+                risk_pct = float(config["risk_pct"])
+                # Fallback to ATR if dataframe is available later, but for now we do a basic estimate or use config volume
+                # The actual volume will be re-calculated below before the order, but we set a default here
+                pass
+
             now = datetime.now()
             if now.date() != current_date:
                 current_date = now.date()
@@ -190,9 +212,9 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
             floating = current_equity - current_balance
             daily_pnl = realized_today + floating
             time_str = now.strftime("%H:%M")
-            is_time_valid = config["start_hour"] <= time_str <= config["end_hour"]
-            is_loss_valid = daily_pnl > -float(config["max_daily_loss"])
-            is_profit_target_reached = daily_pnl >= float(config.get("daily_profit_target", 100.0))
+            is_time_valid = config.get("start_hour", "00:00") <= time_str <= config.get("end_hour", "23:59")
+            is_loss_valid = daily_pnl > -float(config.get("max_daily_loss", 200.0))
+            is_profit_target_reached = daily_pnl >= float(config.get("daily_profit_target", 200.0))
             is_trades_valid = daily_trades < int(config["max_trades_per_day"])
             on_cooldown = (time.time() - last_trade_time) < COOLDOWN_SECONDS
             can_trade = config["automation_enabled"] and is_time_valid and is_loss_valid and is_trades_valid and not is_profit_target_reached and not on_cooldown
@@ -315,32 +337,64 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                     entry_price = 0.0
                     if has_position:
                         pos = positions[0] 
-                        pos_type = "BUY" if pos.type == 0 else "SELL" 
-                        entry_price = pos.price_open
+                        p_type = safe_get(pos, 'type', 0)
+                        pos_type = "BUY" if p_type == 0 else "SELL" 
+                        entry_price = safe_get(pos, 'price_open', 0.0)
                         if config["automation_enabled"]:
                             if (pos_type == "BUY" and signal == "SELL") or (pos_type == "SELL" and signal == "BUY"):
                                 console.print(f"[yellow]Señal opuesta detectada ({signal}). Cerrando posición {pos_type}...[/yellow]")
-                                if connector.close_position(pos.ticket, symbol=platform_symbol):
+                                if connector.close_position(safe_get(pos, 'ticket'), symbol=platform_symbol):
                                     has_position = False 
                                     last_trade_time = time.time() 
                             else:
-                                sl_price = pos.sl
-                                tp_price = pos.tp
+                                sl_price = safe_get(pos, 'sl', 0.0)
+                                tp_price = safe_get(pos, 'tp', 0.0)
                         else:
-                             sl_price = pos.sl
-                             tp_price = pos.tp
+                             sl_price = safe_get(pos, 'sl', 0.0)
+                             tp_price = safe_get(pos, 'tp', 0.0)
                     if not has_position and signal != "HOLD":
                         if can_trade:
-                            sl_points = volatility * 2.0 
-                            tp_points = volatility * 3.0 
+                            sl_points = df['ATR'].iloc[-1] * 2.0 if 'ATR' in df.columns else 20.0
+                            tp_points = sl_points * 2.0
+                            
+                            volume = float(config.get("volume", 1.0))
+                            
+                            if "risk_percent" in config and float(config["risk_percent"]) > 0:
+                                risk_pct = float(config["risk_percent"]) / 100.0
+                                risk_amount = initial_balance * risk_pct
+                                point_value = 1.0
+                                if hasattr(connector, 'get_symbol_details'):
+                                    det = connector.get_symbol_details(platform_symbol)
+                                    if det and "point_value" in det:
+                                        point_value = det["point_value"]
+                                        
+                                # Calcular SL y TP en base al volumen fijo y riesgo de la cuenta
+                                if volume > 0 and point_value > 0:
+                                    sl_points = risk_amount / (volume * point_value)
+                                    tp_points = sl_points * 2.0 # Relación Riesgo:Recompensa 1:2
+                                    console.print(f"[cyan]Riesgo ({config['risk_percent']}%): ${risk_amount:.2f} -> SL: {sl_points:.2f} pts, TP: {tp_points:.2f} pts[/cyan]")
+                            elif "risk_pct" in config and float(config["risk_pct"]) > 0:
+                                risk_pct = float(config["risk_pct"])
+                                if risk_pct > 1: risk_pct = risk_pct / 100.0
+                                risk_amount = initial_balance * risk_pct
+                                point_value = 1.0
+                                if hasattr(connector, 'get_symbol_details'):
+                                    det = connector.get_symbol_details(platform_symbol)
+                                    if det and "point_value" in det:
+                                        point_value = det["point_value"]
+                                if volume > 0 and point_value > 0:
+                                    sl_points = risk_amount / (volume * point_value)
+                                    tp_points = sl_points * 2.0
+                                    console.print(f"[cyan]Riesgo ({risk_pct*100}%): ${risk_amount:.2f} -> SL: {sl_points:.2f} pts, TP: {tp_points:.2f} pts[/cyan]")
+
                             if signal == "BUY":
                                 sl_price = current_price - sl_points
                                 tp_price = current_price + tp_points
                             else:
                                 sl_price = current_price + sl_points
                                 tp_price = current_price - tp_points
-                            console.print(f"[bold green]Ejecutando {signal} | SL: {sl_price:.2f} | TP: {tp_price:.2f}[/bold green]")
-                            volume = float(config["volume"])
+                            console.print(f"[bold green]Ejecutando {signal} | Vol: {volume} | SL: {sl_price:.2f} | TP: {tp_price:.2f}[/bold green]")
+                            
                             gateway = get_order_gateway()
                             req = OrderRequest(
                                 platform=platform,
@@ -437,14 +491,14 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                             "daily_trades": daily_trades,
                             "positions": [
                                 {
-                                    "ticket": getattr(p, 'ticket', 0),
-                                    "symbol": getattr(p, 'symbol', platform_symbol),
-                                    "type": "BUY" if getattr(p, 'type', 0) == 0 else "SELL",
-                                    "volume": getattr(p, 'volume', 0.0),
-                                    "price_open": getattr(p, 'price_open', 0.0),
-                                    "sl": getattr(p, 'sl', 0.0),
-                                    "tp": getattr(p, 'tp', 0.0),
-                                    "profit": getattr(p, 'profit', 0.0)
+                                    "ticket": safe_get(p, 'ticket', 0),
+                                    "symbol": safe_get(p, 'symbol', platform_symbol),
+                                    "type": "BUY" if safe_get(p, 'type', 0) == 0 else "SELL",
+                                    "volume": safe_get(p, 'volume', 0.0),
+                                    "price_open": safe_get(p, 'price_open', 0.0),
+                                    "sl": safe_get(p, 'sl', 0.0),
+                                    "tp": safe_get(p, 'tp', 0.0),
+                                    "profit": safe_get(p, 'profit', 0.0)
                                 } for p in positions
                             ]
                         },

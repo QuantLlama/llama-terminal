@@ -210,24 +210,29 @@ const ChartComponent = React.memo(({
         if (settings.wickThickness !== undefined) fpRendererRef.current.setWickThickness(settings.wickThickness);
         if (settings.buyColor !== undefined || settings.sellColor !== undefined || settings.pocColor !== undefined ||
           settings.bodyBullColor !== undefined || settings.bodyBullOpacity !== undefined ||
-          settings.bodyBearColor !== undefined || settings.bodyBearOpacity !== undefined) {
+          settings.bodyBearColor !== undefined || settings.bodyBearOpacity !== undefined ||
+          settings.syncWithChartColors !== undefined) {
+          
           const buildBodyColor = (hex, opacityPct) => {
             const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
             if (!m) return hex;
             const a = ((opacityPct ?? 55) / 100).toFixed(2);
             return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
           };
+
           const fp = chartSettings?.footprint || {};
+          const isSync = settings.syncWithChartColors !== undefined ? settings.syncWithChartColors : (fp.syncWithChartColors ?? true);
+          
           fpRendererRef.current.setColors({
             buy: settings.buyColor || fp.buyColor || "#10b981",
             sell: settings.sellColor || fp.sellColor || "#ef4444",
             poc: settings.pocColor || fp.pocColor || "#ffeb3b",
             bodyBull: buildBodyColor(
-              settings.bodyBullColor ?? fp.bodyBullColor ?? '#00dc6e',
+              isSync ? globalAppearance.upColor : (settings.bodyBullColor ?? fp.bodyBullColor ?? '#00dc6e'),
               settings.bodyBullOpacity ?? fp.bodyBullOpacity ?? 55
             ),
             bodyBear: buildBodyColor(
-              settings.bodyBearColor ?? fp.bodyBearColor ?? '#e6284b',
+              isSync ? globalAppearance.downColor : (settings.bodyBearColor ?? fp.bodyBearColor ?? '#e6284b'),
               settings.bodyBearOpacity ?? fp.bodyBearOpacity ?? 55
             )
           });
@@ -240,7 +245,7 @@ const ChartComponent = React.memo(({
       window.removeEventListener('footprint_mode_change', handleFpChange);
       window.removeEventListener('footprint_settings_change', handleFpSettingsChange);
     };
-  }, [chartId, chartSettings?.footprint]);
+  }, [chartId, chartSettings?.footprint, globalAppearance]);
   useEffect(() => {
     if (chartSettings?.footprint?.mode) {
       setFootprintMode(chartSettings.footprint.mode);
@@ -1354,16 +1359,11 @@ const ChartComponent = React.memo(({
           if (width > 0 && height > 0) {
             chartRef.current.resize(width, height);
             
-            // Si el cambio de dimensiones es significativo (layout change), forzamos ajuste
             const widthDiff = Math.abs(width - lastWidth);
             const heightDiff = Math.abs(height - lastHeight);
-            
             if (lastWidth === 0 || lastHeight === 0 || widthDiff > 20 || heightDiff > 20) {
-              requestAnimationFrame(() => {
-                if (chartRef.current) {
-                  chartRef.current.timeScale().fitContent();
-                }
-              });
+              // Layout changed (panel toggle), just resize. 
+              // Removed fitContent() to preserve user's zoom/position.
             }
             
             lastWidth = width;
@@ -2729,7 +2729,29 @@ const ChartComponent = React.memo(({
       fpRendererRef.current.setShowWicks(savedShowWicks);
       fpRendererRef.current.setShowPOC(savedShowPOC);
       fpRendererRef.current.setWickThickness(savedThickness);
-      fpRendererRef.current.setColors({ buy: savedBuyColor, sell: savedSellColor, poc: savedPocColor });
+      const buildBodyColor = (hex, opacityPct) => {
+        const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        if (!m) return hex;
+        const a = ((opacityPct ?? 55) / 100).toFixed(2);
+        return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
+      };
+      
+      const fp = chartSettings?.footprint || {};
+      const isSync = fp.syncWithChartColors ?? true;
+
+      fpRendererRef.current.setColors({ 
+        buy: fp.buyColor || savedBuyColor, 
+        sell: fp.sellColor || savedSellColor, 
+        poc: fp.pocColor || savedPocColor,
+        bodyBull: buildBodyColor(
+          isSync ? globalAppearance.upColor : (fp.bodyBullColor || '#00dc6e'),
+          fp.bodyBullOpacity ?? 55
+        ),
+        bodyBear: buildBodyColor(
+          isSync ? globalAppearance.downColor : (fp.bodyBearColor || '#e6284b'),
+          fp.bodyBearOpacity ?? 55
+        )
+      });
       if (chartSettings?.appearance?.priceLine) {
         fpRendererRef.current.setPriceLineConfig(chartSettings.appearance.priceLine);
       }

@@ -233,9 +233,79 @@ class InbalanceLlamaEngine(EvolutionaryEngine):
         trades = self._market_data_engine.get_recent_trades(symbol, n=300)
         return trades if (trades and len(trades) >= 100) else None
     def _evaluate_fitness(self, symbol: str, population: List[Genome], trades: List[Dict]):
-        prices = [t.get('price', 0) for t in trades]
+        """Evalúa fitness basado en delta imbalance (desequilibrio buy/sell).
+
+        Lógica: cuando el delta (buy_vol - sell_vol) excede un umbral relativo
+        al volumen total, indica presión institucional. Si el precio se mueve
+        en la dirección del delta después, el genoma gana puntos.
+        """
+        if not trades or len(trades) < 50:
+            for g in population: g.fitness = 0.0
+            return
+
+        chrono_trades = list(reversed(trades))
+
         for genome in population:
-            genome.fitness = random.uniform(0.1, 0.9) 
+            score = 0
+            signals_found = 0
+
+            delta_thr = genome.params["delta_threshold"]
+            vol_mult = genome.params["volume_multiplier"]
+            body_ratio = genome.params["min_body_ratio"]
+
+            # Ventana deslizante de 20 trades
+            window_size = 20
+            i = window_size
+            while i < len(chrono_trades) - 10:
+                window = chrono_trades[i - window_size:i]
+
+                buy_vol = sum(t.get('size', 0) for t in window
+                              if str(t.get('side', '')).upper() == 'BUY')
+                sell_vol = sum(t.get('size', 0) for t in window
+                               if str(t.get('side', '')).upper() != 'BUY')
+                total_vol = buy_vol + sell_vol
+
+                if total_vol <= 0:
+                    i += 5
+                    continue
+
+                # Calcular delta normalizado
+                delta = (buy_vol - sell_vol) / total_vol  # rango [-1, 1]
+                avg_vol = total_vol / window_size
+
+                # Filtro: volumen mínimo relativo
+                if avg_vol < vol_mult:
+                    i += 5
+                    continue
+
+                # Filtro: ratio de cuerpo (qué tan unidireccional es el flujo)
+                dominant_ratio = max(buy_vol, sell_vol) / total_vol
+                if dominant_ratio < body_ratio:
+                    i += 5
+                    continue
+
+                # ¿Hay imbalance suficiente?
+                if abs(delta) >= delta_thr:
+                    signals_found += 1
+                    entry_price = chrono_trades[i].get('price', 0)
+                    future_price = chrono_trades[i + 10].get('price', entry_price)
+
+                    if delta > 0:  # Presión compradora → esperamos subida
+                        move = future_price - entry_price
+                    else:  # Presión vendedora → esperamos bajada
+                        move = entry_price - future_price
+
+                    if move > 0:
+                        score += 1.5
+                    elif move < 0:
+                        score -= 1.0
+
+                    i += 10  # Saltar zona evaluada
+                else:
+                    i += 5
+
+            genome.fitness = (score / signals_found) if signals_found > 0 else 0.0
+
     def _evolve(self, pop: List[Genome]) -> List[Genome]:
         new_pop = pop[:2]
         while len(new_pop) < self._pop_size:
@@ -248,9 +318,18 @@ class InbalanceLlamaEngine(EvolutionaryEngine):
             if random.random() < 0.2:
                 child.params["delta_threshold"] *= random.uniform(0.8, 1.2)
                 child.params["volume_multiplier"] *= random.uniform(0.8, 1.2)
+                child.params["min_body_ratio"] = max(0.1, min(0.9,
+                    child.params["min_body_ratio"] * random.uniform(0.9, 1.1)))
             new_pop.append(child)
         return new_pop
+
 class CazaLlamaEngine(EvolutionaryEngine):
+    """Motor evolutivo para detección de niveles swing (soporte/resistencia).
+
+    Busca swing highs/lows en el flujo de trades y evalúa si el precio
+    rebota desde esos niveles. Optimiza la distancia de activación y
+    la ventana de detección de swings.
+    """
     _instance = None
     _lock = threading.Lock()
     def __new__(cls):
@@ -276,9 +355,89 @@ class CazaLlamaEngine(EvolutionaryEngine):
     def _get_evaluation_data(self, symbol: str) -> Optional[List[Dict]]:
         trades = self._market_data_engine.get_recent_trades(symbol, n=200)
         return trades if (trades and len(trades) >= 50) else None
+
     def _evaluate_fitness(self, symbol: str, population: List[Genome], trades: List[Dict]):
+        """Evalúa fitness detectando swing levels y midiendo rebotes.
+
+        Lógica: agrupa trades en 'barras' de N trades (swing_bars), detecta
+        máximos/mínimos locales, y cuando el precio se acerca a un nivel
+        previo (dentro de dist_ticks), evalúa si rebota o lo rompe.
+        Un rebote exitoso suma puntos; un fallo resta.
+        """
+        if not trades or len(trades) < 50:
+            for g in population: g.fitness = 0.0
+            return
+
+        chrono_trades = list(reversed(trades))
+        prices = [t.get('price', 0) for t in chrono_trades if t.get('price', 0) > 0]
+
+        if len(prices) < 50:
+            for g in population: g.fitness = 0.0
+            return
+
         for genome in population:
-            genome.fitness = random.uniform(0.1, 0.8) 
+            score = 0
+            tests = 0
+
+            swing_n = genome.params["swing_bars"]
+            dist = genome.params["dist_ticks"]
+            vida = genome.params["vida_max"]
+
+            # Construir barras sintéticas agrupando cada swing_n trades
+            bars_high = []
+            bars_low = []
+            for b in range(0, len(prices) - swing_n, swing_n):
+                chunk = prices[b:b + swing_n]
+                bars_high.append(max(chunk))
+                bars_low.append(min(chunk))
+
+            if len(bars_high) < 5:
+                genome.fitness = 0.0
+                continue
+
+            # Detectar swing highs/lows (punto más alto/bajo entre vecinos)
+            swing_levels = []
+            for b in range(1, len(bars_high) - 1):
+                if bars_high[b] > bars_high[b-1] and bars_high[b] > bars_high[b+1]:
+                    swing_levels.append(('R', bars_high[b], b))  # Resistencia
+                if bars_low[b] < bars_low[b-1] and bars_low[b] < bars_low[b+1]:
+                    swing_levels.append(('S', bars_low[b], b))   # Soporte
+
+            if not swing_levels:
+                genome.fitness = 0.0
+                continue
+
+            # Evaluar: ¿el precio futuro rebota desde estos niveles?
+            for bar_idx in range(len(bars_high) - 2):
+                current_price = (bars_high[bar_idx] + bars_low[bar_idx]) / 2
+                future_price = (bars_high[bar_idx + 2] + bars_low[bar_idx + 2]) / 2
+
+                for level_type, level_price, level_bar in swing_levels:
+                    # ¿El nivel sigue vivo? (dentro de vida_max barras)
+                    age = bar_idx - level_bar
+                    if age < 1 or age > vida:
+                        continue
+
+                    # ¿El precio está cerca del nivel?
+                    distance = abs(current_price - level_price)
+                    if distance > dist:
+                        continue
+
+                    tests += 1
+
+                    if level_type == 'S':  # Soporte → esperamos rebote arriba
+                        if future_price > current_price:
+                            score += 1.5
+                        else:
+                            score -= 0.8
+                    else:  # Resistencia → esperamos rebote abajo
+                        if future_price < current_price:
+                            score += 1.5
+                        else:
+                            score -= 0.8
+
+            genome.fitness = (score / tests) if tests > 0 else 0.0
+
     def _evolve(self, pop: List[Genome]) -> List[Genome]:
         new_pop = pop[:2]
         while len(new_pop) < self._pop_size:
@@ -290,7 +449,8 @@ class CazaLlamaEngine(EvolutionaryEngine):
             })
             if random.random() < 0.2:
                 child.params["swing_bars"] = max(2, int(child.params["swing_bars"] * random.uniform(0.8, 1.2)))
-                child.params["dist_ticks"] = int(child.params["dist_ticks"] * random.uniform(0.8, 1.2))
+                child.params["dist_ticks"] = max(5, int(child.params["dist_ticks"] * random.uniform(0.8, 1.2)))
+                child.params["vida_max"] = max(3, int(child.params["vida_max"] * random.uniform(0.8, 1.2)))
             new_pop.append(child)
         return new_pop
 def get_big_llama() -> BigLlamaEngine:

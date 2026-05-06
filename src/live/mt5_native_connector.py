@@ -143,12 +143,27 @@ class MT5Connector:
             if tick is None:
                 return None
             return tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2
+    def get_current_tick(self, symbol):
+        with self._lock:
+            if not self.connected:
+                if not self.connect():
+                    return None
+            return mt5.symbol_info_tick(symbol)
     def get_recent_ticks(self, symbol, n=1000):
         with self._lock:
             if not self.connected:
                 if not self.connect():
                     return None
-            ticks = mt5.copy_ticks_from_pos(symbol, 0, n, mt5.COPY_TICKS_ALL)
+            # FIX: MetaTrader5 module does not have copy_ticks_from_pos.
+            # We use copy_ticks_from with a 1-hour lookback to ensure we get enough ticks.
+            from_dt = datetime.now(timezone.utc) - timedelta(hours=1)
+            ticks = mt5.copy_ticks_from(symbol, from_dt, n, mt5.COPY_TICKS_ALL)
+            
+            # If no ticks in 1 hour (low volume), try 24 hours
+            if ticks is None or len(ticks) == 0:
+                from_dt = datetime.now(timezone.utc) - timedelta(hours=24)
+                ticks = mt5.copy_ticks_from(symbol, from_dt, n, mt5.COPY_TICKS_ALL)
+
             if ticks is None or len(ticks) == 0:
                 return None
             return pd.DataFrame(ticks)

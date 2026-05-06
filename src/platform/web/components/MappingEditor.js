@@ -101,7 +101,7 @@ const MappingEditor = ({ isOpen, onClose }) => {
     )
     )
     ),
-    React.createElement("div", { className: "flex-1 overflow-y-auto p-6 custom-scrollbar bg-black/20", style: { maxHeight: '50vh' } },
+    React.createElement("div", { className: "flex-1 overflow-y-auto p-6 no-scrollbar bg-black/20", style: { maxHeight: '50vh' } },
     loading && Object.keys(data).length === 0 ?
     React.createElement("div", { className: "flex items-center justify-center h-48" },
     React.createElement("div", { className: "w-6 h-6 border-2 border-amber-500/20 border-t-amber-500/80 rounded-full animate-spin" })

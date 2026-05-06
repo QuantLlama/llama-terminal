@@ -3,7 +3,6 @@ import os
 import subprocess
 import shutil
 
-import torch
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm, IntPrompt
@@ -13,8 +12,9 @@ from rich import print as rprint
 import time
 import webbrowser
 
-# Import training logic
-from train import train_model
+# Heavy imports moved inside functions for Lazy Loading
+# import torch
+# from train import train_model
 from src.utils.config_manager import configure_symbols
 from src.utils.cleaner import clean_system_data
 
@@ -140,10 +140,11 @@ def _install_gpu_env():
     # Step 3: Install other needed packages
     console.print("[bold]3/3[/bold] Instalando dependencias adicionales...")
     deps = [
-        'rich', 'pandas', 'numpy', 'yfinance', 'matplotlib',
+        'rich', 'pandas', 'numpy<2', 'yfinance', 'matplotlib',
         'scikit-learn', 'xgboost', 'statsmodels', 'requests',
         'joblib', 'python-dotenv', 'supabase', 'ccxt', 'MetaTrader5',
-        'pytz', 'python-dateutil', 'websockets', 'ta-lib'
+        'pytz', 'python-dateutil', 'websockets', 'ta-lib', 'seaborn',
+        'mplfinance', 'cryptography'
     ]
     # We use a single call for speed, but split if it fails
     try:
@@ -171,13 +172,16 @@ def _relaunch_with_gpu():
     console.print("[cyan]🔄 Re-iniciando con GPU...[/cyan]\n")
     time.sleep(1)
     
-    # Run run.py from the GPU env
-    run_py = os.path.join(GPU_ENV_DIR, 'run.py')
-    if not os.path.isfile(run_py):
-        # If run.py isn't in GPU env, use the bundled one
-        if getattr(sys, 'frozen', False):
+    # Determine which run.py to execute
+    if getattr(sys, 'frozen', False):
+        run_py = os.path.join(GPU_ENV_DIR, 'run.py')
+        if not os.path.isfile(run_py):
             meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
             run_py = os.path.join(meipass, 'run.py')
+    else:
+        # If running from source, always use the current script
+        run_py = os.path.abspath(__file__)
+
     
     # Use subprocess.call instead of execv to avoid issues on some Windows systems
     # and to ensure the process exits cleanly.
@@ -235,7 +239,7 @@ def check_venv():
         console.print(f"[green]✅ Entorno Virtual detectado:[/green] {sys.prefix}")
 
 def show_header():
-    console.clear()
+    # console.clear() # Eliminado para evitar bloqueos de terminal
     console.print(Panel.fit(
         "[bold cyan]LLAMA QUANTUM GAN V2.0.0 - SISTEMA DE PREDICCIÓN MULTI-MERCADO[/bold cyan]\n"
         "[white]Powered by PyTorch & Deep Learning Ing. Pablo Ez. M[/white]",
@@ -244,6 +248,7 @@ def show_header():
     ))
 
 def check_hardware():
+    import torch
     console.print("\n[bold yellow]Paso 1: Verificación de Hardware[/bold yellow]")
     if torch.cuda.is_available():
         device_name = torch.cuda.get_device_name(0)
@@ -361,8 +366,9 @@ def select_parameters():
 
 def get_available_timeframes(ticker):
     """Scans outputs/models for available timeframes for the given ticker"""
+    from src.services.database import get_outputs_dir
     safe_ticker = ticker.replace("=", "").replace("-", "")
-    models_dir = "outputs/models"
+    models_dir = os.path.join(get_outputs_dir(), "models")
     
     if not os.path.exists(models_dir):
         return []
@@ -418,7 +424,8 @@ def select_platform():
         return "nt8"
 
 def open_last_dashboard():
-    dashboard_path = os.path.abspath("outputs/dashboard.html")
+    from src.services.database import get_outputs_dir
+    dashboard_path = os.path.join(get_outputs_dir(), "dashboard.html")
     if os.path.exists(dashboard_path):
         console.print(f"\n[green]Abriendo Dashboard:[/green] {dashboard_path}")
         webbrowser.open(f"file://{dashboard_path}")
@@ -428,49 +435,119 @@ def open_last_dashboard():
 
 # Import live trading logic
 # Import live trading logic
-from src.live.live_trade import run_live_trading
+# from src.live.live_trade import run_live_trading
 import http.server
 import socketserver
 import threading
 import json
 import os
 
-PORT = 8000
-CONFIG_PATH = "src/config/live_config.json"
+import socket
+def find_free_port(start_port=8000):
+    port = start_port
+    while port < 8100:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('127.0.0.1', port)) != 0:
+                return port
+        port += 1
+    return 8000
+
+PORT = find_free_port(8000)
+from src.utils.paths import get_data_path
+CONFIG_PATH = get_data_path("src", "config", "live_config.json")
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/config':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, 'rb') as f:
-                    self.wfile.write(f.read())
-            else:
-                self.wfile.write(b'{}')
+    def translate_path(self, path):
+        clean_path = path.split('?', 1)[0].split('#', 1)[0]
+        if clean_path.startswith('/outputs/'):
+            from src.services.database import get_outputs_dir
+            return os.path.join(get_outputs_dir(), clean_path[9:])
+        if clean_path == '/live_status.json':
+            from src.services.database import get_outputs_dir
+            return os.path.join(get_outputs_dir(), 'live_status.json')
+        if clean_path.startswith('/src/'):
+            from src.utils.paths import get_internal_path
+            return get_internal_path(clean_path[1:])
+        return super().translate_path(path)
+
+    def _send_json(self, data, status=200):
+        """Helper to send JSON response with CORS headers."""
+        self.send_response(status)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+        if isinstance(data, bytes):
+            self.wfile.write(data)
         else:
-            super().do_GET()
+            self.wfile.write(json.dumps(data).encode())
+
+    def _load_config(self):
+        """Load live config with default values."""
+        defaults = {
+            "automation_enabled": False,
+            "volume": 1.0,
+            "max_daily_loss": 200.0,
+            "daily_profit_target": 200.0,
+            "max_trades_per_day": 2,
+            "start_hour": "09:30",
+            "end_hour": "16:00"
+        }
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, 'r') as f:
+                    saved = json.load(f)
+                defaults.update(saved)
+            except:
+                pass
+        return defaults
+
+    def do_OPTIONS(self):
+        """Handle CORS preflight requests."""
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
+    def do_GET(self):
+        clean_path = self.path.split('?')[0]
+        
+        # Config endpoint — soporta /config y /api/config
+        if clean_path in ('/config', '/api/config'):
+            self._send_json(self._load_config())
+            return
+        
+        # Live status endpoint — API directa
+        if clean_path in ('/api/status', '/api/live_status'):
+            from src.services.database import get_outputs_dir
+            status_path = os.path.join(get_outputs_dir(), 'live_status.json')
+            if os.path.exists(status_path):
+                with open(status_path, 'rb') as f:
+                    self._send_json(f.read())
+            else:
+                self._send_json({"error": "No live data yet"})
+            return
+        
+        super().do_GET()
 
     def do_POST(self):
-        if self.path == '/update_config':
+        clean_path = self.path.split('?')[0]
+        
+        # Config save — soporta /update_config y /api/config
+        if clean_path in ('/update_config', '/api/config'):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             try:
                 config_data = json.loads(post_data)
-                # Ensure directory exists
                 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+                existing_config = self._load_config()
+                existing_config.update(config_data)
                 with open(CONFIG_PATH, 'w') as f:
-                    json.dump(config_data, f, indent=4)
-                
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(b'{"status": "success"}')
+                    json.dump(existing_config, f, indent=4)
+                self._send_json({"status": "success"})
             except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(f'{{"status": "error", "message": "{str(e)}"}}'.encode())
+                self._send_json({"status": "error", "message": str(e)}, 500)
         else:
             self.send_error(404)
     
@@ -480,16 +557,22 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 def start_server():
     """Starts a custom HTTP server in a daemon thread"""
     try:
-        with socketserver.TCPServer(("", PORT), CustomHandler) as httpd:
+        with socketserver.TCPServer(("127.0.0.1", PORT), CustomHandler) as httpd:
             httpd.serve_forever()
     except OSError:
         pass
 
-# Start server on module load
+# El hilo del servidor se iniciará dentro de main() para evitar bloqueos
 server_thread = threading.Thread(target=start_server, daemon=True)
-server_thread.start()
 
 def main():
+    # Iniciar servidor local
+    if not server_thread.is_alive():
+        try:
+            server_thread.start()
+        except:
+            pass
+            
     show_header()
     check_venv()
     
@@ -502,7 +585,16 @@ def main():
         console.print("5. [bold magenta]🧹 Limpiar Datos y Reiniciar[/bold magenta]")
         console.print("6. [bold white]❌ Salir[/bold white]")
         
-        choice = Prompt.ask("Seleccione una opción", choices=["1", "2", "3", "4", "5", "6"], default="1")
+        try:
+            # Uso de console.input para mayor compatibilidad en Linux
+            prompt_text = "\n[bold yellow]Seleccione una opción [1-6] (1): [/bold yellow]"
+            user_input = console.input(prompt_text).strip()
+            choice = user_input if user_input else "1"
+        except EOFError:
+            break
+        except KeyboardInterrupt:
+            console.print("\n[red]Saliendo...[/red]")
+            break
         
         if choice == "1":
             device = check_hardware()
@@ -521,6 +613,8 @@ def main():
             console.print(f"• Arquitectura GAN: [blue]Win={seq_length}, Hidden={hidden_dim}, Layers={num_layers}[/blue]")
             
             if Confirm.ask("\n¿Iniciar el proceso de entrenamiento?"):
+                import torch
+                from train import train_model
                 console.print("\n[bold blue]Iniciando Motor de IA...[/bold blue]")
                 
                 # Call the training function
@@ -562,6 +656,7 @@ def main():
             webbrowser.open(dashboard_url)
             
             # Start Loop
+            from src.live.live_trade import run_live_trading
             run_live_trading(ticker, asset_type, platform=platform, timeframe=trade_timeframe)
             
         elif choice == "5":

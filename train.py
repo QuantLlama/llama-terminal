@@ -14,7 +14,7 @@ from src.models.generator import Generator
 # GAN and RL imports removed - using supervised LSTM now
 from src.utils.visualizer import Visualizer
 from rich.progress import track
-import xgboost as xgb
+# XGBoost replaced by RandomForest (no import needed, inside function)
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
@@ -28,6 +28,9 @@ from datetime import datetime
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from src.analysis.backtester import Backtester
 from src.utils.dashboard_gen import DashboardGenerator
+# CRITICAL: Use get_outputs_dir() for ALL file saves so production builds
+# write to ~/Documents/Quantum Llama/outputs instead of a read-only temp dir.
+from src.services.database import get_outputs_dir
 
 def train_autoencoder(data, input_dim, encoding_dim=16, epochs=50, device='cpu'):
     print("Training Autoencoder for Feature Extraction...")
@@ -61,7 +64,7 @@ def train_autoencoder(data, input_dim, encoding_dim=16, epochs=50, device='cpu')
 def analyze_feature_importance(df, target_col='Close'):
     print("Analyzing Feature Importance with RandomForest...")
     from sklearn.ensemble import RandomForestRegressor
-    X = df.drop(columns=[target_col])
+    X = df.drop(columns=[target_col], errors='ignore')
     y = df[target_col]
     
     # Using RandomForestRegressor which runs natively without access violations under Wine
@@ -116,8 +119,6 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     config.NUM_EPOCHS = epochs
     config.SEQ_LENGTH = seq_length
     config.HIDDEN_DIM_LSTM = hidden_dim
-    config.NUM_LAYERS_LSTM = num_layers
-    
     config.NUM_LAYERS_LSTM = num_layers
     
     # Sanitize ticker for filename prefix
@@ -212,7 +213,15 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
         
     df.dropna(inplace=True) # Drop rows with NaNs from alignment
         
-    # --- GAN Training Preparation ---
+    # --- Training Data Preparation ---
+    # Clean df before preprocessing: remove any inf values
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df.dropna(inplace=True)
+    
+    if len(df) < config.SEQ_LENGTH + 10:
+        raise ValueError(f"Not enough clean data for training. Only {len(df)} rows after cleaning (need at least {config.SEQ_LENGTH + 10}).")
+    
+    print(f"Clean data rows for training: {len(df)}")
     dataset, scaler = preprocess_data(df, config.SEQ_LENGTH)
     dataloader = DataLoader(dataset, batch_size=config.BATCH_SIZE, shuffle=True)
     
@@ -222,9 +231,18 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     generator = Generator(input_dim, config.HIDDEN_DIM_LSTM, config.NUM_LAYERS_LSTM, input_dim)
     generator = generator.to(config.DEVICE)
     
-    # 3. Initialize Optimizer and Loss
-    optimizer = optim.Adam(generator.parameters(), lr=config.LEARNING_RATE_G)
+    # 3. Initialize Optimizer, Loss, and Scheduler
+    optimizer = optim.Adam(generator.parameters(), lr=config.LEARNING_RATE_G, eps=1e-8)
     criterion = nn.MSELoss()
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=10, verbose=True
+    )
+    
+    # Early stopping configuration
+    best_loss = float('inf')
+    best_state = None
+    patience_counter = 0
+    EARLY_STOP_PATIENCE = 15
     
     # Lists to store losses for plotting
     train_losses = []
@@ -250,15 +268,50 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
             
             # Backward pass
             loss.backward()
+            # Gradient clipping to prevent exploding gradients in LSTM
+            torch.nn.utils.clip_grad_norm_(generator.parameters(), max_norm=1.0)
             optimizer.step()
             
             epoch_loss += loss.item()
             batches += 1
             
         # Average loss for the epoch
-        avg_loss = epoch_loss / batches
+        avg_loss = epoch_loss / max(batches, 1)
+        
+        # NaN loss detection and recovery
+        if np.isnan(avg_loss) or np.isinf(avg_loss):
+            print(f"WARNING: NaN/Inf loss detected at epoch {epoch+1}. Re-initializing model weights and reducing LR...")
+            # Re-initialize the model weights
+            for layer in generator.modules():
+                if isinstance(layer, (nn.Linear, nn.LSTM)):
+                    for name, param in layer.named_parameters():
+                        if 'weight' in name:
+                            nn.init.xavier_uniform_(param.data) if param.data.dim() >= 2 else nn.init.zeros_(param.data)
+                        elif 'bias' in name:
+                            nn.init.zeros_(param.data)
+            # Reduce learning rate
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= 0.1
+            avg_loss = 0.0  # Reset for tracking
+        
         train_losses.append(avg_loss)
-        print(f"Epoch {epoch+1}/{config.NUM_EPOCHS} - Loss: {avg_loss:.6f}", flush=True)
+        
+        # Learning Rate Scheduler step
+        scheduler.step(avg_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch {epoch+1}/{config.NUM_EPOCHS} - Loss: {avg_loss:.6f} - LR: {current_lr:.2e}", flush=True)
+        
+        # Early Stopping: guardar mejor modelo y parar si no mejora
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            best_state = {k: v.clone() for k, v in generator.state_dict().items()}
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= EARLY_STOP_PATIENCE:
+                print(f"\nEarly Stopping at epoch {epoch+1} (no improvement for {EARLY_STOP_PATIENCE} epochs)")
+                print(f"Best loss: {best_loss:.6f}")
+                break
         
         # Snapshot Plotting
         if epoch == 0 or epoch == 49 or epoch == 199 or epoch == config.NUM_EPOCHS - 1:
@@ -268,7 +321,8 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
                 prediction = generator(sample_seq).cpu().numpy()[0]
                 
                 # Desnormalizar (Inverse Transform)
-                # El scaler espera 7 columnas: ['Log_Ret_Close', 'Log_Ret_High', 'Log_Ret_Low', 'Log_Vol', 'RSI', 'ADX', 'ATR']
+                # El scaler espera 7 columnas: ['Log_Ret_Close', 'Log_Ret_High',
+                # 'Log_Ret_Low', 'Log_Vol', 'RSI', 'ADX', 'ATR']
                 # Index 0 es Log_Ret_Close
                 
                 real_dummy = np.zeros((len(seq[0]), scaler.n_features_in_))
@@ -310,27 +364,36 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
 
     print("Training Completed.")
     
+    # Restaurar mejor modelo (early stopping)
+    if best_state is not None:
+        generator.load_state_dict(best_state)
+        print(f"Best model restored (loss: {best_loss:.6f})")
+    
     # Plot training results
     vis.plot_training_losses(train_losses, [], is_supervised=True)
     
     # Save Models
-    models_dir = 'outputs/models'
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
-        
+    # FIXED: use get_outputs_dir() so the path is correct in both dev and
+    # production (frozen) builds. Previously 'outputs/models' was relative to
+    # the CWD of the subprocess, which in frozen mode is the temp _MEIPASS dir.
+    outputs_dir = get_outputs_dir()
+    models_dir = os.path.join(outputs_dir, 'models')
+    os.makedirs(models_dir, exist_ok=True)
+
     # Sanitize ticker for filename
     safe_ticker = ticker.replace("=", "").replace("-", "")
-    model_prefix = f"{models_dir}/{safe_ticker}_{train_timeframe}"
-    
+    model_prefix = os.path.join(models_dir, f"{safe_ticker}_{train_timeframe}")
+
     torch.save(generator.state_dict(), f'{model_prefix}_generator.pth')
     # Discriminator removed - supervised LSTM only
-    
+
     # Save Scaler (CRITICAL for live inference)
     import joblib
     joblib.dump(scaler, f'{model_prefix}_scaler.pkl')
-    
-    print(f"Models and Scaler saved to '{models_dir}' with prefix '{safe_ticker}_{train_timeframe}'.")
-    
+
+    print(f"[TRAIN] Models and Scaler saved to: {models_dir}")
+    print(f"[TRAIN] File prefix: {safe_ticker}_{train_timeframe}")
+
     # Save Model Config (Architecture & Timeframe)
     model_config = {
         "train_timeframe": train_timeframe,
@@ -342,73 +405,74 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
         "ticker": ticker,
         "last_training_date": datetime.now().strftime('%Y-%m-%d %H:%M')
     }
-    with open(f'{model_prefix}_config.json', 'w') as f:
+    config_path = f'{model_prefix}_config.json'
+    with open(config_path, 'w') as f:
         json.dump(model_config, f, indent=4)
-    print(f"Model Configuration saved to '{model_prefix}_config.json'.")
+    print(f"[TRAIN] Model config saved to: {config_path}")
     
-    # --- Final Metrics Report ---
-    # --- Final Metrics Report ---
-    print("\nCalculating Final Metrics...")
-    print("\nCalculating Final Metrics...")
-    
+    print("\nCalculating Final Metrics (out-of-sample 20% test split)...")
+
     generator.eval()
-    
-    print("Running Backtest Simulation...")
-    # Create a sequential loader for the whole dataset (or test split)
-    # We'll re-use the original df for simplicity to show full history backtest
-    
-    # Preprocess full df for prediction
-    full_dataset, _ = preprocess_data(df, config.SEQ_LENGTH)
-    full_loader = DataLoader(full_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
-    
+
+    # ── Out-of-sample evaluation ──────────────────────────────────────────────
+    # Use only the last 20 % of data that the model NEVER saw during training.
+    # This gives honest metrics; in-sample accuracy is meaningless for trading.
+    print("Running Backtest Simulation on held-out test set (last 20%)...")
+    n_total = len(dataset)
+    n_test  = max(int(n_total * 0.20), config.SEQ_LENGTH + 1)
+    test_dataset = torch.utils.data.Subset(dataset, range(n_total - n_test, n_total))
+    test_loader  = DataLoader(test_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
+
     full_preds_scaled = []
-    
     with torch.no_grad():
-        for seq, _ in full_loader:
-            seq = seq.to(config.DEVICE)
+        for seq, _ in test_loader:
+            seq  = seq.to(config.DEVICE)
             pred = generator(seq).cpu().numpy()
-            last_pred = pred[:, -1, 0] # Index 0 is Log_Ret_Close
+            last_pred = pred[:, -1, 0]  # index 0 = Log_Ret_Close
             full_preds_scaled.extend(last_pred)
-            
-    # Inverse Transform Predictions
+
+    # Inverse-transform predictions
     num_features = scaler.n_features_in_
-    dummy_preds = np.zeros((len(full_preds_scaled), num_features))
-    dummy_preds[:, 0] = full_preds_scaled # Index 0
-    
-    inverse_preds = scaler.inverse_transform(dummy_preds)
-    real_pred_returns = inverse_preds[:, 0] # These are Log Returns
-    
-    # Align predictions with DF
-    valid_len = len(real_pred_returns)
-    df_backtest = df.iloc[-valid_len:].copy()
-    
-    # Add Predicted Returns to DF
-    df_backtest['Predicted_Return'] = real_pred_returns
-    
-    # --- FIX FOR BACKTESTER ---
-    # The model predicts the return at time 't' (Close[t]/Close[t-1]).
-    # To capture this, we must trade at 't-1'.
-    # So for the backtester (which iterates row by row), at row 'i', 
-    # we need the prediction for 'i+1'.
+    dummy_preds  = np.zeros((len(full_preds_scaled), num_features))
+    dummy_preds[:, 0] = full_preds_scaled
+    inverse_preds     = scaler.inverse_transform(dummy_preds)
+    real_pred_returns = inverse_preds[:, 0]
+
+    # Align with the corresponding rows in df
+    valid_len    = len(real_pred_returns)
+    df_backtest  = df.iloc[-valid_len:].copy()
+    df_backtest['Predicted_Return']  = real_pred_returns
+    # Trade at t-1 based on the prediction for t
     df_backtest['Signal_Prediction'] = df_backtest['Predicted_Return'].shift(-1)
-    
-    # Run Backtester (Modified for Returns)
-    # We pass the Predicted Return directly
-    backtester = Backtester(initial_capital=10000)
-    results, signals_df, final_capital = backtester.run_backtest(df_backtest, prediction_col='Signal_Prediction', price_col='Close', is_return=True)
+
+    backtester = Backtester(initial_capital=10000, asset_type=asset_type)
+    results, signals_df, final_capital = backtester.run_backtest(
+        df_backtest, prediction_col='Signal_Prediction', price_col='Close', is_return=True
+    )
     backtest_metrics = backtester.get_metrics()
-    
-    # Calculate technical metrics
-    # RMSE on Returns (will be small)
-    rmse = np.sqrt(mean_squared_error(df_backtest['Log_Ret_Close'], df_backtest['Predicted_Return']))
-    # MAPE is not useful for returns (near zero). We use Directional Accuracy.
-    # DA = Mean( Sign(Pred) == Sign(Real) )
-    da = np.mean(np.sign(df_backtest['Predicted_Return']) == np.sign(df_backtest['Log_Ret_Close']))
-    
-    metrics = {
-        'RMSE': rmse,
-        'Accuracy': da # Renamed from MAPE
-    }
+
+    # Remove NaN before computing metrics
+    nan_mask = (
+        np.isnan(df_backtest['Predicted_Return']) |
+        np.isnan(df_backtest['Log_Ret_Close'])
+    )
+    if nan_mask.any():
+        print(f"Warning: Removing {nan_mask.sum()} NaN values before metrics.")
+        df_backtest = df_backtest[~nan_mask].copy()
+
+    if len(df_backtest) == 0:
+        print("ERROR: All predictions are NaN. Using fallback metrics.")
+        rmse, da = float('inf'), 0.0
+    else:
+        rmse = np.sqrt(mean_squared_error(
+            df_backtest['Log_Ret_Close'], df_backtest['Predicted_Return']
+        ))
+        da = np.mean(
+            np.sign(df_backtest['Predicted_Return']) ==
+            np.sign(df_backtest['Log_Ret_Close'])
+        )
+
+    metrics = {'RMSE': rmse, 'Accuracy': da}
     
     print("="*40)
     print("       FINAL MODEL REPORT")
@@ -420,7 +484,8 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     print("="*40)
     
     # --- Log History for Comparative Analysis ---
-    history_file = 'history.json'
+    # FIXED: Save history.json to the persistent outputs dir, not the CWD.
+    history_file = os.path.join(outputs_dir, 'history.json')
     history_entry = {
         'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
         'ticker': ticker,
@@ -430,19 +495,20 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
         'total_return': backtest_metrics['Total Return %'],
         'mape': da
     }
-    
+
     try:
         if os.path.exists(history_file):
             with open(history_file, 'r') as f:
                 history = json.load(f)
         else:
             history = []
-    except:
+    except Exception:
         history = []
-        
+
     history.append(history_entry)
     with open(history_file, 'w') as f:
         json.dump(history, f, indent=4)
+    print(f"[TRAIN] Training history updated: {history_file}")
     
     # Generate Dashboard
     print("Generating Professional Dashboard...")
@@ -452,17 +518,19 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     
     # Enhanced dashboard opening logic
     abs_dashboard_path = os.path.abspath(dashboard_path)
-    print(f"\n[SYSTEM] Dashboard generated successfully at: {abs_dashboard_path}")
-    print(f"[SYSTEM] Tip: You can find all results in your 'Documents/Quantum Llama/outputs' folder.")
-    
+    print(f"\n[SYSTEM] ✓ Dashboard generado en: {abs_dashboard_path}")
+    print(f"[SYSTEM] ✓ Modelos guardados en:   {models_dir}")
+    print(f"[SYSTEM] ✓ Historial guardado en:  {history_file}")
+    print(f"[SYSTEM] ✓ Directorio de outputs:  {outputs_dir}")
+
     if os.path.exists(abs_dashboard_path):
-        print("Opening Dashboard in Browser...")
+        print("[SYSTEM] Abriendo Dashboard en el navegador...")
         try:
             webbrowser.open(f'file://{abs_dashboard_path}')
         except Exception as e:
-            print(f"Warning: Could not open browser automatically: {e}")
+            print(f"[SYSTEM] Aviso: No se pudo abrir el navegador automáticamente: {e}")
     else:
-        print(f"Error: Dashboard file not found at {abs_dashboard_path}")
+        print(f"[SYSTEM] ERROR: Dashboard no encontrado en {abs_dashboard_path}")
 
 if __name__ == "__main__":
     # Default fallback if run directly

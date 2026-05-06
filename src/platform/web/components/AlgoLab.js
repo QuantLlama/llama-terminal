@@ -92,7 +92,7 @@ const FloatingModal = ({ isOpen, width = 420, maxHeight = '80vh', zIndex = 10000
             React.createElement("i", { className: "fas fa-times text-xs" })
           )
         ),
-        React.createElement("div", { className: "flex-1 overflow-y-auto p-5 custom-scrollbar" },
+        React.createElement("div", { className: "flex-1 overflow-y-auto p-5 no-scrollbar" },
           children
         )
       )
@@ -328,94 +328,95 @@ const AlgoLab = ({ isOpen }) => {
     setCaretOffset(el, offset);
     requestAnimationFrame(updateFallbackScroll);
   }, [highlightedFallback, updateFallbackScroll]);
+  const normalizePath = (path) => {
+    if (!path) return '';
+    return path.replace(/\\/g, '/');
+  };
+
   const forceElectronRepaint = useCallback((editor) => {
     if (!editor) return;
-    editor.layout();
-    const domNode = editor.getDomNode();
-    if (domNode) {
-      domNode.style.display = 'none';
-      void domNode.offsetHeight;
-      domNode.style.display = 'block';
-    }
-    requestAnimationFrame(() => {
+    try {
       editor.layout();
-      requestAnimationFrame(() => {
-        editor.layout();
-        const model = editor.getModel();
-        if (model) {
-          const lineCount = model.getLineCount();
-          editor.revealLine(1);
-          if (lineCount > 1) editor.revealLine(lineCount);
-          editor.revealLine(1);
-          editor.setPosition({ lineNumber: 1, column: 1 });
-        }
-      });
-    });
-    setTimeout(() => {
-      const node = editor.getDomNode();
-      const viewLines = node ? node.querySelector('.view-lines') : null;
-      const hasText = viewLines && viewLines.textContent && viewLines.textContent.trim().length > 0;
-      if (!hasText) {
-        const file = activeFileRef.current;
-        const content = file ? fileContentsRef.current[file.path] ?? '' : '';
-        fallbackContentRef.current = content;
-        setFallbackContent(content);
-        fallbackAttemptRef.current += 1;
-        setShowFallback(false);
-      } else {
-        fallbackAttemptRef.current = 0;
-        setShowFallback(false);
+      const domNode = editor.getDomNode();
+      if (domNode) {
+        const originalDisplay = domNode.style.display;
+        domNode.style.display = 'none';
+        void domNode.offsetHeight;
+        domNode.style.display = originalDisplay || 'block';
       }
-    }, 60);
+      setTimeout(() => {
+        if (editor) {
+          editor.layout();
+          // Ensure it reveals the first line to trigger rendering
+          editor.revealLine(1);
+        }
+      }, 300);
+    } catch (e) {
+      console.warn('[AlgoLab] Repaint error:', e);
+    }
   }, []);
   const setEditorContent = useCallback((content, file) => {
     const container = editorContainerRef.current;
     if (!window.monaco || !container) return;
+    
+    const normalizedPath = normalizePath(file?.path || 'untitled');
+
     if (content !== undefined && content !== null) {
       fallbackContentRef.current = content;
       setFallbackContent(content);
     }
+    
     const width = container.clientWidth;
     const height = container.clientHeight;
     if (width === 0 && height === 0) {
       pendingContentRef.current = { content, file };
       return;
     }
-    if (editorRef.current) {
-      const currentModel = editorRef.current.getModel();
-      if (currentModel) {
-        modelsRef.current.set(activeFileRef.current?.path, currentModel);
-      }
-      editorRef.current.dispose();
-      editorRef.current = null;
+
+    if (!editorRef.current) {
+      console.log('[AlgoLab] Creating new Monaco instance');
+      container.innerHTML = '';
+      editorRef.current = window.monaco.editor.create(container, {
+        value: '',
+        language: 'python',
+        theme: 'safe-dark',
+        fontSize: 14,
+        fontFamily: 'JetBrains Mono',
+        automaticLayout: true,
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+        padding: { top: 10 },
+        readOnly: false
+      });
     }
-    container.innerHTML = '';
-    editorRef.current = window.monaco.editor.create(container, {
-      value: '',
-      language: 'python',
-      theme: 'safe-dark',
-      fontSize: 14,
-      fontFamily: 'JetBrains Mono',
-      automaticLayout: false,
-      minimap: { enabled: true },
-      scrollBeyondLastLine: false,
-      padding: { top: 10 }
-    });
+
     const editor = editorRef.current;
     const lang = getLanguageFromFile(file);
-    const existingModelUri = window.monaco.Uri.parse(`file:///${file?.path || 'untitled'}`);
-    let targetModel = window.monaco.editor.getModel(existingModelUri);
-    if (targetModel) {
-      if (targetModel.getValue() !== content) {
-        targetModel.setValue(content);
+    
+    try {
+      const modelUri = window.monaco.Uri.file(normalizedPath);
+      let targetModel = window.monaco.editor.getModel(modelUri);
+      
+      if (targetModel) {
+        if (targetModel.getValue() !== content) {
+          targetModel.setValue(content);
+        }
+      } else {
+        targetModel = window.monaco.editor.createModel(content, lang, modelUri);
       }
-    } else {
-      targetModel = window.monaco.editor.createModel(content, lang, existingModelUri);
+      
+      editor.setModel(targetModel);
+      window.monaco.editor.setModelLanguage(targetModel, lang);
+      pendingContentRef.current = null;
+      
+      // Safety: layout immediately and after delay
+      editor.layout();
+      forceElectronRepaint(editor);
+    } catch (err) {
+      console.error('[AlgoLab] Model error:', err);
+      // Fallback: simple set value if URI fails
+      editor.setValue(content || '');
     }
-    editor.setModel(targetModel);
-    window.monaco.editor.setModelLanguage(targetModel, lang);
-    pendingContentRef.current = null;
-    forceElectronRepaint(editor);
   }, [forceElectronRepaint]);
   useEffect(() => { openFilesRef.current = openFiles; }, [openFiles]);
   useEffect(() => { activeFileRef.current = activeFile; }, [activeFile]);
@@ -455,12 +456,17 @@ const AlgoLab = ({ isOpen }) => {
   };
   const createMonacoEditor = useCallback(() => {
     const container = editorContainerRef.current;
-    if (!container || editorRef.current || !window.monaco) return;
+    
+    if (!container || editorRef.current || !window.monaco || !window.monaco.editor) {
+      return;
+    }
+    
     const width = container.clientWidth;
     const height = container.clientHeight;
     if (width === 0 && height === 0) {
       return;
     }
+
     container.innerHTML = '';
     window.monaco.editor.defineTheme('safe-dark', {
       base: 'vs-dark', inherit: true, rules: [],
@@ -590,7 +596,7 @@ const AlgoLab = ({ isOpen }) => {
         if (!container) return;
         registerPythonCompletions();
         const observer = new ResizeObserver(() => {
-          if ((container.clientWidth > 0 || container.clientHeight > 0) && window.monaco && !editorRef.current) {
+          if ((container.clientWidth > 0 || container.clientHeight > 0) && window.monaco && window.monaco.editor && !editorRef.current) {
             createMonacoEditor();
           }
           if (editorRef.current) requestAnimationFrame(() => editorRef.current.layout());
@@ -601,7 +607,7 @@ const AlgoLab = ({ isOpen }) => {
           }
         });
         observer.observe(container);
-        if ((container.clientWidth > 0 || container.clientHeight > 0) && window.monaco && !editorRef.current) {
+        if ((container.clientWidth > 0 || container.clientHeight > 0) && window.monaco && window.monaco.editor && !editorRef.current) {
           createMonacoEditor();
         }
       };
@@ -660,17 +666,38 @@ const AlgoLab = ({ isOpen }) => {
       setTerminalLoaded(true);
 
       // ===== STEP 2: Now start Monaco (define is safely restored) =====
+      if (window.require) {
+        window.require.config({
+          paths: { 'vs': 'lib/monaco/vs' }
+        });
+      }
+
       const waitForMonaco = setInterval(() => {
-        if (window.monaco) {
+        if (window.monaco && window.monaco.editor) {
           clearInterval(waitForMonaco);
           initMonacoWithObserver();
+        } else if (window.require && !window.monaco) {
+          try {
+            window.require(['vs/editor/editor.main'], function() {});
+          } catch (e) {}
         }
-      }, 100);
-      setTimeout(() => clearInterval(waitForMonaco), 30000);
+      }, 200);
+      
+      // Auto-clear after 20 seconds to prevent infinite loop
+      setTimeout(() => {
+        clearInterval(waitForMonaco);
+        if (!window.monaco || !window.monaco.editor) {
+          console.error('[AlgoLab] Monaco failed to load after 20s');
+        }
+      }, 20000);
     };
     setup();
     return () => {
-      if (editorRef.current) { editorRef.current.dispose(); editorRef.current = null; }
+      if (editorRef.current) { 
+        console.log('[AlgoLab] Disposing editor on cleanup');
+        editorRef.current.dispose(); 
+        editorRef.current = null; 
+      }
       setIsEditorReady(false);
     };
   }, [createMonacoEditor]);
@@ -680,19 +707,36 @@ const AlgoLab = ({ isOpen }) => {
       return () => clearTimeout(timer);
     }
   }, [isOpen, createMonacoEditor]);
+  // Safety net Effect: ensures editor is visible, has content and is laid out
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (activeFile && editorRef.current && fileContents[activeFile.path]) {
-        const currentVal = editorRef.current.getValue();
-        if (!currentVal || currentVal.trim() === '') {
-          editorRef.current.setValue(fileContents[activeFile.path]);
-          editorRef.current.layout();
-          requestAnimationFrame(() => requestAnimationFrame(() => editorRef.current?.layout()));
+    if (!isOpen) return;
+    
+    const interval = setInterval(() => {
+      if (!editorRef.current) return;
+      
+      const container = editorContainerRef.current;
+      if (container && container.offsetParent !== null) { // if visible
+        const editor = editorRef.current;
+        const domNode = editor.getDomNode();
+        
+        if (domNode) {
+          const viewLines = domNode.querySelector('.view-lines');
+          const isBlack = !viewLines || !viewLines.textContent || viewLines.textContent.trim().length === 0;
+          
+          if (isBlack && activeFileRef.current) {
+            const content = fileContentsRef.current[activeFileRef.current.path];
+            if (content) {
+              if (!editor.getValue()) editor.setValue(content);
+              editor.layout();
+              forceElectronRepaint(editor);
+            }
+          }
         }
       }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [activeFile, fileContents]);
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [isOpen, forceElectronRepaint]);
   useEffect(() => {
     if (isReviewingDiff && window.monaco) {
       const container = diffEditorContainerRef.current;
@@ -783,24 +827,7 @@ const AlgoLab = ({ isOpen }) => {
         };
 
         ws.onmessage = (event) => {
-          let data = event.data;
-          // Apply professional terminal colorization for standard algorithm execution logs
-          if (typeof data === 'string' && !data.includes('\x1b[')) {
-            data = data
-              // Timestamps [YYYY-MM-DD HH:MM:SS] or [HH:MM:SS]
-              .replace(/\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]/g, '\x1b[90m$&\x1b[0m')
-              .replace(/\[\d{2}:\d{2}:\d{2}\]/g, '\x1b[90m$&\x1b[0m')
-              // Log levels and common keywords
-              .replace(/\b(INFO|Info|info)\b/g, '\x1b[1;36m$1\x1b[0m')
-              .replace(/\b(DEBUG|Debug|debug)\b/g, '\x1b[1;34m$1\x1b[0m')
-              .replace(/\b(WARNING|WARN|Warning|Warn|warn)\b/g, '\x1b[1;33m$1\x1b[0m')
-              .replace(/\b(ERROR|Error|error|FAIL|Fail|fail|Exception|Traceback)\b/g, '\x1b[1;31m$1\x1b[0m')
-              .replace(/\b(SUCCESS|Success|success|OK|Ok|ok)\b/g, '\x1b[1;32m$1\x1b[0m')
-              // Python specific keywords
-              .replace(/\b(True|False|None)\b/g, '\x1b[1;35m$1\x1b[0m')
-              .replace(/\b(import|from|def|class|return)\b/g, '\x1b[1;35m$1\x1b[0m');
-          }
-          term.write(data);
+          term.write(event.data);
         };
 
         ws.onerror = (error) => {

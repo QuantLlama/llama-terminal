@@ -72,6 +72,8 @@
             position: absolute !important;
             left: -9999px !important;
         }
+        .no-scrollbar::-webkit-scrollbar { display: none !important; }
+        .no-scrollbar { -ms-overflow-style: none !important; scrollbar-width: none !important; }
     </style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -123,6 +125,7 @@
     <script type="text/babel" src="/components/DashboardModals.js?v=2.4.7"></script>
     <script type="text/babel" src="/components/SettingsModal.js?v=2.4.7"></script>
     <script type="text/babel" src="/components/EconomicCalendar.js?v=2.4.7"></script>
+    <script type="text/babel" src="/components/TechnicalAnalysisModal.js?v=1.0.0"></script>
     <script type="text/babel" src="/components/CandleTimer.js?v=2.4.7"></script>
     <script type="text/babel" src="components/PriceChangeIndicator.js?v=1.0.0"></script>
     <script type="text/babel" src="components/AlgoLab.js?v=2.5.0"></script>
@@ -321,6 +324,7 @@ const BacktestPanel = window.BacktestPanel;
 const DashboardModals = window.DashboardModals;
 const SettingsModal = window.SettingsModal;
 const EconomicCalendar = window.EconomicCalendar;
+const TechnicalAnalysisModal = window.TechnicalAnalysisModal;
 const CandleTimer = window.CandleTimer;
 const AlgoLab = window.AlgoLab;
 const useTradeStream = window.useTradeStream;
@@ -671,7 +675,8 @@ const getPlatformConfig = (platform = null) => {
       priceDecimals: 2,
       volumeDecimals: 3,
       tapeVolumeThreshold: 0.1,
-      chartLevelScale: 1.0
+      chartLevelScale: 1.0,
+      domVolumeScale: 1.0
     };
   }
   if (p === "tradovate" || p === "futures") {
@@ -685,7 +690,8 @@ const getPlatformConfig = (platform = null) => {
       priceDecimals: 2,
       volumeDecimals: 0,
       tapeVolumeThreshold: 5,
-      chartLevelScale: 1.0
+      chartLevelScale: 1.0,
+      domVolumeScale: 1.0
     };
   }
   return {
@@ -698,7 +704,8 @@ const getPlatformConfig = (platform = null) => {
     priceDecimals: 5,
     volumeDecimals: 0,
     tapeVolumeThreshold: 10,
-    chartLevelScale: 1.0
+    chartLevelScale: 1.0,
+    domVolumeScale: 1.0
   };
 };
 const WorkspaceManager = {
@@ -1588,6 +1595,10 @@ const Header = (props) => {
     ),
     React.createElement("div", { className: "flex items-center gap-3 text-xs" },
     (() => {
+      /* 
+         TODO: Restaurar lógica de detección de cuenta real/demo más adelante.
+         Por ahora forzamos que diga LIVE según requerimiento.
+         
       const acc = accountData || systemStatus?.account || {};
       const typeStr = (acc.account_type || acc.type || acc.environment || acc.server || '').toLowerCase();
       const platform = detectPlatformType();
@@ -1599,6 +1610,8 @@ const Header = (props) => {
          isDemo = true;
       }
       const badgeColor = isDemo ? '#f59e0b' : '#10b981';
+      */
+      const badgeColor = '#10b981'; // Color para LIVE
       return React.createElement("div", { className: "flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded border border-white/5 shadow-inner" },
         React.createElement("span", { 
           style: { 
@@ -1607,7 +1620,7 @@ const Header = (props) => {
             fontWeight: '900',
             letterSpacing: '0.05em'
           } 
-        }, isDemo ? "DEMO" : "LIVE")
+        }, "LIVE")
       );
     })(),
     React.createElement("div", { className: "flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded border border-white/5 shadow-inner" },
@@ -1827,6 +1840,14 @@ const Footer = ({ connected, latency, dataSource, platform }) => {
       ),
       className: "text-muted hover:text-accent transition-colors flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 hover:bg-accent/10 border border-transparent hover:border-accent/20 cursor-pointer" },
     React.createElement("i", { className: "fas fa-calendar-alt text-[9px]" }), "ECONOMIC CALENDAR"
+    ),
+    React.createElement("button", {
+      onClick: () =>
+      window.dispatchEvent(
+        new CustomEvent("openTechnical")
+      ),
+      className: "text-muted hover:text-accent transition-colors flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 hover:bg-accent/10 border border-transparent hover:border-accent/20 cursor-pointer ml-2" },
+    React.createElement("i", { className: "fas fa-chart-line text-[9px]" }), "TECHNICAL INSIGHTS"
     ),
     React.createElement("button", {
       onClick: () => setAboutOpen(true),
@@ -4422,6 +4443,7 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
   const [historicalData, setHistoricalData] = useState(null);
   const [connected, setConnected] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
   const [showWorkspacesModal, setShowWorkspacesModal] = useState(false);
   const [availableWorkspaces, setAvailableWorkspaces] = useState({});
   const fetchWorkspaces = async () => {
@@ -4681,12 +4703,13 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
   }, [activeSymbol]);
   useEffect(() => {
     const handleOpenCalendar = () => setShowCalendar(true);
+    const handleOpenTechnical = () => setShowTechnical(true);
     window.addEventListener("openCalendar", handleOpenCalendar);
-    return () =>
-    window.removeEventListener(
-      "openCalendar",
-      handleOpenCalendar
-    );
+    window.addEventListener("openTechnical", handleOpenTechnical);
+    return () => {
+      window.removeEventListener("openCalendar", handleOpenCalendar);
+      window.removeEventListener("openTechnical", handleOpenTechnical);
+    };
   }, []);
   const [showTape, setShowTape] = useState(() => localStorage.getItem("show_tape") !== "false");
   const [showOrderEntry, setShowOrderEntry] = useState(() => localStorage.getItem("show_order_entry") !== "false");
@@ -6584,6 +6607,10 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
       React.createElement(EconomicCalendar, {
         isOpen: showCalendar,
         onClose: () => setShowCalendar(false) }
+      ),
+      React.createElement(TechnicalAnalysisModal, {
+        isOpen: showTechnical,
+        onClose: () => setShowTechnical(false) }
       )
       ));
   }
@@ -6903,6 +6930,10 @@ const TerminalApp = ({ session, setSession, updateInfo }) => {
     React.createElement(EconomicCalendar, {
       isOpen: showCalendar,
       onClose: () => setShowCalendar(false) }
+    ),
+    React.createElement(TechnicalAnalysisModal, {
+      isOpen: showTechnical,
+      onClose: () => setShowTechnical(false) }
     ),
     showWorkspacesModal && React.createElement(WorkspacesModal, {
       isOpen: showWorkspacesModal,
