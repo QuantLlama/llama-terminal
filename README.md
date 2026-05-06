@@ -19,7 +19,7 @@
 
 ## 📖 Table of Contents
 - [🚀 Overview](#-overview)
-- [✨ Key Features](#-key-features)
+- [✨ Key Features](#-key-features) 
 - [📸 Platform Screenshots](#-platform-screenshots)
 - [🛠️ Technology Stack](#-technology-stack)
 - [📥 Installation & Setup](#-installation--setup)
