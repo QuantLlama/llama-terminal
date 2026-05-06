@@ -75,7 +75,7 @@ const LogLine = ({ log, index }) => {
     React.createElement("span", { className: `text-[10px] font-mono leading-relaxed ${color}` }, log)
     ));
 };
-const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
+const AlgoPanel = ({ indicators, refreshIndicators, onClose, isLocked }) => {
   const [status, setStatus] = useState("idle");
   const [logs, setLogs] = useState([]);
   const logsEndRef = useRef(null);
@@ -290,7 +290,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
     )
     )
   }];
-  const liveSteps = [
+  const liveSteps = React.useMemo(() => [
   {
     label: "Execution Platform",
     description: "Select where to deploy this strategy.",
@@ -339,7 +339,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
         React.createElement("div", { className: "space-y-6" },
         React.createElement("div", null,
         React.createElement("label", { className: "text-[10px] text-amber-500/80 font-bold block mb-2 uppercase tracking-wider" }, "Target Account"),
-        React.createElement("div", { className: "space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1" },
+        React.createElement("div", { className: "space-y-2 max-h-40 overflow-y-auto no-scrollbar pr-1" },
         filteredAccounts.length > 0 ?
         filteredAccounts.map((acc) =>
         React.createElement("div", { key: acc.id, onClick: () => update("account_id", acc.id),
@@ -398,7 +398,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
         React.createElement("div", null,
         React.createElement("span", { className: "font-bold text-sm block" }, algo),
         React.createElement("span", { className: "text-[9px] opacity-50" },
-        algo === "FourierCycle" ? "Cycle Analysis & Projections" : algo === "EvolutionaryGAN" ? "Deep Learning Prediction" : algo === "ReinforcementDQN" ? "Adaptive Decision Making" : "Standard Logic"
+        algorithms[algo]?.description || "Standard Trading Logic"
         )
         )
         ),
@@ -415,42 +415,34 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
       const algo = data.algorithm || selectedAlgo;
       const config = data.algo_config || {};
       const updateConfig = (k, v) => update("algo_config", { ...config, [k]: v });
-      if (algo === "FourierCycle") {
+      
+      const algoInfo = algorithms[algo] || {};
+      const schema = algoInfo.config_schema || {};
+      
+      if (Object.keys(schema).length > 0) {
         return (
-          React.createElement("div", { className: "grid grid-cols-2 gap-4" },
-          [
-          { key: "fourier_period", label: "Base Period", def: 120, type: "int" },
-          { key: "harmonics_count", label: "Harmonics", def: 8, type: "int" },
-          { key: "signal_threshold", label: "Signal Threshold", def: 0.5, step: 0.1, type: "float" },
-          { key: "projection_bars", label: "Projection Bars", def: 20, type: "int" }].
-          map(({ key, label, def, step, type }) =>
+          React.createElement("div", { className: "grid grid-cols-2 gap-4 max-h-[300px] overflow-y-auto pr-2 no-scrollbar" },
+          Object.entries(schema).map(([key, info]) =>
           React.createElement("div", { key: key },
-          React.createElement("label", { className: "text-[10px] text-gray-500 uppercase font-bold block mb-1" }, label),
-          React.createElement("input", { type: "number", step: step, value: config[key] ?? def,
-            onChange: (e) => updateConfig(key, type === "float" ? parseFloat(e.target.value) : parseInt(e.target.value)),
-            className: "w-full bg-black border border-white/10 p-2 rounded-lg text-white text-xs outline-none focus:border-purple-500 transition-colors" })
+          React.createElement("label", { className: "text-[10px] text-gray-500 uppercase font-bold block mb-1" }, info.name || key),
+          info.type === 'bool' ?
+          React.createElement("button", { 
+            onClick: () => updateConfig(key, !(config[key] ?? info.default)),
+            className: `w-full p-2 rounded-lg text-xs font-bold border transition-all ${(config[key] ?? info.default) ? "bg-blue-500/20 border-blue-500/50 text-blue-400" : "bg-white/5 border-white/10 text-gray-500"}` },
+            (config[key] ?? info.default) ? "ENABLED" : "DISABLED"
+          ) :
+          React.createElement("input", { 
+            type: "number", 
+            step: info.type === 'float' ? 0.01 : 1, 
+            value: config[key] ?? info.default,
+            onChange: (e) => updateConfig(key, info.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value)),
+            className: "w-full bg-black border border-white/10 p-2 rounded-lg text-white text-xs outline-none focus:border-blue-500 transition-colors" })
           )
           )
-          ));
+          )
+        );
       }
-      if (algo?.includes("StrategyETF")) {
-        return (
-          React.createElement("div", { className: "grid grid-cols-2 gap-4" },
-          [
-          { key: "stop_loss", label: "Stop Loss (%)", def: 2.0, step: 0.1, type: "float" },
-          { key: "take_profit", label: "Take Profit (%)", def: 4.0, step: 0.1, type: "float" },
-          { key: "retrain_interval", label: "Retrain Days", def: 63, type: "int" },
-          { key: "max_position_pct", label: "Max Alloc (%)", def: 0.25, step: 0.05, type: "float", hide: algo !== 'StrategyETF_Portfolio' }].
-          filter((f) => !f.hide).map(({ key, label, def, step, type }) =>
-          React.createElement("div", { key: key },
-          React.createElement("label", { className: "text-[10px] text-gray-500 uppercase font-bold block mb-1" }, label),
-          React.createElement("input", { type: "number", step: step, value: config[key] ?? def,
-            onChange: (e) => updateConfig(key, type === "float" ? parseFloat(e.target.value) : parseInt(e.target.value)),
-            className: "w-full bg-black border border-white/10 p-2 rounded-lg text-white text-xs outline-none focus:border-amber-500/50 transition-colors" })
-          )
-          )
-          ));
-      }
+
       return (
         React.createElement("div", { className: "space-y-4" },
         React.createElement("div", { className: "p-3 bg-yellow-900/10 border border-yellow-500/20 rounded-xl text-yellow-500 text-xs" }, "Using default configuration for ",
@@ -462,7 +454,8 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
           onChange: (e) => updateConfig("risk_percent", parseFloat(e.target.value)),
           className: "w-full bg-black border border-white/10 p-2 rounded-lg text-white text-xs outline-none focus:border-purple-500 transition-colors" })
         )
-        ));
+        )
+      );
     }
   },
   {
@@ -496,8 +489,9 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
     )
     )
     )
-  }];
-  return (
+  }
+  ], [accounts, algorithms, selectedAlgo]);
+return (
     React.createElement("div", { className: "h-full w-full bg-[#080809] text-white font-sans flex flex-col overflow-hidden" },
     React.createElement("header", { className: "flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-[#080809]/80 backdrop-blur-sm" },
     React.createElement("div", { className: "flex items-center gap-3" },
@@ -521,7 +515,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
     )
     ),
     React.createElement("div", { className: "flex flex-1 gap-5 p-5 overflow-hidden min-h-0" },
-    React.createElement("aside", { className: "w-72 flex flex-col gap-4 overflow-y-auto flex-shrink-0 pr-1 custom-scrollbar" },
+    React.createElement("aside", { className: "w-72 flex flex-col gap-4 overflow-y-auto flex-shrink-0 pr-1 no-scrollbar" },
     React.createElement("section", { className: `${DS.card} p-4 flex-shrink-0` },
     React.createElement("h3", { className: `${DS.label} mb-3 flex items-center gap-2` },
     React.createElement("i", { className: "fas fa-bolt text-amber-500/80" }), "AI Operations"
@@ -538,7 +532,13 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
     React.createElement(ActionBtn, { icon: "fa-stop-circle", label: "DETENER ALGORITMO", onClick: () => fetch("/api/algo/stop", { method: "POST" }).then(() => setStatus("idle")), variant: "red" }),
     React.createElement(ActionBtn, { icon: "fa-external-link-alt", label: "Dashboard en Vivo", onClick: () => setLiveDashOpen(true), variant: "blue" })
     ) :
-    React.createElement(ActionBtn, { icon: "fa-play-circle", label: "Live Trading", sub: "Deploy strategies to MT5/Crypto", onClick: () => setLiveWizardOpen(true), variant: "green" })
+    React.createElement(ActionBtn, { 
+      icon: isLocked ? "fa-lock" : "fa-play-circle", 
+      label: isLocked ? "Trading Bloqueado" : "Live Trading", 
+      sub: isLocked ? "Límite de riesgo alcanzado" : "Deploy strategies to MT5/Crypto", 
+      onClick: isLocked ? null : () => setLiveWizardOpen(true), 
+      variant: isLocked ? "default" : "green" 
+    })
     )
     ),
     React.createElement("section", { className: `${DS.card} p-4 flex-shrink-0` },
@@ -622,7 +622,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose }) => {
     React.createElement("span", { className: `${DS.label} text-[8px]` }, "LIVE STREAM")
     )
     ),
-    React.createElement("div", { className: "flex-1 overflow-y-auto custom-scrollbar bg-black/40 p-3 font-mono" },
+    React.createElement("div", { className: "flex-1 overflow-y-auto no-scrollbar bg-black/40 p-3 font-mono" },
     logs.length === 0 ?
     React.createElement("div", { className: "h-full flex items-center justify-center" },
     React.createElement("span", { className: "text-[10px] text-white/10 italic tracking-wider" }, "Waiting for command input...")

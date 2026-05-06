@@ -18,6 +18,8 @@ ta-lib==0.4.28
 
 matplotlib==3.8.4
 seaborn==0.13.2
+mplfinance
+cryptography
 
 fastapi==0.110.0
 uvicorn==0.29.0

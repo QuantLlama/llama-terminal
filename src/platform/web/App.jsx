@@ -66,6 +66,138 @@ const App = () => {
       return newSettings;
     });
   }, []);
+
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockCountdown, setLockCountdown] = useState("");
+  const [riskConfig, setRiskConfig] = useState({ maxDailyLoss: 500, maxContracts: 1, emotionalGuard: false, lockedUntil: null });
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch("/api/config");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.risk_max_daily_loss !== undefined) {
+            const cfg = {
+              maxDailyLoss: data.risk_max_daily_loss,
+              maxContracts: data.risk_max_contracts,
+              emotionalGuard: data.risk_emotional_guard,
+              lockedUntil: data.risk_locked_until
+            };
+            setRiskConfig(cfg);
+            // Initialize lock state from server
+            if (cfg.lockedUntil && parseInt(cfg.lockedUntil) > Date.now()) {
+              setIsLocked(true);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch risk config:", e);
+      }
+    };
+    fetchConfig();
+    window.addEventListener("settings_updated", fetchConfig);
+    return () => window.removeEventListener("settings_updated", fetchConfig);
+  }, []);
+
+  const getNextNYOpen = useCallback(() => {
+    const now = new Date();
+    // NY 09:30 AM EST
+    // Determine if we are in DST
+    const y = now.getUTCFullYear();
+    const nthWeekday = (year, month, dayOfWeek, n) => {
+      const d = new Date(Date.UTC(year, month, 1));
+      let count = 0;
+      while (d.getUTCMonth() === month) {
+        if (d.getUTCDay() === dayOfWeek) {
+          count++;
+          if (count === n) return d.getTime();
+        }
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      return d.getTime();
+    };
+    const start = nthWeekday(y, 2, 0, 2) + 7 * 3600 * 1000;
+    const end = nthWeekday(y, 10, 0, 1) + 6 * 3600 * 1000;
+    const isUsDst = now.getTime() >= start && now.getTime() < end;
+    const nyOffset = isUsDst ? 4 : 5;
+
+    // Create target: tomorrow at 09:30 AM NY time
+    const target = new Date(now);
+    target.setDate(target.getDate() + 1);
+    target.setHours(9, 30, 0, 0);
+    
+    // Adjust target to UTC based on NY offset
+    // Target is 09:30 NY time. UTC = 09:30 + offset
+    const targetUtc = new Date(target.getTime() + (nyOffset * 3600 * 1000));
+    
+    // Correct for local timezone offset if needed? 
+    // Actually simpler: 
+    // const nyTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+    return targetUtc.getTime();
+  }, []);
+
+  useEffect(() => {
+    const checkRisk = async () => {
+      if (!riskConfig.emotionalGuard) return;
+
+      const realizedPnl = accountInfo?.account?.realized_today || 0;
+      const manualLock = localStorage.getItem("platform_manually_locked") === "true";
+      const lockedUntil = parseInt(riskConfig.lockedUntil || localStorage.getItem("platform_locked_until") || "0");
+
+      if (lockedUntil > Date.now()) {
+        if (!isLocked) setIsLocked(true);
+        return;
+      }
+
+      if (realizedPnl <= -riskConfig.maxDailyLoss || manualLock) {
+        const nextOpen = getNextNYOpen();
+        
+        // Persist to server
+        try {
+          await fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ risk_locked_until: nextOpen.toString() })
+          });
+        } catch (e) {
+          console.error("Failed to persist lock to server:", e);
+        }
+
+        localStorage.setItem("platform_locked_until", nextOpen.toString());
+        localStorage.removeItem("platform_manually_locked");
+        setRiskConfig(prev => ({ ...prev, lockedUntil: nextOpen.toString() }));
+        setIsLocked(true);
+        window.dispatchEvent(new CustomEvent('notification', { 
+          detail: { type: 'error', title: 'RISK LIMIT REACHED', message: 'Platform locked until next NY session.' } 
+        }));
+      }
+    };
+
+    const interval = setInterval(checkRisk, 5000);
+    checkRisk();
+    return () => clearInterval(interval);
+  }, [accountInfo, getNextNYOpen, riskConfig, isLocked]);
+
+  useEffect(() => {
+    if (!isLocked) return;
+    const updateCountdown = () => {
+      const until = parseInt(riskConfig.lockedUntil || localStorage.getItem("platform_locked_until") || "0");
+      const diff = until - Date.now();
+      if (diff <= 0) {
+        setIsLocked(false);
+        localStorage.removeItem("platform_locked_until");
+        return;
+      }
+      const hours = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      setLockCountdown(`${hours}h ${mins}m ${secs}s`);
+    };
+    const timer = setInterval(updateCountdown, 1000);
+    updateCountdown();
+    return () => clearInterval(timer);
+  }, [isLocked]);
   const ws = useRef(null);
   const feedWs = useRef(null);
   const lastTickUpdateRef = useRef(0);
@@ -144,11 +276,18 @@ const App = () => {
         const activeNorm = window.getUniversalSymbol ? window.getUniversalSymbol(activeSymbol, window.detectPlatformType(activeSymbol)) : activeSymbol;
         const incomingNorm = window.getUniversalSymbol ? window.getUniversalSymbol(rawSymbol, window.detectPlatformType(rawSymbol)) : normalizedSymbol;
         const displaySymbol = (activeNorm === incomingNorm) ? activeSymbol : rawSymbol;
-        setTickData({
-          last: tickPayload.price,
-          volume: tickPayload.volume,
-          timestamp: tickPayload.timestamp,
-          symbol: displaySymbol
+        setTickData((prev) => {
+          // Anti-Thrashing en la ingesta:
+          // Si el precio y el volumen son idénticos, React no necesita re-renderizar
+          if (prev && prev.last === tickPayload.price && prev.volume === tickPayload.volume) {
+             return prev; 
+          }
+          return {
+            last: tickPayload.price,
+            volume: tickPayload.volume,
+            timestamp: tickPayload.timestamp,
+            symbol: displaySymbol
+          };
         });
         
         // For MT5, TICK/QUOTE might be the only things we get for some symbols. If they have size > 0, 
@@ -286,6 +425,20 @@ const App = () => {
     }
   }, [wsConnected, sendWebSocketMessage]);
   const handleOrder = useCallback((type, symbol, price, volume = 1, orderType = 'LIMIT', stopLoss = 0, takeProfit = 0) => {
+    if (isLocked) {
+      window.dispatchEvent(new CustomEvent('notification', { 
+        detail: { type: 'error', title: 'PLATFORM LOCKED', message: 'Trading is disabled by Emotional Guard.' } 
+      }));
+      return;
+    }
+
+    if (volume > riskConfig.maxContracts) {
+      window.dispatchEvent(new CustomEvent('notification', { 
+        detail: { type: 'error', title: 'MAX CONTRACTS EXCEEDED', message: `Your limit is ${riskConfig.maxContracts} contract(s).` } 
+      }));
+      return;
+    }
+
     const orderPayload = {
       symbol,
       type,
@@ -296,10 +449,16 @@ const App = () => {
       take_profit: takeProfit
     };
     sendWebSocketMessage("place_order", orderPayload);
-  }, [sendWebSocketMessage]);
+  }, [sendWebSocketMessage, isLocked, riskConfig]);
   const handleAlgoAction = useCallback((action, algo_id = null, params = {}) => {
+    if (isLocked && action === "start") {
+      window.dispatchEvent(new CustomEvent('notification', { 
+        detail: { type: 'error', title: 'PLATFORM LOCKED', message: 'Algo execution is disabled by Emotional Guard.' } 
+      }));
+      return;
+    }
     sendWebSocketMessage("algo_action", { action, algo_id, params });
-  }, [sendWebSocketMessage]);
+  }, [sendWebSocketMessage, isLocked]);
   const { NotificationProvider, useNotification } = Notification;
   return (
     React.createElement(NotificationProvider, null,
@@ -396,6 +555,7 @@ const App = () => {
       showAllOverlays: showAllOverlays,
       setShowAllOverlays: setShowAllOverlays,
       indicators: indicators,
+      isLocked: isLocked,
       onUpdateSettings: (newSettings) => updateIndicatorSettings('layout', newSettings),
       globalBigTradesRef: globalBigTradesRef }
     )
@@ -414,6 +574,7 @@ const App = () => {
       onVolumeChange: updateGlobalQty,
       symbol: activeSymbol,
       tickData: tickData,
+      isLocked: isLocked,
       mt5Positions: [],
       oneClick: false,
       setOneClick: () => {} }
@@ -432,6 +593,7 @@ const App = () => {
     React.createElement(AlgoPanel, {
       systemStatus: systemStatus,
       handleAlgoAction: handleAlgoAction,
+      isLocked: isLocked,
       activeSymbol: activeSymbol }
     )
     ) :
@@ -520,6 +682,22 @@ const App = () => {
         if (data.symbol) setActiveSymbol(data.symbol);
         if (data.timeframe) setActiveTimeframe(data.timeframe);
       } }
+    ),
+    isLocked && React.createElement("div", { className: "fixed bottom-20 left-1/2 -translate-x-1/2 z-[99999] pointer-events-none animate-in slide-in-from-bottom-10 duration-700" },
+      React.createElement("div", { className: "px-6 py-4 bg-zinc-900/90 backdrop-blur-md border border-red-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-6 pointer-events-auto" },
+        React.createElement("div", { className: "w-10 h-10 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20" },
+          React.createElement("i", { className: "fas fa-shield-alt text-red-500" })
+        ),
+        React.createElement("div", { className: "text-left" },
+          React.createElement("h2", { className: "text-xs font-black text-white uppercase tracking-widest leading-none mb-1" }, "Trading Locked"),
+          React.createElement("p", { className: "text-[10px] text-zinc-500 font-bold uppercase tracking-tighter" }, "Risk limit reached. Analysis mode only.")
+        ),
+        React.createElement("div", { className: "h-8 w-px bg-white/10" }),
+        React.createElement("div", { className: "text-center" },
+          React.createElement("p", { className: "text-[8px] text-zinc-500 font-black uppercase tracking-widest mb-0.5" }, "Next NY Session"),
+          React.createElement("p", { className: "text-sm font-mono font-black text-orange-500 tabular-nums" }, lockCountdown)
+        )
+      )
     )
     )
     ));

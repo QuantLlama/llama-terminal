@@ -220,7 +220,7 @@ const ChartSettingsModal = ({
           React.createElement(TabButton, { id: "filters", label: "Filters", icon: "filter", activeTab: activeTab, onClick: setActiveTab }),
           React.createElement(TabButton, { id: "timer", label: "Timer", icon: "clock", activeTab: activeTab, onClick: setActiveTab })
         ),
-        React.createElement("div", { className: "p-6 overflow-y-auto custom-scrollbar flex-1", style: { maxHeight: '60vh' } },
+        React.createElement("div", { className: "p-6 overflow-y-auto no-scrollbar flex-1", style: { maxHeight: '60vh' } },
           activeTab === "style" &&
           React.createElement("div", { className: "space-y-4 animate-in fade-in slide-in-from-left-2 duration-300" },
             React.createElement("div", { className: "border-l-2 border-accent/30 pl-3 py-1 mb-4" },
@@ -608,43 +608,52 @@ const ChartSettingsModal = ({
                     )
                   ),
                   React.createElement("div", { className: "pt-2 border-t border-white/5 space-y-2" },
-                    React.createElement("div", { className: "text-[10px] text-gray-500 uppercase tracking-wider font-bold px-1" }, "Candle Body Border"),
-                    React.createElement(ControlRow, { label: "Bull Border" },
-                      React.createElement("div", { className: "flex items-center gap-2" },
+                    React.createElement("div", { className: "flex items-center justify-between px-1" },
+                      React.createElement("div", { className: "text-[10px] text-gray-500 uppercase tracking-wider font-bold" }, "Candle Visuals"),
+                      React.createElement("label", { className: "flex items-center gap-1.5 cursor-pointer group" },
                         React.createElement("input", {
-                          type: "color",
-                          value: ensureHex(localSettings.footprint.bodyBullColor, '#00dc6e'),
-                          onChange: (e) => handleFpSettingChange('bodyBullColor', e.target.value),
-                          className: "w-8 h-4 rounded bg-transparent border-0 cursor-pointer"
-                        }
-                        ),
-                        React.createElement("input", {
-                          type: "range", min: "0", max: "100", step: "5",
-                          value: Math.round(localSettings.footprint.bodyBullOpacity ?? 55),
-                          onChange: (e) => handleFpSettingChange('bodyBullOpacity', parseInt(e.target.value)),
-                          className: "w-20 accent-accent"
-                        }
-                        ),
-                        React.createElement("span", { className: "text-[9px] text-gray-500 w-7" }, localSettings.footprint.bodyBullOpacity ?? 55, "%")
+                          type: "checkbox",
+                          checked: localSettings.footprint.syncWithChartColors ?? true,
+                          onChange: (e) => handleFpSettingChange('syncWithChartColors', e.target.checked),
+                          className: "w-3 h-3 accent-accent"
+                        }),
+                        React.createElement("span", { className: "text-[9px] text-gray-500 group-hover:text-gray-300 transition-colors uppercase font-bold" }, "Sync with Chart")
                       )
                     ),
-                    React.createElement(ControlRow, { label: "Bear Border" },
-                      React.createElement("div", { className: "flex items-center gap-2" },
-                        React.createElement("input", {
-                          type: "color",
-                          value: ensureHex(localSettings.footprint.bodyBearColor, '#e6284b'),
-                          onChange: (e) => handleFpSettingChange('bodyBearColor', e.target.value),
-                          className: "w-8 h-4 rounded bg-transparent border-0 cursor-pointer"
-                        }
-                        ),
-                        React.createElement("input", {
-                          type: "range", min: "0", max: "100", step: "5",
-                          value: Math.round(localSettings.footprint.bodyBearOpacity ?? 55),
-                          onChange: (e) => handleFpSettingChange('bodyBearOpacity', parseInt(e.target.value)),
-                          className: "w-20 accent-accent"
-                        }
-                        ),
-                        React.createElement("span", { className: "text-[9px] text-gray-500 w-7" }, localSettings.footprint.bodyBearOpacity ?? 55, "%")
+                    !(localSettings.footprint.syncWithChartColors ?? true) && React.createElement(React.Fragment, null,
+                      React.createElement(ControlRow, { label: "Bull Border" },
+                        React.createElement("div", { className: "flex items-center gap-2" },
+                          React.createElement("input", {
+                            type: "color",
+                            value: ensureHex(localSettings.footprint.bodyBullColor, '#00dc6e'),
+                            onChange: (e) => handleFpSettingChange('bodyBullColor', e.target.value),
+                            className: "w-8 h-4 rounded bg-transparent border-0 cursor-pointer"
+                          }),
+                          React.createElement("input", {
+                            type: "range", min: "0", max: "100", step: "5",
+                            value: Math.round(localSettings.footprint.bodyBullOpacity ?? 55),
+                            onChange: (e) => handleFpSettingChange('bodyBullOpacity', parseInt(e.target.value)),
+                            className: "w-20 accent-accent"
+                          }),
+                          React.createElement("span", { className: "text-[9px] text-gray-500 w-7" }, localSettings.footprint.bodyBullOpacity ?? 55, "%")
+                        )
+                      ),
+                      React.createElement(ControlRow, { label: "Bear Border" },
+                        React.createElement("div", { className: "flex items-center gap-2" },
+                          React.createElement("input", {
+                            type: "color",
+                            value: ensureHex(localSettings.footprint.bodyBearColor, '#e6284b'),
+                            onChange: (e) => handleFpSettingChange('bodyBearColor', e.target.value),
+                            className: "w-8 h-4 rounded bg-transparent border-0 cursor-pointer"
+                          }),
+                          React.createElement("input", {
+                            type: "range", min: "0", max: "100", step: "5",
+                            value: Math.round(localSettings.footprint.bodyBearOpacity ?? 55),
+                            onChange: (e) => handleFpSettingChange('bodyBearOpacity', parseInt(e.target.value)),
+                            className: "w-20 accent-accent"
+                          }),
+                          React.createElement("span", { className: "text-[9px] text-gray-500 w-7" }, localSettings.footprint.bodyBearOpacity ?? 55, "%")
+                        )
                       )
                     )
                   )
@@ -1448,31 +1457,35 @@ const ChartSettingsModal = ({
                   )
                 )
               )
-            )
-          )
-        ),
-        React.createElement("div", { className: "px-6 py-4 bg-white/5 border-t border-white/5 flex items-center justify-between" },
-          React.createElement("button", {
-            type: "button",
-            onClick: handleReset,
-            className: "text-[10px] font-black text-gray-500 hover:text-gray-300 uppercase tracking-widest transition-colors flex items-center gap-2"
-          },
-            React.createElement("i", { className: "fas fa-undo-alt text-[9px]" }), "Reset"
-          ),
-          React.createElement("div", { className: "flex gap-3" },
-            React.createElement("button", {
-              type: "button",
-              onClick: onClose,
-              className: "px-4 py-2 text-[10px] font-black text-gray-400 hover:text-white uppercase tracking-widest transition-colors"
-            },
-              "Cancel"
             ),
+            React.createElement("style", null, `
+              .no-scrollbar::-webkit-scrollbar { display: none !important; }
+              .no-scrollbar { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+            `)
+          ),
+          React.createElement("div", { className: "px-6 py-4 bg-white/5 border-t border-white/5 flex items-center justify-between" },
             React.createElement("button", {
               type: "button",
-              onClick: handleApply,
-              className: "px-8 py-2 bg-accent hover:bg-accent/80 text-[#111] text-[10px] font-black uppercase tracking-[0.2em] rounded-lg shadow-[0_5px_15px_rgba(var(--accent-rgb),0.3)] transition-all hover:-translate-y-0.5"
+              onClick: handleReset,
+              className: "text-[10px] font-black text-gray-500 hover:text-gray-300 uppercase tracking-widest transition-colors flex items-center gap-2"
             },
-              "Apply"
+              React.createElement("i", { className: "fas fa-undo-alt text-[9px]" }), "Reset"
+            ),
+            React.createElement("div", { className: "flex gap-3" },
+              React.createElement("button", {
+                type: "button",
+                onClick: onClose,
+                className: "px-4 py-2 text-[10px] font-black text-gray-400 hover:text-white uppercase tracking-widest transition-colors"
+              },
+                "Cancel"
+              ),
+              React.createElement("button", {
+                type: "button",
+                onClick: handleApply,
+                className: "px-8 py-2 bg-accent hover:bg-accent/80 text-[#111] text-[10px] font-black uppercase tracking-[0.2em] rounded-lg shadow-[0_5px_15px_rgba(var(--accent-rgb),0.3)] transition-all hover:-translate-y-0.5"
+              },
+                "Apply"
+              )
             )
           )
         )
@@ -1677,7 +1690,7 @@ function getDefaultChartSettings() {
     },
     dom: {
       levels: 1000,
-      updateInterval: 500,
+      updateInterval: 100,
       scaleMode: 'linear',
       cumulative: false,
       compact: false,
@@ -1706,6 +1719,7 @@ function getDefaultChartSettings() {
       buyColor: "#10b981",
       sellColor: "#ef4444",
       fontSize: 10,
+      syncWithChartColors: true,
       bodyBullColor: "#00dc6e",
       bodyBearColor: "#e6284b",
       bodyBullOpacity: 55,

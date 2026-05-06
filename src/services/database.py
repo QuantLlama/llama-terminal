@@ -78,6 +78,10 @@ def init_db():
                 chart_bg_color TEXT DEFAULT '#111111',
                 chart_candle_border_visible INTEGER DEFAULT 0,
                 chart_candle_border_color TEXT DEFAULT '#ffffff',
+                risk_max_daily_loss REAL DEFAULT 500.0,
+                risk_max_contracts INTEGER DEFAULT 1,
+                risk_emotional_guard INTEGER DEFAULT 0,
+                risk_locked_until TEXT,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -167,6 +171,10 @@ def init_db():
                 "chart_bg_color": "TEXT DEFAULT '#111111'",
                 "chart_candle_border_visible": "INTEGER DEFAULT 0",
                 "chart_candle_border_color": "TEXT DEFAULT '#ffffff'",
+                "risk_max_daily_loss": "REAL DEFAULT 500.0",
+                "risk_max_contracts": "INTEGER DEFAULT 1",
+                "risk_emotional_guard": "INTEGER DEFAULT 0",
+                "risk_locked_until": "TEXT"
             }
             for col, definition in new_cols.items():
                 if col not in columns:
@@ -199,6 +207,10 @@ def get_settings(user_id: str = "default_user") -> Dict[str, Any]:
                     "chart_bg_color": row["chart_bg_color"],
                     "chart_candle_border_visible": bool(row["chart_candle_border_visible"]),
                     "chart_candle_border_color": row["chart_candle_border_color"],
+                    "risk_max_daily_loss": row["risk_max_daily_loss"],
+                    "risk_max_contracts": row["risk_max_contracts"],
+                    "risk_emotional_guard": bool(row["risk_emotional_guard"]),
+                    "risk_locked_until": row["risk_locked_until"],
                     "updated_at": row["updated_at"],
                 }
     except Exception as e:
@@ -220,6 +232,10 @@ def get_settings(user_id: str = "default_user") -> Dict[str, Any]:
         "chart_bg_color": "#111111",
         "chart_candle_border_visible": False,
         "chart_candle_border_color": "#ffffff",
+        "risk_max_daily_loss": 500.0,
+        "risk_max_contracts": 1,
+        "risk_emotional_guard": False,
+        "risk_locked_until": None,
     }
 def save_settings(data: Dict[str, Any], user_id: str = "default_user") -> bool:
     current = get_settings(user_id)
@@ -246,6 +262,10 @@ def save_settings(data: Dict[str, Any], user_id: str = "default_user") -> bool:
             "chart_bg_color": data.get("chart_bg_color", current.get("chart_bg_color", "#111111")),
             "chart_candle_border_visible": to_int(data.get("chart_candle_border_visible", current.get("chart_candle_border_visible", False))),
             "chart_candle_border_color": data.get("chart_candle_border_color", current.get("chart_candle_border_color", "#ffffff")),
+            "risk_max_daily_loss": data.get("risk_max_daily_loss", current.get("risk_max_daily_loss", 500.0)),
+            "risk_max_contracts": data.get("risk_max_contracts", current.get("risk_max_contracts", 1)),
+            "risk_emotional_guard": to_int(data.get("risk_emotional_guard", current.get("risk_emotional_guard", False))),
+            "risk_locked_until": data.get("risk_locked_until", current.get("risk_locked_until", None)),
             "updated_at": datetime.now().isoformat(),
         }
         cursor.execute(
@@ -255,13 +275,17 @@ def save_settings(data: Dict[str, Any], user_id: str = "default_user") -> bool:
                 one_click_trading, timer_enabled, timer_position, timer_size,
                 timer_color, timer_show_progress, last_active_workspace,
                 chart_candle_up, chart_candle_down, chart_bg_color,
-                chart_candle_border_visible, chart_candle_border_color, updated_at
+                chart_candle_border_visible, chart_candle_border_color,
+                risk_max_daily_loss, risk_max_contracts, risk_emotional_guard,
+                risk_locked_until, updated_at
             ) VALUES (
                 :user_id, :platform, :theme, :show_grid, :show_watermark,
                 :one_click_trading, :timer_enabled, :timer_position, :timer_size,
                 :timer_color, :timer_show_progress, :last_active_workspace,
                 :chart_candle_up, :chart_candle_down, :chart_bg_color,
-                :chart_candle_border_visible, :chart_candle_border_color, :updated_at
+                :chart_candle_border_visible, :chart_candle_border_color,
+                :risk_max_daily_loss, :risk_max_contracts, :risk_emotional_guard,
+                :risk_locked_until, :updated_at
             )
             ON CONFLICT(user_id) DO UPDATE SET
                 platform = excluded.platform,
@@ -280,6 +304,10 @@ def save_settings(data: Dict[str, Any], user_id: str = "default_user") -> bool:
                 chart_bg_color = excluded.chart_bg_color,
                 chart_candle_border_visible = excluded.chart_candle_border_visible,
                 chart_candle_border_color = excluded.chart_candle_border_color,
+                risk_max_daily_loss = excluded.risk_max_daily_loss,
+                risk_max_contracts = excluded.risk_max_contracts,
+                risk_emotional_guard = excluded.risk_emotional_guard,
+                risk_locked_until = excluded.risk_locked_until,
                 updated_at = excluded.updated_at
         """,
             values,

@@ -84,7 +84,7 @@ const MetricCard = ({ label, value, isPositive, isNeutral }) => (
 );
 
 const TradeTable = ({ trades }) => (
-  <div className="overflow-x-auto custom-scrollbar">
+  <div className="overflow-x-auto no-scrollbar">
     <table className="w-full text-left border-collapse">
       <thead className="sticky top-0 bg-[#0d0d0f] z-10">
         <tr className="border-b border-white/10">
@@ -661,7 +661,7 @@ const BacktestPanel = ({ activeSymbol, systemStatus }) => {
           style={{ width: sidebarWidth.includes('%') ? sidebarWidth : sidebarWidth }}
           className={`min-w-[320px] max-w-[650px] resize-x overflow-hidden flex flex-col ${DS.card}`}
         >
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
             
             <MenuAccordion num={1} title="SELECT ASSET / SYMBOL" isActive={activeMenuStep === 1} onClick={() => setActiveMenuStep(curr => curr === 1 ? null : 1)}>
               <div className="space-y-4">
@@ -904,7 +904,7 @@ const BacktestPanel = ({ activeSymbol, systemStatus }) => {
                  </div>
 
                  {/* Results Content */}
-                 <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8">
+                 <div className="flex-1 overflow-y-auto no-scrollbar p-6 space-y-8">
                     {/* Primary Metrics Grid */}
                     <div className="grid grid-cols-7 gap-3">
                       <MetricCard label="Net Profit" value={`$${results?.metrics?.total_pnl?.toFixed(2) || 0}`} isPositive={(results?.metrics?.total_pnl || 0) >= 0} />
@@ -964,7 +964,7 @@ const BacktestPanel = ({ activeSymbol, systemStatus }) => {
                 CLEAR
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 bg-[#050505]/50 custom-scrollbar font-mono">
+            <div className="flex-1 overflow-y-auto p-2 bg-[#050505]/50 no-scrollbar font-mono">
               {logs.map((log, i) => <LogLine key={i} log={log} index={i} />)}
               <div ref={logsEndRef} />
             </div>

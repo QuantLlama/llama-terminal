@@ -1,0 +1,5 @@
+Performance optimization completed. Summary:
+- Locks removed from order methods to prevent UI freeze.
+- connector.shutdown() removed to maintain hot connections.
+- Account cache TTL set to 1.5s for faster UI updates.
+- Data endpoints unified to use GLOBAL_MT5_CONNECTOR.

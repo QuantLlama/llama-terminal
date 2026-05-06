@@ -43,7 +43,9 @@ def get_adx(high, low, close, period=14):
     atr = tr.rolling(window=period).mean()
     plus_di = 100 * (pd.Series(plus_dm, index=high.index).rolling(window=period).mean() / atr)
     minus_di = 100 * (pd.Series(minus_dm, index=high.index).rolling(window=period).mean() / atr)
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    di_sum = plus_di + minus_di
+    dx = 100 * (plus_di - minus_di).abs() / di_sum.replace(0, np.nan)
+    dx = dx.fillna(0)  # When both DIs are 0, ADX is 0
     return dx.rolling(window=period).mean()
 
 def get_ema(prices, period=20):

@@ -108,7 +108,10 @@ class VolumeProfileRenderer {
         const y = Math.min(yTop, yBot);
         
         const ratio = bucket.volumeTotal / maxVol;
-        const barW = histW * ratio;
+        // Escala No-Lineal (Gamma): Evita que un POC extremo aplaste y deforme visualmente 
+        // los demás nodos hacia atrás, manteniendo la campana de volumen visible y estructurada.
+        const adjustedRatio = Math.pow(ratio, 0.55);
+        const barW = histW * adjustedRatio;
         const x = isLeft ? xStart : xEnd - barW;
         
         let color = grad;

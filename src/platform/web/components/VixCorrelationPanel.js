@@ -18,6 +18,11 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   const currentPriceRef = useRef(null);
   const primaryManualRef = useRef(false);
   const secondaryManualRef = useRef(false);
+  const [pos, setPos] = useState({ x: 100, y: 100 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef(null);
+  const offsetRef = useRef({ x: 0, y: 0 });
+  const initializedRef = useRef(false);
   const [vixValue, setVixValue] = useState(0);
   const [symbolChange, setSymbolChange] = useState(0);
   const [vixChange, setVixChange] = useState(0);
@@ -99,30 +104,62 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   };
   const calculateVixSignal = (currentVix, currentPrice, symMom, vixMom, corr, vixSpike) => {
     if (!currentVix || !currentPrice || isNaN(symMom) || isNaN(vixMom) || isNaN(corr)) return null;
-    let signal = null,confidence = 0,reason = '';
-    if (currentVix > 20 && vixMom > 0 && symMom < 0) {
-      confidence = Math.min(95, Math.abs(vixMom) * 4 + Math.abs(symMom) * 2 + (vixSpike ? 15 : 0));
-      if (confidence > 60) {signal = 'BUY';reason = `Fear climax: VIX ${currentVix.toFixed(1)} rising (${vixMom.toFixed(2)}%) while price drops (${symMom.toFixed(2)}%). Probable reversal.`;}
-    } else if (currentVix < 14 && vixMom < 0 && symMom > 0 && Math.abs(vixMom) > 0.3) {
-      confidence = Math.min(95, Math.abs(vixMom) * 4 + symMom * 1.5);
-      if (confidence > 60) {signal = 'SELL';reason = `Complacency peak: VIX ${currentVix.toFixed(1)} falling (${vixMom.toFixed(2)}%) while price rises (${symMom.toFixed(2)}%). Probable exhaustion.`;}
-    } else if (Math.abs(corr) > 0.4 && Math.abs(symMom) > 0.3 && Math.abs(vixMom) > 0.3) {
-      confidence = Math.min(88, 45 + Math.abs(symMom) * 8 + Math.abs(vixMom) * 6);
+    let signal = null, confidence = 0, reason = '';
+    
+    const isHighVol = currentVix >= 18;
+    const isLowVol = currentVix <= 13.5;
+    
+    // 1. Fear Climax (Capitulation)
+    if (isHighVol && vixMom > 0 && symMom < 0) {
+      confidence = Math.min(98, Math.abs(vixMom) * 5 + Math.abs(symMom) * 3 + (vixSpike ? 20 : 0));
+      if (confidence > 60) {
+          signal = 'BUY';
+          reason = `🚨 Capitulation Alert: VIX spiking to ${currentVix.toFixed(1)} (+${vixMom.toFixed(2)}%) against price drop (${symMom.toFixed(2)}%). High probability of a sharp reversal/bounce.`;
+      }
+    } 
+    // 2. Complacency Peak (Exhaustion)
+    else if (isLowVol && vixMom < 0 && symMom > 0 && Math.abs(vixMom) > 0.2) {
+      confidence = Math.min(95, Math.abs(vixMom) * 4 + symMom * 2);
+      if (confidence > 60) {
+          signal = 'SELL';
+          reason = `⚠️ Complacency Peak: VIX extremely low at ${currentVix.toFixed(1)} (-${Math.abs(vixMom).toFixed(2)}%) while price extends (+${symMom.toFixed(2)}%). Uptrend exhaustion likely.`;
+      }
+    } 
+    // 3. Correlation Divergences
+    else if (Math.abs(corr) > 0.4 && Math.abs(symMom) > 0.2 && Math.abs(vixMom) > 0.2) {
+      confidence = Math.min(90, 50 + Math.abs(symMom) * 10 + Math.abs(vixMom) * 8);
       if (confidence > 60) {
         if (corr < -0.6) {
-          // Correlación negativa fuerte (normal): Seguir la tendencia inversa
-          if (vixMom > 0 && symMom < 0) { signal = 'BUY'; reason = 'Strong negative correlation: VIX rising suggests local bottom in price.'; }
-          else if (vixMom < 0 && symMom > 0) { signal = 'SELL'; reason = 'Strong negative correlation: VIX falling suggests local top in price.'; }
-        } else if (corr > 0.4) {
-          // Correlación positiva (anormal): Divergencia peligrosa
-          if (symMom > 0 && vixMom > 0) { signal = 'SELL'; reason = 'Abnormal correlation: Both Price and VIX rising. Danger of sharp reversal.'; }
+          // Normal negative correlation acting as support/resistance confirmation
+          if (vixMom > 0 && symMom < 0) { 
+              signal = 'BUY'; 
+              reason = '📉 Negative Correlation: Rising VIX confirming local bottom formation.'; 
+          } else if (vixMom < 0 && symMom > 0) { 
+              signal = 'SELL'; 
+              reason = '📈 Negative Correlation: Falling VIX confirming local top formation.'; 
+          }
+        } else if (corr > 0.5) {
+          // Dangerous Positive Correlation (both rising or both falling)
+          if (symMom > 0 && vixMom > 0) { 
+              signal = 'SELL'; 
+              reason = '🧨 Bearish Divergence: Price rising BUT VIX is also rising. Institutional hedging detected. High risk of dump.'; 
+              confidence += 10;
+          } else if (symMom < 0 && vixMom < 0) {
+              signal = 'BUY';
+              reason = '🛡️ Bullish Divergence: Price falling BUT VIX is also falling. Selling pressure lacks conviction. Potential trap.';
+              confidence += 10;
+          }
         }
       }
-    } else if (vixSpike && currentVix > 18) {
-      confidence = 75; signal = 'BUY';
-      reason = `VIX spike detected at ${currentVix.toFixed(1)} — volatility surge often precedes a price bounce.`;
+    } 
+    // 4. Pure Volatility Spike
+    else if (vixSpike && isHighVol) {
+      confidence = 80; 
+      signal = 'BUY';
+      reason = `⚡ Volatility Shock: Sudden VIX spike to ${currentVix.toFixed(1)}. Market makers adjusting pricing, often precedes a violent bounce.`;
     }
-    return signal && confidence > 55 ? { type: signal, reason, confidence: Math.round(confidence) } : null;
+
+    return signal && confidence >= 60 ? { type: signal, reason, confidence: Math.min(99, Math.round(confidence)) } : null;
   };
   const parseTime = (t) => {
     if (!t) return Math.floor(Date.now() / 1000);
@@ -154,6 +191,51 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
       setPrimarySymbol(activeSymbol);
     }
   }, [activeSymbol, primarySymbol]);
+
+  useEffect(() => {
+    if (!isMaximized) {
+        initializedRef.current = false;
+        return;
+    }
+    if (initializedRef.current) return;
+    const defaultPos = {
+      x: Math.max(24, (window.innerWidth - 900) / 2),
+      y: Math.max(24, (window.innerHeight - 520) / 2)
+    };
+    setPos(defaultPos);
+    initializedRef.current = true;
+  }, [isMaximized]);
+
+  const handleMouseDown = (e) => {
+    if (!isMaximized) return;
+    if (!e.target.closest('.drag-handle')) return;
+    const targetTag = e.target.tagName.toLowerCase();
+    if (targetTag === 'button' || targetTag === 'input' || targetTag === 'textarea' || e.target.closest('button')) {
+      return;
+    }
+    e.preventDefault();
+    setDragging(true);
+    const rect = dragRef.current.getBoundingClientRect();
+    offsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e) => {
+      setPos({
+        x: Math.max(0, e.clientX - offsetRef.current.x),
+        y: Math.max(0, e.clientY - offsetRef.current.y)
+      });
+    };
+    const stop = () => setDragging(false);
+    window.addEventListener('mousemove', move, true);
+    window.addEventListener('mouseup', stop, true);
+    return () => {
+      window.removeEventListener('mousemove', move, true);
+      window.removeEventListener('mouseup', stop, true);
+    };
+  }, [dragging]);
+
   useEffect(() => {
     try {
       localStorage.setItem('vix_panel_primary_symbol', resolvedPrimarySymbol);
@@ -375,7 +457,8 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
         sort((a, b) => a - b).
         filter((t) => !isNaN(t)).
         map((t) => ({ time: t, value: vixAgg[t] }));
-        lineDataVix = forwardFillVix(lineDataSym, lineDataVix);
+        // Removed forwardFillVix to prevent line deformity
+
         if (!isMounted) return;
         const finalLineDataSym = lineDataSym.filter((d) => Number.isFinite(d.time) && Number.isFinite(d.value));
         if (finalLineDataSym.length > 0) {
@@ -602,16 +685,16 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
     { key: 'area', icon: 'fa-chart-area', label: 'Area' },
     { key: 'spectrum', icon: 'fa-layer-group', label: 'Spectrum' }];
     return (
-      React.createElement("div", { className: "flex items-center gap-0.5 bg-black/40 border border-white/10 rounded p-0.5" },
+      React.createElement("div", { className: "flex items-center gap-1 bg-black/40 border border-white/10 rounded p-1 relative z-50" },
       types.map(({ key, icon, label }) =>
       React.createElement("button", {
         key: key,
         onClick: () => setChartType(key),
         title: label,
-        className: `flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] transition-all ${chartType === key ?
+        className: `flex items-center gap-1.5 px-3 py-1.5 rounded cursor-pointer text-[10px] font-bold transition-all ${chartType === key ?
         'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' :
-        'text-muted hover:text-white'}` },
-      React.createElement("i", { className: `fas ${icon} text-[9px]` }),
+        'text-muted hover:text-white hover:bg-white/5'}` },
+      React.createElement("i", { className: `fas ${icon} text-[11px]` }),
       React.createElement("span", { className: "hidden sm:inline" }, label)
       )
       )
@@ -632,9 +715,13 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   )
   );
   const panelContent =
-  React.createElement("div", { className: `relative flex flex-col bg-panel border-t border-border p-2 shrink-0 transition-all duration-300 ${isMaximized ?
-    'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[2000000] pointer-events-auto w-[900px] h-[520px] shadow-2xl rounded-lg border border-border bg-black/95' :
-    'h-52'}` },
+  React.createElement("div", { 
+    ref: isMaximized ? dragRef : null,
+    onMouseDown: handleMouseDown,
+    style: isMaximized ? { position: 'absolute', left: `${pos.x}px`, top: `${pos.y}px`, width: '900px', height: '520px' } : undefined,
+    className: `relative flex flex-col bg-panel border-t border-border p-2 shrink-0 transition-none ${isMaximized ?
+    'z-[2000000] pointer-events-auto shadow-2xl rounded-lg border border-border bg-black/95' :
+    'h-52 duration-300 transition-all'}` },
   React.createElement("style", null, `
     .tv-embed-widget-wrapper__footer,
     .tradingview-widget-copyright,
@@ -660,7 +747,7 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   )
   )
   ),
-  React.createElement("div", { className: "flex justify-between items-start mb-1" },
+  React.createElement("div", { className: `flex justify-between items-start mb-1 ${isMaximized ? 'drag-handle cursor-move' : ''}` },
   React.createElement("div", { className: "flex items-center gap-2" },
   React.createElement("div", { className: "flex flex-col" },
   React.createElement("h3", { className: "text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1" },
@@ -755,10 +842,9 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   return (
     React.createElement(React.Fragment, null,
     isMaximized ?
-    React.createElement(React.Fragment, null,
-    React.createElement("div", { className: "fixed inset-0 bg-black/50 backdrop-blur-sm z-40",
-      onClick: () => setIsMaximized(false) }),
-    window.ReactDOM.createPortal(panelContent, document.getElementById('vix-portal-root'))
+    window.ReactDOM.createPortal(
+      React.createElement("div", { className: "fixed inset-0 z-[2000000] pointer-events-none" }, panelContent),
+      document.getElementById('vix-portal-root') || document.body
     ) :
     panelContent
     ));

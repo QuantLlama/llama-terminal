@@ -1,6 +1,7 @@
 const { useState, useEffect, useRef } = React;
 const SETTINGS_TABS = [
 { id: "general", label: "General", icon: "fa-cog" },
+{ id: "risk", label: "Risk Management", icon: "fa-shield-alt" },
 { id: "commissions", label: "Commissions", icon: "fa-percentage" },
 { id: "history", label: "History", icon: "fa-database" },
 { id: "accounts", label: "Accounts", icon: "fa-users-cog" }];
@@ -160,6 +161,19 @@ const SettingsModal = ({
       };
     } catch (e) {
       return { futures_mini: 5.0, futures_micro: 1.2, cfd: 7.0 };
+    }
+  });
+  const [riskSettings, setRiskSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem("risk_management_config");
+      return stored ? JSON.parse(stored) : {
+        maxDailyLoss: 500,
+        maxContracts: 1,
+        emotionalGuard: true,
+        autoLock: true
+      };
+    } catch (e) {
+      return { maxDailyLoss: 500, maxContracts: 1, emotionalGuard: true, autoLock: true };
     }
   });
   const [muteSave, setMuteSave] = useState(
@@ -409,15 +423,25 @@ const SettingsModal = ({
           setConfig(data);
           setPlatform(data.platform || "tradovate");
           setTheme(data.theme || "dark");
+          
           if (data.chart_history_limits) {
             setHistoryLimits(typeof data.chart_history_limits === 'string' ?
-            JSON.parse(data.chart_history_limits) :
-            data.chart_history_limits);
+              JSON.parse(data.chart_history_limits) :
+              data.chart_history_limits);
           }
+          
           if (data.commissions) {
             setCommissions(typeof data.commissions === 'string' ?
-            JSON.parse(data.commissions) :
-            data.commissions);
+              JSON.parse(data.commissions) :
+              data.commissions);
+          }
+
+          if (data.risk_max_daily_loss !== undefined) {
+            setRiskSettings({
+              maxDailyLoss: data.risk_max_daily_loss,
+              maxContracts: data.risk_max_contracts,
+              emotionalGuard: data.risk_emotional_guard
+            });
           }
         }
       } catch (e) {
@@ -440,7 +464,11 @@ const SettingsModal = ({
       platform,
       theme,
       chart_history_limits: historyLimits,
-      commissions: commissions
+      commissions: commissions,
+      risk_max_daily_loss: riskSettings.maxDailyLoss,
+      risk_max_contracts: riskSettings.maxContracts,
+      risk_emotional_guard: riskSettings.emotionalGuard,
+      risk_locked_until: localStorage.getItem("platform_locked_until")
     };
     try {
       await fetch("/api/config", {
@@ -456,6 +484,7 @@ const SettingsModal = ({
     localStorage.setItem("theme", theme);
     localStorage.setItem("chart_history_limits", JSON.stringify(historyLimits));
     localStorage.setItem("trading_commissions", JSON.stringify(commissions));
+    localStorage.setItem("risk_management_config", JSON.stringify(riskSettings));
     if (onUpdateSettings) {
       onUpdateSettings({
         appearance: {
@@ -602,6 +631,85 @@ const SettingsModal = ({
       className: "w-full py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-500 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-2 uppercase tracking-widest" },
     React.createElement("i", { className: "fas fa-radiation-alt" }), "NUCLEAR PURGE & RESET"
     )
+    )
+    ),
+    activeTab === "risk" &&
+    React.createElement("div", { className: "space-y-6 animate-in fade-in slide-in-from-top-2 duration-300" },
+    React.createElement("div", { className: "p-4 bg-zinc-900/50 border border-zinc-800 rounded-xl space-y-4" },
+    React.createElement("div", { className: "flex items-center gap-3 mb-2" },
+    React.createElement("div", { className: "w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center border border-orange-500/20" },
+    React.createElement("i", { className: "fas fa-shield-alt text-orange-500" })
+    ),
+    React.createElement("div", null,
+    React.createElement("h3", { className: "text-[11px] font-black text-white uppercase tracking-widest" }, "Quant Llama Emotional Guard"),
+    React.createElement("p", { className: "text-[9px] text-zinc-500 font-bold uppercase" }, "Professional Risk Management")
+    )
+    ),
+    React.createElement("div", { className: "grid grid-cols-2 gap-4" },
+    React.createElement("div", { className: "space-y-2" },
+    React.createElement("label", { className: "block text-[10px] font-black text-zinc-400 uppercase tracking-widest" }, "Max Daily Loss ($)"),
+    React.createElement("div", { className: "relative" },
+    React.createElement("span", { className: "absolute left-3 top-1/2 -translate-y-1/2 text-red-500 font-bold text-xs" }, "-$"),
+    React.createElement("input", {
+      type: "number",
+      value: riskSettings.maxDailyLoss,
+      onChange: (e) => setRiskSettings({ ...riskSettings, maxDailyLoss: parseFloat(e.target.value) || 0 }),
+      className: "w-full bg-black border border-white/10 rounded-lg p-3 pl-8 text-sm text-white focus:border-red-500 outline-none transition-all" }
+    )
+    )
+    ),
+    React.createElement("div", { className: "space-y-2" },
+    React.createElement("label", { className: "block text-[10px] font-black text-zinc-400 uppercase tracking-widest" }, "Max Contracts"),
+    React.createElement("input", {
+      type: "number",
+      value: riskSettings.maxContracts,
+      onChange: (e) => setRiskSettings({ ...riskSettings, maxContracts: parseInt(e.target.value) || 1 }),
+      className: "w-full bg-black border border-white/10 rounded-lg p-3 text-sm text-white focus:border-accent outline-none transition-all" }
+    )
+    )
+    ),
+    React.createElement("div", { className: "space-y-3 pt-4 border-t border-white/5" },
+    React.createElement("div", { className: "flex items-center justify-between bg-black/30 p-3 rounded-lg border border-white/5" },
+    React.createElement("div", { className: "flex flex-col" },
+    React.createElement("span", { className: "text-[11px] text-zinc-300 font-bold uppercase tracking-tighter" }, "Hard Lock Mechanism"),
+    React.createElement("span", { className: "text-[9px] text-zinc-500 font-medium" }, "Platform locks until next NY session if limit is hit")
+    ),
+    React.createElement("button", {
+      onClick: () => setRiskSettings({ ...riskSettings, emotionalGuard: !riskSettings.emotionalGuard }),
+      className: `w-10 h-5 rounded-full relative transition-colors ${riskSettings.emotionalGuard ? 'bg-orange-500' : 'bg-zinc-800'}` },
+    React.createElement("div", { className: `absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${riskSettings.emotionalGuard ? 'right-1' : 'left-1'}` })
+    )
+    )
+    )
+    ),
+    React.createElement("div", { className: "p-4 bg-orange-950/20 border border-orange-500/20 rounded-xl" },
+    React.createElement("h4", { className: "text-orange-500 text-[10px] font-black uppercase tracking-widest mb-2" }, "Rules & Compliance"),
+    React.createElement("ul", { className: "space-y-2" },
+    React.createElement("li", { className: "text-[10px] text-zinc-400 flex gap-2" },
+    React.createElement("i", { className: "fas fa-check text-orange-500 mt-0.5" }),
+    "Trading will be automatically disabled when realized PnL reaches the loss limit."
+    ),
+    React.createElement("li", { className: "text-[10px] text-zinc-400 flex gap-2" },
+    React.createElement("i", { className: "fas fa-check text-orange-500 mt-0.5" }),
+    "The platform will be COMPLETELY LOCKED until 09:30 AM EST (NY Session) the following trading day."
+    ),
+    React.createElement("li", { className: "text-[10px] text-zinc-400 flex gap-2" },
+    React.createElement("i", { className: "fas fa-check text-orange-500 mt-0.5" }),
+    "This lock cannot be bypassed by clearing cache or restarting."
+    )
+    )
+    ),
+    React.createElement("button", {
+      onClick: () => {
+        if (confirm("⚠️ MANUAL LOCK: This will lock the platform until tomorrow's NY session. Are you sure?")) {
+          const now = new Date();
+          localStorage.setItem("platform_manually_locked", "true");
+          save();
+          window.location.reload();
+        }
+      },
+      className: "w-full py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-500 text-[10px] font-black rounded-lg transition-all flex items-center justify-center gap-2 uppercase tracking-widest" },
+    React.createElement("i", { className: "fas fa-lock" }), "FORCE EMERGENCY LOCK"
     )
     ),
     activeTab === "commissions" &&

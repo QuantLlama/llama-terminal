@@ -71,6 +71,8 @@ class MarketDataEngine:
         self._last_tick_time:   Dict[str, float] = {}
         self._last_abs_volume:  Dict[str, float] = {}
         self._last_quote_cache: Dict[str, str]   = {}
+        self._last_bid:         Dict[str, float] = {}
+        self._last_ask:         Dict[str, float] = {}
 
         # FIX (BUG 4,5,7): dedicated per-candle delta/volume accumulators for MT5
         # Keyed by symbol_upper. Reset whenever the candle bar timestamp changes.
@@ -604,6 +606,15 @@ class MarketDataEngine:
                 batch_buy_vol = 0.0
                 batch_sell_vol = 0.0
 
+                # Prime Bid/Ask cache with current tick info to ensure accurate side detection
+                try:
+                    curr_tick = connector.get_current_tick(broker_symbol)
+                    if curr_tick:
+                        if hasattr(curr_tick, 'bid') and curr_tick.bid > 0: self._last_bid[s_upper] = curr_tick.bid
+                        if hasattr(curr_tick, 'ask') and curr_tick.ask > 0: self._last_ask[s_upper] = curr_tick.ask
+                except Exception as e:
+                    logger.debug(f"Error priming tick cache for {symbol}: {e}")
+
                 for tick in ticks_list:
                     t_ts = float(tick.get(ts_col, 0))
                     if t_ts <= last_processed_ts:
@@ -613,48 +624,64 @@ class MarketDataEngine:
                     prev_v = self._last_abs_volume.get(s_upper, 0)
                     flags  = tick.get('flags', 0)
 
-                    if flags & 32:
-                        batch_buy_vol  += raw_v
-                    elif flags & 64:
-                        batch_sell_vol += raw_v
+                    # Accumulators will be updated after t_side is determined
 
-                    # Incremental volume extraction from cumulative feeds
-                    if prev_v == 0:
-                        self._last_abs_volume[s_upper] = raw_v
-                        if raw_v > 10:
-                            continue
-                        t_vol = raw_v
-                    else:
-                        if raw_v >= prev_v:
-                            delta_v = raw_v - prev_v
-                            is_cumulative_feed = (raw_v > 100) or (prev_v > 100)
-                            t_vol = (
-                                0 if (is_cumulative_feed and delta_v > 50000)
-                                else delta_v
-                            )
-                        else:
-                            # Volume reset (new bar on broker side) — treat as fresh
-                            t_vol = raw_v if raw_v > 0 else 0
-                        self._last_abs_volume[s_upper] = raw_v
+                    # MT5 volume_real/volume is per-tick, not cumulative.
+                    # Using it directly as the trade volume ensures all trades are captured.
+                    t_vol = raw_v
+                    self._last_abs_volume[s_upper] = raw_v
+
+                    # Update quote cache for side detection fallback
+                    t_bid = float(tick.get('bid', 0))
+                    t_ask = float(tick.get('ask', 0))
+                    if t_bid > 0: self._last_bid[s_upper] = t_bid
+                    if t_ask > 0: self._last_ask[s_upper] = t_ask
 
                     t_side = ""
-                    if flags & 32:
+                    if flags & 32: # TICK_FLAG_BUY
                         t_side = "BUY"
-                    elif flags & 64:
+                    elif flags & 64: # TICK_FLAG_SELL
                         t_side = "SELL"
-                    elif t_vol > 0 and not (flags & 6):
-                        t_side = "BUY" if tick['last'] >= tick['ask'] else "SELL"
+                    
+                    # Fallback for side detection if flags are missing or inconsistent
+                    if not t_side and t_vol > 0:
+                        last = float(tick.get('last', 0))
+                        # Use current tick quote if available, else use cached
+                        curr_ask = t_ask if t_ask > 0 else self._last_ask.get(s_upper, 0)
+                        curr_bid = t_bid if t_bid > 0 else self._last_bid.get(s_upper, 0)
+                        
+                        if curr_ask > 0 and last >= curr_ask:
+                            t_side = "BUY"
+                        elif curr_bid > 0 and last <= curr_bid:
+                            t_side = "SELL"
+                        elif curr_ask > 0 and curr_bid > 0:
+                            mid = (curr_ask + curr_bid) / 2
+                            t_side = "BUY" if last >= mid else "SELL"
+                        else:
+                            # If no quote info at all, default based on last known side or BUY as safe default
+                            t_side = "BUY"
 
                     if t_vol > 0 and t_side:
+                        # Update batch accumulators for session delta calculation
+                        if t_side == "BUY":
+                            batch_buy_vol += t_vol
+                        else:
+                            batch_sell_vol += t_vol
+
                         ts_val = (
                             float(tick['time_msc'] / 1000)
                             if 'time_msc' in tick
                             else float(tick['time'])
                         )
                         p = float(tick['last'])
+                        # Debug trade detection
+                        if t_vol > 0:
+                            logger.info(f"[MDE_TRADE] {symbol} {t_side} Vol={t_vol} Price={p} Flags={flags}")
+
                         trade_ev = MarketDataEvent(
                             symbol=symbol, timestamp=ts_val, event_type="TRADE",
-                            last=p, last_size=t_vol, side=t_side, source="MT5"
+                            last=p, last_size=t_vol, side=t_side, source="MT5",
+                            flags=flags
                         )
                         trade_batch.append(trade_ev)
                         self._trade_buffer.push(TradeEvent(

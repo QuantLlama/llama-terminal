@@ -300,15 +300,27 @@ const TapePanel = ({
     }
     setTrades((prev) => [...processed, ...prev].slice(0, cfg.maxRows));
   }, []);
-  const handleTrade = useCallback((trade) => {
+    const handleTrade = useCallback((trade) => {
     const cfg = configRef.current;
+    
+    // Support Natural Mode (raw MT5 flags)
+    let side = trade.side;
+    if (cfg.naturalMode && trade.flags) {
+      const flags = Number(trade.flags);
+      if (flags & 32) side = 'buy';
+      else if (flags & 64) side = 'sell';
+      else side = 'neutral';
+    }
+
     const size = Number(trade.size) || 0;
     if (cfg.minSize > 0 && size < cfg.minSize) return;
     const now = Date.now();
-    if (trade.side === 'buy') sessionBuyVol.current += size;else
-    if (trade.side === 'sell') sessionSellVol.current += size;
+    
+    if (side === 'buy') sessionBuyVol.current += size;
+    else if (side === 'sell') sessionSellVol.current += size;
+    
     sessionTotalVol.current += size;
-    rollingWindow.current.push({ size, ts: now, side: trade.side });
+    rollingWindow.current.push({ size, ts: now, side: side });
     if (rollingWindow.current.length > 5000) {
       rollingWindow.current = rollingWindow.current.slice(-3000);
     }
@@ -322,6 +334,7 @@ const TapePanel = ({
     }
     const enriched = {
       ...trade,
+      side: side, // Overwrite with natural side if needed
       cumulativeTotal: displayTotal,
       sessionDelta: sessionBuyVol.current - sessionSellVol.current,
       _ts: now

@@ -25,7 +25,8 @@ const FULL_DEFAULTS = {
   maxRows: 200,
   whaleThreshold: 50,
   aggregationMs: 0,
-  forceWindowMs: 30000
+  forceWindowMs: 30000,
+  naturalMode: false
 };
 const TCM_Label = ({ children }) =>
 React.createElement("label", { className: "text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-2 block ml-1" },
@@ -253,6 +254,10 @@ const TapeConfigModal = ({ isOpen, onClose, config, onUpdate, title }) => {
     React.createElement(TCM_Label, null, "P95 Statistical Window"),
     React.createElement(TCM_NumInput, { value: local.forceWindowMs, onChange: (v) => updateValue('forceWindowMs', v), min: 1000, max: 60000, step: 1000, unit: "ms" }),
     React.createElement(TCM_Hint, null, "Statistical window for computing relative trade force.")
+    ),
+    React.createElement("div", { className: "pt-4" },
+    React.createElement(TCM_Toggle, { label: "Natural Read (MT5)", value: local.naturalMode, onChange: (v) => updateValue('naturalMode', v) }),
+    React.createElement(TCM_Hint, null, "Bypasses aggressive inference. Uses raw exchange flags only.")
     )
     )
     )
