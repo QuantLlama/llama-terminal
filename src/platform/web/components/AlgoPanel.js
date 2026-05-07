@@ -378,7 +378,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose, isLocked }) => {
       Object.keys(algorithms) :
       ["FourierCycle", "EvolutionaryGAN", "ReinforcementDQN", "SentimentAnalysis"];
       return (
-        React.createElement("div", { className: "grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2" },
+        React.createElement("div", { className: "grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2 no-scrollbar" },
         algos.map((algo) =>
         React.createElement("div", { key: algo, onClick: () => {
             update("algorithm", algo);

@@ -475,11 +475,10 @@ async def websocket_feed(websocket: WebSocket):
                         return
                     _last_emit_times[key] = now
 
-                # Filters de tiempo estrictos — igual que versión FUNCIONAL estable
-                if event_ts > now + 5: # Máximo 5s en el futuro
+                if event_ts > now + 5:
                     return
                 age_s = now - event_ts
-                if event_type == "TRADE" and age_s > 60: # Trades de más de 60s
+                if event_type == "TRADE" and age_s > 60:
                     return  
                 if event_type in ("QUOTE", "OHLCV", "BOOK", "TICK", "BAR") and age_s > 300:
                     return

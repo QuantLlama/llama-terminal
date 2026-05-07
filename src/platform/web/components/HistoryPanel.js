@@ -184,9 +184,9 @@ const HistoryPanel = ({ activeSymbol }) => {
     };
   }, []);
   return (
-    React.createElement("div", { className: "flex flex-col h-full min-h-0 bg-[#0a0a0a] relative" },
+    React.createElement("div", { className: "flex flex-col h-full min-h-0 bg-[#0a0a0a] relative overflow-hidden" },
     React.createElement("div", { className: "p-2 border-b border-border flex items-center justify-between bg-black/30 shrink-0" },
-    React.createElement("div", { className: "flex gap-1.5 overflow-x-auto no-scrollbar" },
+    React.createElement("div", { className: "flex gap-1.5 overflow-x-hidden no-scrollbar" },
     [1, 7, 30, 90, 365, 9999].map((d) =>
     React.createElement("button", {
       key: d,
@@ -234,7 +234,7 @@ const HistoryPanel = ({ activeSymbol }) => {
     React.createElement("span", { className: "text-white/70 font-bold text-[10px]" }, "$", Math.abs(totalCommission).toFixed(2))
     )
     ),
-    React.createElement("div", { className: "flex-1 min-h-0 overflow-y-auto custom-scrollbar" },
+    React.createElement("div", { className: "flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar" },
     React.createElement("table", { className: "w-full text-[9px] font-mono border-separate border-spacing-0" },
     React.createElement("thead", { className: "bg-[#050505] sticky top-0 z-10" },
     React.createElement("tr", { className: "border-b border-white/5" },

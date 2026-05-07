@@ -67,7 +67,8 @@
                             },
                             "buyColor": "#22c55e",
                             "sellColor": "#ef4444",
-                            "signalSize": 1
+                            "signalSize": 1,
+                            "llama": true
                         },
                         "volumeProfile": {
                             "enabled": true,
@@ -243,7 +244,7 @@
                     },
                     "footprint": {
                         "enabled": false,
-                        "mode": "bidask",
+                        "mode": "off",
                         "showWicks": true,
                         "wickThickness": 1,
                         "showPOC": true,
@@ -272,8 +273,31 @@
         "activeChartId": "popout-main",
         "showTape": true,
         "showOrderEntry": false,
-        "showDom": true,
-        "drawings": [],
+        "showDom": false,
+        "drawings": [
+            {
+                "id": "1778164515072z5r8t",
+                "type": "cursor",
+                "points": [
+                    {
+                        "time": 1778181000,
+                        "price": 28903.432815776592,
+                        "logical": 5056
+                    },
+                    {
+                        "time": 1778181000,
+                        "price": 28896.29944694264,
+                        "logical": 5056
+                    }
+                ],
+                "props": {
+                    "color": "#fbbf24"
+                },
+                "symbol": "MNQM26",
+                "chartId": "popout-main",
+                "syncDrawings": true
+            }
+        ],
         "indicators": {
             "imbalance_impulse": {
                 "name": "Imbalance Impulse",
@@ -294,13 +318,6 @@
                 "description": "Advanced Volume Analysis (Delta, VWAP, Imbalances)",
                 "category": "Order Flow",
                 "enabled": true,
-                "config": {}
-            },
-            "gann_angles": {
-                "name": "\u00c1ngulos de Gann",
-                "description": "Indicador algor\u00edtmico inteligente de \u00c1ngulos de Gann con detecci\u00f3n de pivots autom\u00e1tica",
-                "category": "Gann Theory",
-                "enabled": false,
                 "config": {}
             }
         },
@@ -324,13 +341,6 @@
                 "description": "Advanced Volume Analysis (Delta, VWAP, Imbalances)",
                 "category": "Order Flow",
                 "enabled": true,
-                "config": {}
-            },
-            "gann_angles": {
-                "name": "\u00c1ngulos de Gann",
-                "description": "Indicador algor\u00edtmico inteligente de \u00c1ngulos de Gann con detecci\u00f3n de pivots autom\u00e1tica",
-                "category": "Gann Theory",
-                "enabled": false,
                 "config": {}
             }
         },
@@ -430,9 +440,9 @@
             "show_delta_AI/USDT:USDT": "false",
             "show_delta_ALL/USDT:USDT": "false",
             "show_volume_MNQ": "false",
+            "show_delta_NEO/BTC": "false",
             "show_delta_AUDJPY": "false",
             "show_volume_MCLEJ26": "true",
-            "show_delta_NEO/BTC": "false",
             "show_delta_JUNNQJUNAR26": "true",
             "show_delta_AIOT/USDT:USDT": "false",
             "show_volume_1000BONK/USDC:USDC": "true",
@@ -451,8 +461,8 @@
             "show_delta_MNGJ26": "false",
             "show_volume_GBPUSD": "true",
             "show_delta_DUSK/USDT": "false",
-            "show_delta_APR/USDT:USDT": "false",
             "show_volume_4/USDT:USDT": "true",
+            "show_delta_APR/USDT:USDT": "false",
             "show_volume_AI/USDT:USDT": "true",
             "show_volume_ALPINE/USDT:USDT": "true",
             "show_delta_USDCAD": "false",
@@ -527,11 +537,11 @@
             "show_volume_ANIME/USDT:USDT": "true",
             "show_volume_CC/USDT:USDT": "true",
             "show_volume_BTC/USDT:USDT-250926": "true",
+            "show_volume_XAUEUR": "true",
             "show_delta_MNQ": "false",
             "show_delta_GBPCAD": "false",
             "show_volume_ENQM26": "true",
             "show_delta_ZIL/USDT": "false",
-            "show_volume_XAUEUR": "true",
             "show_delta_ETH/USDT:USDT-260327": "false",
             "show_delta_BTC/USD:BTC-260327": "false",
             "show_delta_BTC/USD": "false",
@@ -642,8 +652,8 @@
             "show_delta_US100": "false",
             "show_volume_ENJ/USDT": "true",
             "show_volume_USDCAD": "true",
-            "show_delta_1000PEPE/USDC:USDC": "true",
             "show_volume_AVAX/USD:AVAX": "true",
+            "show_delta_1000PEPE/USDC:USDC": "true",
             "show_volume_ETH/U": "true",
             "show_delta_4/USDT:USDT": "false",
             "show_volume_ESBH26": "true",
@@ -660,14 +670,14 @@
             "show_delta_SILH26": "false",
             "show_delta_ESBM26": "false",
             "show_volume_MNKH26": "true",
-            "show_delta_1000CHEEMS/USDT:USDT": "false",
             "show_delta_0G/BNB": "false",
+            "show_delta_1000CHEEMS/USDT:USDT": "false",
             "show_delta_XRP/USDT": "true",
             "show_delta_VIG": "false",
             "show_delta_A2Z/USDT:USDT": "false",
-            "show_delta_MESM26": "false",
-            "show_volume_AVAX/USDC:USDC": "true",
             "show_volume_2Z/USDT:USDT": "true",
+            "show_volume_AVAX/USDC:USDC": "true",
+            "show_delta_MESM26": "false",
             "show_volume_AAVE/USDT:USDT": "true",
             "show_volume_PLEJ26": "true",
             "show_volume_THETA/USDT": "true",
@@ -712,10 +722,10 @@
             "show_volume_MCLEM26": "false",
             "show_volume_BAT/BTC": "true",
             "show_delta_BTC/ETH:BTC": "false",
+            "show_volume_MNQM26": "false",
             "show_delta_AMZN/USDT:USDT": "false",
             "show_delta_AVAX/USD:AVAX": "false",
             "show_delta_PLEN26": "false",
-            "show_volume_MNQM26": "false",
             "show_delta_THETA/USDT": "false",
             "show_volume_@CLE": "true",
             "show_delta_ENJ/USDT": "false",
@@ -730,19 +740,19 @@
             "show_delta_BTC/USDC:USDC": "false",
             "show_volume_ETH/USD:ETH": "true",
             "show_delta_BNB/USDC:USDC": "false",
-            "show_volume_MESM26": "true"
+            "show_volume_MESM26": "false"
         },
         "panel_sizes": {
             "tapeWidth": 296,
-            "orderEntryWidth": 280,
-            "tape1Height": 405,
-            "tape2Height": 248,
+            "orderEntryWidth": 285,
+            "tape1Height": 458,
+            "tape2Height": 189,
             "domWidth": 280
         },
         "tapeWidth": 296,
-        "orderEntryWidth": 280,
-        "tape1Height": 405,
-        "tape2Height": 248,
+        "orderEntryWidth": 285,
+        "tape1Height": 458,
+        "tape2Height": 189,
         "domWidth": 280,
         "bigTradeConfig": {
             "real": {
@@ -765,7 +775,7 @@
                 "textSize": 1
             }
         },
-        "updated_at": "2026-05-06T18:55:39.302Z"
+        "updated_at": "2026-05-07T18:29:31.281Z"
     },
     "workspaces": {
         "session_futures": {

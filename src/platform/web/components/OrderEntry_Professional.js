@@ -437,7 +437,7 @@ const OrderEntry_Professional = ({
     const Panel = window.HistoryPanel;
     if (!Panel) return React.createElement("div", { className: "p-8 text-center text-white/20" }, "History Panel Loading...");
     return (
-      React.createElement("div", { className: "flex-1 flex flex-col min-h-0" },
+      React.createElement("div", { className: "flex-1 flex flex-col min-h-0 overflow-hidden" },
       React.createElement("div", { className: "px-3 py-2 border-b border-white/5 flex justify-end shrink-0 bg-black/40" },
       React.createElement("button", {
         onClick: () => {
@@ -450,13 +450,13 @@ const OrderEntry_Professional = ({
       React.createElement("i", { className: "fas fa-expand" }), "EXPAND VIEW"
       )
       ),
-      React.createElement("div", { className: "flex-1 min-h-0 bg-black" },
+      React.createElement("div", { className: "flex-1 min-h-0 bg-black overflow-hidden" },
       React.createElement(Panel, { activeSymbol: symbol })
       )
       ));
   }, [symbol]);
   return (
-    React.createElement("div", { className: "w-full h-full bg-[#0d0d0d] border-l border-white/5 flex flex-col z-20 text-white select-none" },
+    React.createElement("div", { className: "w-full h-full bg-[#0d0d0d] border-l border-white/5 flex flex-col z-20 text-white select-none overflow-x-hidden" },
     React.createElement("div", { className: "px-4 py-3 border-b border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent shrink-0" },
     React.createElement("div", { className: "flex justify-between items-center" },
     React.createElement("div", { className: "flex flex-col" },
@@ -566,7 +566,7 @@ const OrderEntry_Professional = ({
     )
     )
     ),
-    React.createElement("div", { className: "px-4 py-3 border-b border-white/5 overflow-y-auto flex-1 custom-scrollbar" },
+    React.createElement("div", { className: "px-4 py-3 border-b border-white/5 overflow-y-auto flex-1 no-scrollbar" },
     React.createElement("h4", { className: "text-muted font-bold mb-3 text-[9px] uppercase tracking-widest opacity-60" }, "Engine Parameters"
     ),
     React.createElement("div", { className: "space-y-3" },
@@ -733,7 +733,7 @@ const OrderEntry_Professional = ({
     React.createElement("div", { className: "px-4 py-3 bg-black/40 h-[120px] shrink-0" },
     React.createElement("h4", { className: "text-muted font-bold mb-2 text-[9px] uppercase tracking-widest opacity-60" }, "Engine Logs"
     ),
-    React.createElement("div", { className: "space-y-1 overflow-y-auto h-[75px] custom-scrollbar pr-2" },
+    React.createElement("div", { className: "space-y-1 overflow-y-auto h-[75px] no-scrollbar pr-2" },
     atmLog.length === 0 ?
     React.createElement("p", { className: "text-white/10 text-[9px] italic font-mono uppercase tracking-tighter" }, "System Ready for Events..."
     ) :
@@ -811,7 +811,7 @@ const OrderEntry_Professional = ({
     )
     )
     ),
-    React.createElement("div", { className: "flex-1 flex flex-col p-4 gap-4 overflow-y-auto custom-scrollbar" },
+    React.createElement("div", { className: "flex-1 flex flex-col p-4 gap-4 overflow-y-auto no-scrollbar" },
     availableAccounts.length > 0 &&
     React.createElement("div", { className: "space-y-1.5 " },
     React.createElement("label", { className: "text-[8px] font-black text-accent uppercase tracking-widest opacity-80 ml-1" }, "TRADING ACCOUNT"
@@ -1053,7 +1053,7 @@ const OrderEntry_Professional = ({
     )
     ),
     mt5Positions.length > 0 ?
-    React.createElement("div", { className: "space-y-2.5 overflow-y-auto flex-1 pr-1 custom-scrollbar" },
+    React.createElement("div", { className: "space-y-2.5 overflow-y-auto flex-1 pr-1 no-scrollbar" },
     mt5Positions.map(
       (pos, idx) =>
       React.createElement("div", {

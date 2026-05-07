@@ -130,100 +130,100 @@ const SettingsPanel = React.memo(({ config, onChange }) => {
     }
   });
   const CheckBox = ({ k, label }) =>
-  React.createElement('label', { style: S.checkRow },
-  React.createElement('input', {
-    type: 'checkbox',
-    checked: !!config[k],
-    onChange: chk(k),
-    style: { accentColor: '#f59e0b' }
-  }),
-  label
-  );
+    React.createElement('label', { style: S.checkRow },
+      React.createElement('input', {
+        type: 'checkbox',
+        checked: !!config[k],
+        onChange: chk(k),
+        style: { accentColor: '#f59e0b' }
+      }),
+      label
+    );
   const ColorRow = ({ k, label, fallback }) =>
-  React.createElement('div', { style: S.colorRow },
-  React.createElement('span', { style: S.label }, label),
-  React.createElement('input', {
-    type: 'color',
-    value: config[k] && config[k].startsWith('#') ? config[k] : fallback || '#ffffff',
-    onChange: color(k),
-    style: S.colorSwatch
-  })
-  );
+    React.createElement('div', { style: S.colorRow },
+      React.createElement('span', { style: S.label }, label),
+      React.createElement('input', {
+        type: 'color',
+        value: config[k] && config[k].startsWith('#') ? config[k] : fallback || '#ffffff',
+        onChange: color(k),
+        style: S.colorSwatch
+      })
+    );
   return React.createElement('div', { style: S.popover },
-  React.createElement('div', { style: S.fieldWrap },
-  React.createElement('span', { style: S.label }, `Levels  ${config.levels}`),
-  React.createElement('input', {
-    type: 'range', min: 5, max: 200, step: 5,
-    value: config.levels,
-    onChange: num('levels'),
-    style: S.range
-  })
-  ),
-  React.createElement('div', { style: S.fieldWrap },
-  React.createElement('span', { style: S.label }, 'Refresh'),
-  React.createElement('select', {
-    value: config.updateInterval,
-    onChange: num('updateInterval'),
-    style: S.select
-  },
-  React.createElement('option', { value: 50 }, '50ms — Extreme'),
-  React.createElement('option', { value: 100 }, '100ms — Fluid'),
-  React.createElement('option', { value: 250 }, '250ms — Balanced'),
-  React.createElement('option', { value: 500 }, '500ms — Default'),
-  React.createElement('option', { value: 1000 }, '1000ms — Slow')
-  )
-  ),
-  React.createElement('div', { style: S.fieldWrap },
-  React.createElement('span', { style: S.label }, 'Scale'),
-  React.createElement('div', { style: { display: 'flex', gap: 4, marginTop: 2 } },
-  React.createElement('button', scaleBtn('linear'), 'Linear'),
-  React.createElement('button', scaleBtn('logarithmic'), 'Log')
-  )
-  ),
-  React.createElement('div', { style: S.divider },
-  React.createElement('span', { style: S.section }, 'Detection'),
-  React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-  React.createElement(CheckBox, { k: 'spoofingEnabled', label: 'Detect Spoofing' }),
-  React.createElement(CheckBox, { k: 'showGhosts', label: 'Show Order Ghosts' }),
-  React.createElement(CheckBox, { k: 'volumeHeatmap', label: 'Volume Heatmap' }),
-  React.createElement(CheckBox, { k: 'highlightLargeOrders', label: 'Large Order Alerts' })
-  )
-  ),
-  config.spoofingEnabled && React.createElement('div', { style: { marginTop: 8 } },
-  React.createElement('span', { style: S.label }, `Sensitivity  ${config.spoofingSensitivity}`),
-  React.createElement('input', {
-    type: 'range', min: 0.1, max: 1.0, step: 0.05,
-    value: config.spoofingSensitivity,
-    onChange: num('spoofingSensitivity', parseFloat),
-    style: S.range
-  })
-  ),
-  React.createElement('div', { style: S.divider },
-  React.createElement('span', { style: S.section }, 'Display'),
-  React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-  React.createElement(CheckBox, { k: 'cumulative', label: 'Cumulative Mode' }),
-  React.createElement(CheckBox, { k: 'compact', label: 'Compact Rows' }),
-  React.createElement(CheckBox, { k: 'showVolumes', label: 'Show Volumes' }),
-  React.createElement(CheckBox, { k: 'showRowHighlight', label: 'Row Highlight' }),
-  React.createElement(CheckBox, { k: 'showActivityFlash', label: 'Activity Flash' })
-  )
-  ),
-  React.createElement('div', { style: S.divider },
-  React.createElement('span', { style: S.section }, 'Colours'),
-  React.createElement(ColorRow, { k: 'bidColor', label: 'Bid', fallback: '#0ea371' }),
-  React.createElement(ColorRow, { k: 'askColor', label: 'Ask', fallback: '#e03535' }),
-  React.createElement(ColorRow, { k: 'bgColor', label: 'Background', fallback: '#0c0c0c' }),
-  React.createElement(ColorRow, { k: 'midpointColor', label: 'Spread', fallback: '#f59e0b' }),
-  React.createElement(ColorRow, { k: 'spoofColor', label: 'Spoof Ghost', fallback: '#f59e0b' }),
-  React.createElement(ColorRow, { k: 'textColor', label: 'Text', fallback: '#d4dde8' }),
-  React.createElement('button', {
-    onClick: () => {
-      const keys = ['bidColor', 'askColor', 'bgColor', 'midpointColor', 'spoofColor', 'textColor', 'rowBgEven'];
-      keys.forEach((k) => onChange(k, DEFAULT_DOM_CONFIG[k]));
-    },
-    style: S.resetBtn
-  }, 'Reset Colours')
-  )
+    React.createElement('div', { style: S.fieldWrap },
+      React.createElement('span', { style: S.label }, `Levels  ${config.levels}`),
+      React.createElement('input', {
+        type: 'range', min: 5, max: 200, step: 5,
+        value: config.levels,
+        onChange: num('levels'),
+        style: S.range
+      })
+    ),
+    React.createElement('div', { style: S.fieldWrap },
+      React.createElement('span', { style: S.label }, 'Refresh'),
+      React.createElement('select', {
+        value: config.updateInterval,
+        onChange: num('updateInterval'),
+        style: S.select
+      },
+        React.createElement('option', { value: 50 }, '50ms — Extreme'),
+        React.createElement('option', { value: 100 }, '100ms — Fluid'),
+        React.createElement('option', { value: 250 }, '250ms — Balanced'),
+        React.createElement('option', { value: 500 }, '500ms — Default'),
+        React.createElement('option', { value: 1000 }, '1000ms — Slow')
+      )
+    ),
+    React.createElement('div', { style: S.fieldWrap },
+      React.createElement('span', { style: S.label }, 'Scale'),
+      React.createElement('div', { style: { display: 'flex', gap: 4, marginTop: 2 } },
+        React.createElement('button', scaleBtn('linear'), 'Linear'),
+        React.createElement('button', scaleBtn('logarithmic'), 'Log')
+      )
+    ),
+    React.createElement('div', { style: S.divider },
+      React.createElement('span', { style: S.section }, 'Detection'),
+      React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+        React.createElement(CheckBox, { k: 'spoofingEnabled', label: 'Detect Spoofing' }),
+        React.createElement(CheckBox, { k: 'showGhosts', label: 'Show Order Ghosts' }),
+        React.createElement(CheckBox, { k: 'volumeHeatmap', label: 'Volume Heatmap' }),
+        React.createElement(CheckBox, { k: 'highlightLargeOrders', label: 'Large Order Alerts' })
+      )
+    ),
+    config.spoofingEnabled && React.createElement('div', { style: { marginTop: 8 } },
+      React.createElement('span', { style: S.label }, `Sensitivity  ${config.spoofingSensitivity}`),
+      React.createElement('input', {
+        type: 'range', min: 0.1, max: 1.0, step: 0.05,
+        value: config.spoofingSensitivity,
+        onChange: num('spoofingSensitivity', parseFloat),
+        style: S.range
+      })
+    ),
+    React.createElement('div', { style: S.divider },
+      React.createElement('span', { style: S.section }, 'Display'),
+      React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+        React.createElement(CheckBox, { k: 'cumulative', label: 'Cumulative Mode' }),
+        React.createElement(CheckBox, { k: 'compact', label: 'Compact Rows' }),
+        React.createElement(CheckBox, { k: 'showVolumes', label: 'Show Volumes' }),
+        React.createElement(CheckBox, { k: 'showRowHighlight', label: 'Row Highlight' }),
+        React.createElement(CheckBox, { k: 'showActivityFlash', label: 'Activity Flash' })
+      )
+    ),
+    React.createElement('div', { style: S.divider },
+      React.createElement('span', { style: S.section }, 'Colours'),
+      React.createElement(ColorRow, { k: 'bidColor', label: 'Bid', fallback: '#0ea371' }),
+      React.createElement(ColorRow, { k: 'askColor', label: 'Ask', fallback: '#e03535' }),
+      React.createElement(ColorRow, { k: 'bgColor', label: 'Background', fallback: '#0c0c0c' }),
+      React.createElement(ColorRow, { k: 'midpointColor', label: 'Spread', fallback: '#f59e0b' }),
+      React.createElement(ColorRow, { k: 'spoofColor', label: 'Spoof Ghost', fallback: '#f59e0b' }),
+      React.createElement(ColorRow, { k: 'textColor', label: 'Text', fallback: '#d4dde8' }),
+      React.createElement('button', {
+        onClick: () => {
+          const keys = ['bidColor', 'askColor', 'bgColor', 'midpointColor', 'spoofColor', 'textColor', 'rowBgEven'];
+          keys.forEach((k) => onChange(k, DEFAULT_DOM_CONFIG[k]));
+        },
+        style: S.resetBtn
+      }, 'Reset Colours')
+    )
   );
 });
 const DOMPanel = ({ symbol, onClose, width, externalConfig }) => {
@@ -239,13 +239,13 @@ const DOMPanel = ({ symbol, onClose, width, externalConfig }) => {
   const prevSymbolRef = useRef(symbol);
   const lastRenderTsRef = useRef(0);
   useEffect(() => {
-    try {localStorage.setItem(STORAGE_KEY, JSON.stringify(config));} catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)); } catch { }
   }, [config]);
   useEffect(() => {
     if (!externalConfig || typeof externalConfig !== 'object') return;
     setConfig((prev) => {
       const next = { ...prev };
-      const take = (src, dst) => {if (externalConfig[src] != null) next[dst ?? src] = externalConfig[src];};
+      const take = (src, dst) => { if (externalConfig[src] != null) next[dst ?? src] = externalConfig[src]; };
       take('levels');
       take('scaleMode');
       take('bidColor');
@@ -322,11 +322,11 @@ const DOMPanel = ({ symbol, onClose, width, externalConfig }) => {
       const norm = (s) => window.getUniversalSymbol ? window.getUniversalSymbol(s) : s;
       const dataSym = norm(data.symbol);
       const targetSym = norm(symbol);
-      
+
       // console.log(`[DOM_PANEL] Event for ${data.symbol} (norm: ${dataSym}) vs Target ${symbol} (norm: ${targetSym})`);
-      
+
       if (dataSym !== targetSym && data.symbol !== symbol) return;
-      
+
       const now = Date.now();
       if (now - lastRenderTsRef.current < config.updateInterval) return;
       lastRenderTsRef.current = now;
@@ -355,17 +355,17 @@ const DOMPanel = ({ symbol, onClose, width, externalConfig }) => {
           { signal: ctrl.signal }
         );
         if (!res.ok) {
-           setError(`HTTP ${res.status}: Failed to load DOM`);
-           setIsLoading(false);
-           return;
+          setError(`HTTP ${res.status}: Failed to load DOM`);
+          setIsLoading(false);
+          return;
         }
         const data = await res.json();
         if (!engineRef.current) return;
         const processed = engineRef.current.processSnapshot(data);
         if (!processed) {
-           setError('No DOM data received');
-           setIsLoading(false);
-           return;
+          setError('No DOM data received');
+          setIsLoading(false);
+          return;
         }
         rendererRef.current?.render(processed);
         setDomData(processed);
@@ -393,54 +393,54 @@ const DOMPanel = ({ symbol, onClose, width, externalConfig }) => {
     return '#0ea371';
   }, [error, isLoading, statusInfo]);
   return React.createElement('div', { style: { ...S.panel, width: width || '100%' } },
-  React.createElement('div', { style: S.toolbar },
-  React.createElement('div', { style: S.toolbarLeft },
-  React.createElement('i', { className: 'fas fa-layer-group', style: { color: '#f59e0b', fontSize: 10 } }),
-  React.createElement('span', {
-    style: { color: '#d4dde8', fontWeight: 600, fontSize: 11, letterSpacing: '0.04em' }
-  }, 'DOM'),
-  React.createElement('div', {
-    style: {
-      width: 6, height: 6, borderRadius: '50%',
-      background: dotColor,
-      boxShadow: `0 0 5px ${dotColor}88`,
-      flexShrink: 0
-    }
-  })
-  ),
-  React.createElement('div', { style: S.toolbarRight },
-  React.createElement('button', {
-    onClick: () => setShowSettings((s) => !s),
-    title: 'DOM Settings',
-    style: { ...S.iconBtn, color: showSettings ? '#f59e0b' : '#3d4f5f' }
-  }, React.createElement('i', { className: 'fas fa-cog' })),
-  onClose && React.createElement('button', {
-    onClick: onClose,
-    title: 'Close DOM',
-    style: { ...S.iconBtn, color: '#3d4f5f' }
-  }, React.createElement('i', { className: 'fas fa-times' }))
-  )
-  ),
-  showSettings && React.createElement(SettingsPanel, {
-    config: config,
-    onChange: handleCfg
-  }),
-  React.createElement('div', { ref: canvasRef, style: S.canvas }),
-  (error || statusInfo) && React.createElement('div', {
-    style: {
-      position: 'absolute',
-      bottom: 32,
-      left: 0,
-      right: 0,
-      textAlign: 'center',
-      padding: '4px 8px',
-      background: error ? 'rgba(224,53,53,0.12)' : 'rgba(245,158,11,0.12)',
-      color: error ? '#e03535' : '#f59e0b',
-      fontSize: 10,
-      fontFamily: "'JetBrains Mono', monospace",
-      pointerEvents: 'none'
-    }
-  }, error || statusInfo)
+    React.createElement('div', { style: S.toolbar },
+      React.createElement('div', { style: S.toolbarLeft },
+        React.createElement('i', { className: 'fas fa-layer-group', style: { color: '#f59e0b', fontSize: 10 } }),
+        React.createElement('span', {
+          style: { color: '#d4dde8', fontWeight: 600, fontSize: 11, letterSpacing: '0.04em' }
+        }, 'DOM'),
+        React.createElement('div', {
+          style: {
+            width: 6, height: 6, borderRadius: '50%',
+            background: dotColor,
+            boxShadow: `0 0 5px ${dotColor}88`,
+            flexShrink: 0
+          }
+        })
+      ),
+      React.createElement('div', { style: S.toolbarRight },
+        React.createElement('button', {
+          onClick: () => setShowSettings((s) => !s),
+          title: 'DOM Settings',
+          style: { ...S.iconBtn, color: showSettings ? '#f59e0b' : '#3d4f5f' }
+        }, React.createElement('i', { className: 'fas fa-cog' })),
+        onClose && React.createElement('button', {
+          onClick: onClose,
+          title: 'Close DOM',
+          style: { ...S.iconBtn, color: '#3d4f5f' }
+        }, React.createElement('i', { className: 'fas fa-times' }))
+      )
+    ),
+    showSettings && React.createElement(SettingsPanel, {
+      config: config,
+      onChange: handleCfg
+    }),
+    React.createElement('div', { ref: canvasRef, style: S.canvas }),
+    (error || statusInfo) && React.createElement('div', {
+      style: {
+        position: 'absolute',
+        bottom: 32,
+        left: 0,
+        right: 0,
+        textAlign: 'center',
+        padding: '4px 8px',
+        background: error ? 'rgba(224,53,53,0.12)' : 'rgba(245,158,11,0.12)',
+        color: error ? '#e03535' : '#f59e0b',
+        fontSize: 10,
+        fontFamily: "'JetBrains Mono', monospace",
+        pointerEvents: 'none'
+      }
+    }, error || statusInfo)
   );
 };
 window.DOMPanel = DOMPanel;

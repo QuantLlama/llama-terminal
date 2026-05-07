@@ -376,6 +376,9 @@ const ChartComponent = React.memo(({
         return;
       }
       isFetching = true;
+      const platform = typeof detectPlatformType === "function" ?
+        detectPlatformType() :
+        window.detectPlatformType ? window.detectPlatformType() : localStorage.getItem("broker_platform") || localStorage.getItem("platform") || "futures";
       try {
         const csP = chartSettings?.indicators?.cazastop?.params || {};
         const imbP = chartSettings?.indicators?.imbalance?.params || {};

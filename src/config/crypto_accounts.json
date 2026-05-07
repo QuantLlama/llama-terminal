@@ -1,1 +1,15 @@
-{}
+{
+    "271c6a5e": {
+        "id": "271c6a5e",
+        "name": "Binance",
+        "broker": "binance",
+        "api_key": "IIQh2DtQ6nLv8KkzAHiahlnTAB4zwxDmzRmMu0kgGS7BE0BLUlFFabqO0mwn4iwC",
+        "api_secret": "gAAAAABp-7UrcWVXKjMnYOW1rEv4abb2zV_bsgUjoSFrDuPWDr01H58HNCaJI0grlhMucKN-dpjI8e-vEbDh4MygbxStBerXcoc9mxG4kqX0uBsg7ViH1LFsWcoNsta0hL44TEKLEf7k6EkmrjDmsjWhbVzDafp7gpHdv0pq2tW2UuSONxKKaB8=",
+        "passphrase": "",
+        "account_type": "real",
+        "created_at": "2026-05-06T18:39:55.820639",
+        "status": "inactive",
+        "is_master": true,
+        "platform": "crypto"
+    }
+}
