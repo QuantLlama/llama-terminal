@@ -1,6 +1,6 @@
 const { useState, useEffect, useRef } = React;
 
-const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol }) => {
+const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol, workspaces: propWorkspaces }) => {
   const [workspaces, setWorkspaces] = useState({});
   const [newName, setNewName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -14,13 +14,17 @@ const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol }) => {
   const fetchWorkspaces = async () => {
     setLoading(true);
     try {
+      console.log("[WorkspacesModal] Fetching workspaces...");
       const res = await fetch("/api/workspaces");
       if (res.ok) {
         const data = await res.json();
-        setWorkspaces(data);
+        console.log("[WorkspacesModal] Received data:", data);
+        setWorkspaces(data || {});
+      } else {
+        console.error("[WorkspacesModal] Fetch failed with status:", res.status);
       }
     } catch (e) {
-      console.error("Failed to fetch workspaces:", e);
+      console.error("[WorkspacesModal] Failed to fetch workspaces:", e);
     } finally {
       setLoading(false);
     }
@@ -28,11 +32,16 @@ const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol }) => {
 
   useEffect(() => {
     if (isOpen) {
-      fetchWorkspaces();
+      console.log("[WorkspacesModal] Modal opened. Prop workspaces:", propWorkspaces);
+      if (propWorkspaces && Object.keys(propWorkspaces).length > 0) {
+        setWorkspaces(propWorkspaces);
+      } else {
+        fetchWorkspaces();
+      }
       setPos({ x: (window.innerWidth - 500) / 2, y: 150 });
       setNewName("");
     }
-  }, [isOpen]);
+  }, [isOpen, propWorkspaces]);
 
   const handleMouseDown = (e) => {
     if (e.target.closest(".drag-handle")) {
@@ -175,42 +184,48 @@ const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol }) => {
                   React.createElement("i", { className: "fas fa-cloud-upload-alt text-zinc-700 text-2xl mb-2" }),
                   React.createElement("p", { className: "text-[10px] text-zinc-500 font-bold uppercase tracking-widest" }, "No Workspaces Found")
                 ) :
-                Object.entries(workspaces).sort((a, b) => new Date(b[1].updated_at) - new Date(a[1].updated_at)).map(([name, ws]) => (
-                  React.createElement("div", {
-                    key: name,
-                    className: "group bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/20 p-4 rounded-xl transition-all duration-300 flex items-center justify-between"
-                  },
-                    React.createElement("div", { className: "flex items-center gap-4" },
-                      React.createElement("div", { className: "w-10 h-10 rounded-lg bg-black/60 flex items-center justify-center border border-white/10 group-hover:border-accent/30 transition-colors" },
-                        React.createElement("i", { className: "fas fa-columns text-zinc-500 group-hover:text-accent transition-colors" })
+                Object.entries(workspaces)
+                  .sort((a, b) => {
+                    const dateA = (a[1] && a[1].updated_at) ? new Date(a[1].updated_at).getTime() : 0;
+                    const dateB = (b[1] && b[1].updated_at) ? new Date(b[1].updated_at).getTime() : 0;
+                    return dateB - dateA;
+                  })
+                  .map(([name, ws]) => (
+                    React.createElement("div", {
+                      key: name,
+                      className: "group bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/20 p-4 rounded-xl transition-all duration-300 flex items-center justify-between"
+                    },
+                      React.createElement("div", { className: "flex items-center gap-4" },
+                        React.createElement("div", { className: "w-10 h-10 rounded-lg bg-black/60 flex items-center justify-center border border-white/10 group-hover:border-accent/30 transition-colors" },
+                          React.createElement("i", { className: "fas fa-columns text-zinc-500 group-hover:text-accent transition-colors" })
+                        ),
+                        React.createElement("div", null,
+                          React.createElement("h4", { className: "text-xs font-black text-white uppercase tracking-tight group-hover:text-accent transition-colors" }, name),
+                          React.createElement("div", { className: "flex items-center gap-2 mt-0.5" },
+                            React.createElement("span", { className: "text-[8px] text-zinc-500 font-bold uppercase" }, ws.layout || "single"),
+                            React.createElement("span", { className: "w-1 h-1 rounded-full bg-zinc-800" }),
+                            React.createElement("span", { className: "text-[8px] text-zinc-500 font-mono" }, ws.updated_at ? new Date(ws.updated_at).toLocaleString() : "N/A")
+                          )
+                        )
                       ),
-                      React.createElement("div", null,
-                        React.createElement("h4", { className: "text-xs font-black text-white uppercase tracking-tight group-hover:text-accent transition-colors" }, name),
-                        React.createElement("div", { className: "flex items-center gap-2 mt-0.5" },
-                          React.createElement("span", { className: "text-[8px] text-zinc-500 font-bold uppercase" }, ws.layout || "single"),
-                          React.createElement("span", { className: "w-1 h-1 rounded-full bg-zinc-800" }),
-                          React.createElement("span", { className: "text-[8px] text-zinc-500 font-mono" }, new Date(ws.updated_at).toLocaleString())
+                      React.createElement("div", { className: "flex items-center gap-2" },
+                        React.createElement("button", {
+                          onClick: () => {
+                            onLoad(name, ws);
+                            onClose();
+                          },
+                          className: "px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[9px] font-black uppercase rounded-lg border border-white/10 transition-all hover:scale-105"
+                        }, "LOAD"),
+                        React.createElement("button", {
+                          onClick: () => handleDelete(name),
+                          disabled: deleting === name,
+                          className: "w-9 h-9 flex items-center justify-center bg-red-500/5 hover:bg-red-500/10 text-red-500/60 hover:text-red-500 rounded-lg border border-red-500/10 transition-all"
+                        },
+                          deleting === name ? React.createElement("i", { className: "fas fa-circle-notch fa-spin" }) : React.createElement("i", { className: "fas fa-trash-alt text-[10px]" })
                         )
                       )
-                    ),
-                    React.createElement("div", { className: "flex items-center gap-2" },
-                      React.createElement("button", {
-                        onClick: () => {
-                          onLoad(name, ws);
-                          onClose();
-                        },
-                        className: "px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-[9px] font-black uppercase rounded-lg border border-white/10 transition-all hover:scale-105"
-                      }, "LOAD"),
-                      React.createElement("button", {
-                        onClick: () => handleDelete(name),
-                        disabled: deleting === name,
-                        className: "w-9 h-9 flex items-center justify-center bg-red-500/5 hover:bg-red-500/10 text-red-500/60 hover:text-red-500 rounded-lg border border-red-500/10 transition-all"
-                      },
-                        deleting === name ? React.createElement("i", { className: "fas fa-circle-notch fa-spin" }) : React.createElement("i", { className: "fas fa-trash-alt text-[10px]" })
-                      )
                     )
-                  )
-                ))
+                  ))
             )
           )
         ),

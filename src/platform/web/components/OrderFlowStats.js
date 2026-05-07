@@ -1,4 +1,4 @@
-const OrderFlowStats = ({ symbol, lastPrice, volume }) => {
+const OrderFlowStats = ({ symbol, marketStatus, lastPrice, volume }) => {
   const { useState, useEffect, useRef, useMemo, useCallback } = React;
   const [stats, setStats] = useState({
     totalVolume: 0,
@@ -15,7 +15,7 @@ const OrderFlowStats = ({ symbol, lastPrice, volume }) => {
   const lastPriceRef = useRef(lastPrice);
   const volumeRef = useRef(volume || 0);
   useEffect(() => {
-    if (!lastPrice || volume === undefined || volume === null) return;
+    if (!lastPrice || volume === undefined || volume === null || (marketStatus && !marketStatus.isOpen)) return;
     if (lastPriceRef.current === null || volumeRef.current === null) {
       lastPriceRef.current = lastPrice;
       volumeRef.current = volume;
@@ -122,6 +122,13 @@ const OrderFlowStats = ({ symbol, lastPrice, volume }) => {
     if (absNum < 10 && absNum > 0) return num.toFixed(3);
     return num.toFixed(0);
   };
+  if (marketStatus && !marketStatus.isOpen) {
+    return React.createElement("div", { className: "flex-1 bg-panel flex flex-col items-center justify-center p-4 border-t border-border opacity-50" },
+      React.createElement("i", { className: "fas fa-clock text-2xl mb-2 text-muted" }),
+      React.createElement("span", { className: "text-[10px] font-bold uppercase tracking-wider text-muted" }, "Market Closed"),
+      React.createElement("span", { className: "text-[8px] text-muted/50 mt-1" }, "Stats reset on market open")
+    );
+  }
   return (
     React.createElement("div", { className: "flex-1 bg-panel flex flex-col shrink-0 p-2 border-t border-border" },
     React.createElement("h3", { className: "text-[10px] font-bold text-muted uppercase tracking-wider mb-2" }, "Order Flow Stats (", symbol, ")"),

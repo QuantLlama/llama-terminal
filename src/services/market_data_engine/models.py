@@ -46,7 +46,6 @@ class MarketDataEvent:
     latency_ms: float = 0.0
     source: str = ""  
     side: str = ""    
-    flags: int = 0    
     def to_dict(self) -> Dict[str, Any]:
         d = {
             "symbol": self.symbol,
@@ -67,8 +66,7 @@ class MarketDataEvent:
             "sequence_num": self.sequence_num,
             "latency_ms": self.latency_ms,
             "source": self.source,
-            "side": self.side,
-            "flags": self.flags
+            "side": self.side
         }
         if self.event_type in ("BOOK", "BOOK_UPDATE") or self.bids or self.asks:
             d["bids"] = self.bids

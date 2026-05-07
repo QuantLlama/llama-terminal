@@ -14,15 +14,15 @@ const DOMHistogramOverlay = ({
   const levelsUpdateTimer = useRef(0);
   const lastRenderTsRef = useRef(0);
   const settings = {
-    levels: Math.max(50, config.levels || 1000),
-    opacity: config.opacity !== undefined ? config.opacity : 0.75,
+    levels: Math.max(500, config.levels || 2500),
+    opacity: config.opacity !== undefined ? config.opacity : 0.85,
     bidColor: config.bidColor || '#10b981',
     askColor: config.askColor || '#ef5350',
-    updateInterval: Math.max(250, config.updateInterval || 500),
-    maxWidth: config.maxWidth || 400,
-    barThickness: config.barThickness || 0.92,
+    updateInterval: Math.max(100, config.updateInterval || 100),
+    maxWidth: config.maxWidth || 500,
+    barThickness: config.barThickness || 0.95,
     showLabels: config.showLabels !== false,
-    renderStyle: config.renderStyle || 'heatmap'
+    renderStyle: config.renderStyle || 'bars'
   };
   const [requiredLevels, setRequiredLevels] = useState(settings.levels);
   const [isRateLimited, setIsRateLimited] = useState(false);
@@ -124,7 +124,7 @@ const DOMHistogramOverlay = ({
             levelsUpdateTimer.current = now;
             const needed = Math.min(50000, Math.max(
               settings.levels,
-              Math.ceil(visibleRange / tickSize * 3.5)
+              Math.ceil(visibleRange / tickSize * 5.5) // Increased depth request
             ));
             if (needed > requiredLevels) setRequiredLevels(needed);
           }
@@ -141,9 +141,9 @@ const DOMHistogramOverlay = ({
       const chartAreaRight = W - psWidth;
       const maxBarW = Math.min(settings.maxWidth || 400, chartAreaRight - 10);
 
-      const useStrategyA = ppt >= 3.0; // Draw individual ticks if spaced widely enough
-      // Enforce minimum strip height so zoomed-out blobs are forced into distinct ladder bars
-      const STRIP_H = useStrategyA ? Math.max(1, ppt * (settings.barThickness || 0.92)) : Math.max(4, Math.floor(ppt * 4 * (settings.barThickness || 0.92)));
+      const useStrategyA = ppt >= 2.0; 
+      // Adaptive STRIP_H: Ensures smooth profile when zoomed out (no 4px blocks)
+      const STRIP_H = useStrategyA ? Math.max(1, ppt * (settings.barThickness || 0.92)) : Math.max(1, Math.floor(ppt));
 
       const fmtVol = (v) => {
         if (!v || isNaN(v) || v <= 0) return null;
@@ -158,36 +158,30 @@ const DOMHistogramOverlay = ({
         const clipH = Math.max(1, Math.floor(Math.min(H, y + barH) - clipY));
         if (clipH < 1) return;
 
-        // CRITICAL FOR ATAS VISUAL: Force a clear distinct gap ALWAYS, no matter the zoom, so bars never fuse into a blob
-        const gapSize = 1; // Always force at least 1px gap
-        let drawH = Math.max(1, clipH - gapSize);
+        // Solid block without gaps for a continuous histogram like ATAS
+        let drawH = Math.ceil(clipH);
 
         // Limit maxWidth to prevent chart invasion
-        const userMaxWidth = Math.min(W * 0.5, settings.maxWidth || 400);
+        const userMaxWidth = Math.min(W * 0.8, settings.maxWidth || 600); 
 
-        // Scale-invariant root curve (ATAS equalizer) to stretch tiny fractional order sizes
-        const norm = Math.pow(Math.min(1, vol / maxVol), 0.35);
+        // Moderate curve for better volume distinction while still showing small levels
+        const norm = Math.pow(Math.min(1, vol / maxVol), 0.65); 
 
         let barWidth;
         let finalOpacity;
 
         if (settings.renderStyle === 'heatmap') {
-          // Heatmap: Uniform width mapping to the max allowed width, but opacity/intensity maps to volume
           barWidth = userMaxWidth;
-
-          // Map the opacity so 100% volume = settings.opacity, and near 0 volume = 0.05 opacity minimum
           const baseOpacity = settings.opacity !== undefined ? settings.opacity : 0.85;
-          finalOpacity = Math.max(0.05, norm * baseOpacity);
+          finalOpacity = Math.max(0.20, norm * baseOpacity);
         } else {
-          // Bars: Width maps to volume, opacity is uniform
-          barWidth = Math.max(3, norm * userMaxWidth);
+          barWidth = Math.max(12, norm * userMaxWidth);
           finalOpacity = settings.opacity !== undefined ? settings.opacity : 0.85;
         }
 
-        // Right align to price scale
         const barX = Math.floor(chartAreaRight - barWidth);
 
-        // Solid distinct profile bar flush to right axis
+        // Main Solid Bar
         ctx.globalAlpha = finalOpacity;
         ctx.fillStyle = color;
         ctx.fillRect(barX, clipY, Math.ceil(barWidth), drawH);
@@ -227,8 +221,8 @@ const DOMHistogramOverlay = ({
         const vBids = bids.filter((b) => b.price >= visibleMin - buf && b.price <= visibleMax + buf);
         const vAsks = asks.filter((a) => a.price >= visibleMin - buf && a.price <= visibleMax + buf);
         const barH = STRIP_H;
-        const bidMaxVol = percentileMax(vBids.map((b) => b.size), 0.98) || 1;
-        const askMaxVol = percentileMax(vAsks.map((a) => a.size), 0.98) || 1;
+        const bidMaxVol = percentileMax(vBids.map((b) => b.size), 0.70) || 1;
+        const askMaxVol = percentileMax(vAsks.map((a) => a.size), 0.70) || 1;
 
         // Sum overlapping ticks exactly on their Y pixel
         const bidPixelSums = new Map();
@@ -270,8 +264,8 @@ const DOMHistogramOverlay = ({
           askStrips[s] += a.size;
         }
 
-        const bidNorm = percentileMax(Array.from(bidStrips).filter((v) => v > 0), 0.99) || 1;
-        const askNorm = percentileMax(Array.from(askStrips).filter((v) => v > 0), 0.99) || 1;
+        const bidNorm = percentileMax(Array.from(bidStrips).filter((v) => v > 0), 0.70) || 1;
+        const askNorm = percentileMax(Array.from(askStrips).filter((v) => v > 0), 0.70) || 1;
 
         const askStripEnd = Math.floor(askZoneBottom / STRIP_H);
         const bidStripStart = Math.ceil(bidZoneTop / STRIP_H);

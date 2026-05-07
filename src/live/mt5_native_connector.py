@@ -143,27 +143,12 @@ class MT5Connector:
             if tick is None:
                 return None
             return tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2
-    def get_current_tick(self, symbol):
-        with self._lock:
-            if not self.connected:
-                if not self.connect():
-                    return None
-            return mt5.symbol_info_tick(symbol)
     def get_recent_ticks(self, symbol, n=1000):
         with self._lock:
             if not self.connected:
                 if not self.connect():
                     return None
-            # FIX: MetaTrader5 module does not have copy_ticks_from_pos.
-            # We use copy_ticks_from with a 1-hour lookback to ensure we get enough ticks.
-            from_dt = datetime.now(timezone.utc) - timedelta(hours=1)
-            ticks = mt5.copy_ticks_from(symbol, from_dt, n, mt5.COPY_TICKS_ALL)
-            
-            # If no ticks in 1 hour (low volume), try 24 hours
-            if ticks is None or len(ticks) == 0:
-                from_dt = datetime.now(timezone.utc) - timedelta(hours=24)
-                ticks = mt5.copy_ticks_from(symbol, from_dt, n, mt5.COPY_TICKS_ALL)
-
+            ticks = mt5.copy_ticks_from_pos(symbol, 0, n, mt5.COPY_TICKS_ALL)
             if ticks is None or len(ticks) == 0:
                 return None
             return pd.DataFrame(ticks)
@@ -404,17 +389,17 @@ class MT5Connector:
                      print(f"[CONNECTOR-DEBUG] 2-STEP Adjusted SL={rounded_sl}, TP={rounded_tp}")
                  if order_type == "SELL":
                      if rounded_sl > 0 and rounded_sl <= actual_fill:
-                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: SL {rounded_sl} is not above fill {actual_fill} for SELL — skipping SL")
+                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: SL {rounded_sl} is not above fill {actual_fill} for SELL \u2014 skipping SL")
                          rounded_sl = 0.0
                      if rounded_tp > 0 and rounded_tp >= actual_fill:
-                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: TP {rounded_tp} is not below fill {actual_fill} for SELL — skipping TP")
+                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: TP {rounded_tp} is not below fill {actual_fill} for SELL \u2014 skipping TP")
                          rounded_tp = 0.0
                  elif order_type == "BUY":
                      if rounded_sl > 0 and rounded_sl >= actual_fill:
-                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: SL {rounded_sl} is not below fill {actual_fill} for BUY — skipping SL")
+                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: SL {rounded_sl} is not below fill {actual_fill} for BUY \u2014 skipping SL")
                          rounded_sl = 0.0
                      if rounded_tp > 0 and rounded_tp <= actual_fill:
-                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: TP {rounded_tp} is not above fill {actual_fill} for BUY — skipping TP")
+                         print(f"[CONNECTOR-DEBUG] 2-STEP WARN: TP {rounded_tp} is not above fill {actual_fill} for BUY \u2014 skipping TP")
                          rounded_tp = 0.0
                  if rounded_sl > 0 or rounded_tp > 0:
                      print(f"[CONNECTOR-DEBUG] 2-STEP MKT: Filled at {actual_fill}, now modifying to add SL={rounded_sl}, TP={rounded_tp}")
@@ -437,7 +422,7 @@ class MT5Connector:
         symbol = order.symbol
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
-            console.print(f"[red]Símbolo {symbol} no encontrado[/red]")
+            console.print(f"[red]S\u00edmbolo {symbol} no encontrado[/red]")
             return False
         def round_to_tick(value):
             if value is None or value == 0: return 0.0

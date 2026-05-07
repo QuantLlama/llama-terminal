@@ -140,7 +140,7 @@ const TechnicalAnalysisModal = ({ isOpen, onClose }) => {
           )
         ),
         
-        React.createElement("div", { className: "flex-1 overflow-y-auto custom-scrollbar divide-y divide-white/5 bg-[#0a0a0c]" },
+        React.createElement("div", { className: "flex-1 overflow-y-auto no-scrollbar divide-y divide-white/5 bg-[#0a0a0c]" },
           loading ?
             React.createElement("div", { className: "flex flex-col items-center justify-center h-full gap-4" },
               React.createElement("div", { className: "w-6 h-6 border border-accent/30 border-t-accent rounded-full animate-spin" }),

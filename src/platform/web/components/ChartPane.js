@@ -366,6 +366,10 @@ const ChartPane = React.memo(({
   // Positioning logic for panels
   const renderPanel = (type) => {
     const layout = chartSettings?.layout || {};
+    
+    // Skip redundant side panels in popout mode since index.html handles them manually
+    if (isPopout && (type === 'tape' || type === 'orderEntry')) return null;
+
     if (type === 'dom' && layout.showDom && window.DOMPanel && window.ResizablePanel) {
       const sidePref = layout.domSide || 'left';
       return React.createElement(window.ResizablePanel, {
@@ -479,7 +483,7 @@ const ChartPane = React.memo(({
     React.createElement("span", { className: "text-accent text-[8px] font-bold uppercase w-6 text-center" }, tf),
     React.createElement("i", { className: `fas fa-chevron-down text-[6px] text-muted transition-transform ${isTFOpen ? 'rotate-180' : ''}` }),
     isTFOpen &&
-    React.createElement("div", { className: "absolute top-full left-0 mt-1 w-16 max-h-[250px] overflow-y-auto custom-scrollbar bg-black border border-white/10 rounded-sm shadow-xl z-50 flex flex-col py-0.5",
+    React.createElement("div", { className: "absolute top-full left-0 mt-1 w-16 max-h-[250px] overflow-y-auto no-scrollbar bg-black border border-white/10 rounded-sm shadow-xl z-50 flex flex-col py-0.5",
       onClick: (e) => e.stopPropagation() },
     (availableTimeframes.length > 0 ? availableTimeframes : ['1m']).map((t) =>
     React.createElement("button", {

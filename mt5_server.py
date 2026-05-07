@@ -107,6 +107,51 @@ def api_close_position(ticket: int, symbol: Optional[str] = None, volume: Option
 def api_daily_pnl():
     return {"pnl": connector.get_daily_pnl()}
 
+@app.get("/api/recent_ticks/{symbol}")
+def api_recent_ticks(symbol: str, n: int = 1000):
+    df = connector.get_recent_ticks(symbol, n)
+    if df is None:
+        return []
+    return df.to_dict(orient="records")
+
+@app.get("/api/ticks_since/{symbol}")
+def api_ticks_since(symbol: str, from_msc: float):
+    df = connector.get_ticks_since(symbol, from_msc)
+    if df is None:
+        return []
+    return df.to_dict(orient="records")
+
+@app.get("/api/book_snapshot/{symbol}")
+def api_book_snapshot(symbol: str, limit: int = 100):
+    book = connector.get_book_snapshot(symbol, limit)
+    return book
+
+@app.get("/api/symbol_info/{symbol}")
+def api_symbol_info(symbol: str):
+    info = connector.symbol_info(symbol)
+    if info is None: return None
+    # Convertir objeto a dict
+    return {slot: getattr(info, slot) for slot in info.__slots__} if hasattr(info, '__slots__') else dict(info._asdict()) if hasattr(info, '_asdict') else info
+
+@app.post("/api/symbol_select")
+def api_symbol_select(data: dict):
+    return {"success": connector.symbol_select(data.get("symbol"), data.get("enable", True))}
+
+@app.get("/api/copy_rates_from_pos/{symbol}")
+def api_copy_rates_from_pos(symbol: str, timeframe: int, start_pos: int, count: int):
+    rates = connector.copy_rates_from_pos(symbol, timeframe, start_pos, count)
+    if rates is None: return []
+    return pd.DataFrame(rates).to_dict(orient="records")
+
+@app.get("/api/copy_ticks_range/{symbol}")
+def api_copy_ticks_range(symbol: str, date_from: float, date_to: float, flags: int):
+    from datetime import datetime
+    dt_from = datetime.fromtimestamp(date_from)
+    dt_to = datetime.fromtimestamp(date_to)
+    ticks = connector.copy_ticks_range(symbol, dt_from, dt_to, flags)
+    if ticks is None: return []
+    return pd.DataFrame(ticks).to_dict(orient="records")
+
 @app.get("/api/symbol_details/{symbol}")
 def api_symbol_details(symbol: str):
     return connector.get_symbol_details(symbol)

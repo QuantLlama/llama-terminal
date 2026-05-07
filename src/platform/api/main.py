@@ -84,6 +84,8 @@ from src.services.database import (
     get_ai_chat_history,
     get_algolab_state,
     get_last_active_workspace,
+    get_all_workspaces,
+    delete_workspace
 )
 from src.services.replication_service import replicate_to_nt8_background, replicate_to_nt8_sync, log_diag
 from src.services.database import (
@@ -91,8 +93,6 @@ from src.services.database import (
     save_ai_chat_message,
     save_algolab_state,
     set_last_active_workspace,
-    get_all_workspaces as db_get_all_workspaces,
-    delete_workspace as db_delete_workspace
 )
 from src.services.database import get_settings as db_get_settings
 from src.services.database import get_workspace as db_get_workspace
@@ -490,20 +490,11 @@ async def get_symbol_info(symbol: str = Query(..., description="Symbol ticker"))
     except Exception as e:
         logger.error(f"Error fetching details for {symbol}: {e}")
         return {"point": 0.0001, "digits": 5, "tick_size": 0.0001, "stops_level": 0}
-_ALGO_REGISTRY_CACHE = {"data": None, "timestamp": 0, "ttl": 30}
-
 @app.get("/api/algorithms")
 async def get_algorithms():
-    global _ALGO_REGISTRY_CACHE
-    now = time.time()
-    
-    if _ALGO_REGISTRY_CACHE["data"] and (now - _ALGO_REGISTRY_CACHE["timestamp"] < _ALGO_REGISTRY_CACHE["ttl"]):
-        return _ALGO_REGISTRY_CACHE["data"]
-
     try:
         from src.algorithms import list_algorithms
-        # Ejecutar en hilo por si el escaneo de disco en Wine es lento
-        registry = await asyncio.to_thread(list_algorithms)
+        registry = list_algorithms()
         clean_registry = {}
         for k, v in registry.items():
             clean_registry[k] = {
@@ -512,12 +503,9 @@ async def get_algorithms():
                 "requires_training": v["requires_training"],
                 "config_schema": v.get("config_schema", {}),
             }
-        
-        _ALGO_REGISTRY_CACHE["data"] = clean_registry
-        _ALGO_REGISTRY_CACHE["timestamp"] = now
         return clean_registry
     except Exception as e:
-        logger.error(f"Error listing algorithms: {e}")
+
         return {}
 INDICATOR_SETTINGS = {
     "imbalance_impulse": {"enabled": False, "config": {}},
@@ -728,99 +716,6 @@ async def get_models(ticker: str):
 @app.get("/api/mapping")
 async def get_mapping(platform: str = Query("mt5")):
     return {"mapping": load_symbol_map(platform)}
-_tech_analysis_cache = {"data": None, "timestamp": 0, "ttl": 3600} # 1 hora de caché
-
-def _scrape_fxempire():
-    import urllib.request
-    from bs4 import BeautifulSoup
-    
-    url = "https://www.fxempire.es/author/jameshyerczyk"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    html = urllib.request.urlopen(req, timeout=10).read()
-    soup = BeautifulSoup(html, 'html.parser')
-    
-    links = soup.find_all('a', href=True)
-    articles = []
-    seen_urls = set()
-    
-    # Palabras clave a filtrar
-    keywords = ["sp500", "nasdaq", "petróleo", "petroleo", "wti", "oro", "acciones", "índice", "indice"]
-    
-    for a in links:
-        href = a['href']
-        if '/forecasts/article/' in href and href not in seen_urls:
-            title = a.get_text().strip()
-            
-            # Buscamos un tag más especifico si lo hay
-            h3 = a.find('h3')
-            if h3:
-                title = h3.get_text().strip()
-            else:
-                # Limpiamos el texto base
-                if "GMT" in title:
-                    title = title.split("GMT")[-1].strip()
-                elif "202" in title:
-                    title = title[title.find("202")+4:].strip()
-            
-            # Checamos si hace match con los mercados que queremos
-            if any(kw in title.lower() or kw in href.lower() for kw in keywords) and len(title) > 10:
-                full_url = href if href.startswith('http') else 'https://www.fxempire.es' + href
-                
-                # Fetch del articulo en si para obtener un pequeño extracto (snippet)
-                snippet = ""
-                try:
-                    art_req = urllib.request.Request(full_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    art_html = urllib.request.urlopen(art_req, timeout=5).read()
-                    art_soup = BeautifulSoup(art_html, 'html.parser')
-                    # Buscamos el primer o segundo parrafo que tenga sustancia
-                    for p in art_soup.find_all('p'):
-                        text = p.get_text().strip()
-                        if len(text) > 50 and "Traducido por" not in text:
-                            snippet = text
-                            break
-                except Exception:
-                    pass
-                
-                articles.append({
-                    "title": title,
-                    "snippet": snippet,
-                    "url": full_url,
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "author": "James Hyerczyk"
-                })
-                seen_urls.add(href)
-                
-                # Limitamos a un maximo de 10 iteraciones de descargas
-                if len(articles) >= 10:
-                    break
-                
-    return articles
-
-@app.get("/api/analysis/technical")
-async def get_technical_analysis():
-    """
-    Scrapes the latest technical analysis articles by James Hyerczyk
-    from FXEmpire and returns them as a clean feed. Uses caching
-    and runs in a background thread to prevent blocking FastAPI loop.
-    """
-    try:
-        now = time.time()
-        # Servir desde la cache si esta disponible y vigente
-        if _tech_analysis_cache["data"] and (now - _tech_analysis_cache["timestamp"] < _tech_analysis_cache["ttl"]):
-            return JSONResponse({"status": "ok", "articles": _tech_analysis_cache["data"]})
-            
-        # Correr en un hilo separado para no bloquear la app de terminal
-        articles = await asyncio.to_thread(_scrape_fxempire)
-        
-        # Guardar en cache
-        _tech_analysis_cache["data"] = articles
-        _tech_analysis_cache["timestamp"] = now
-        
-        return JSONResponse({"status": "ok", "articles": articles})
-    except Exception as e:
-        logger.error(f"Error fetching technical analysis: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
-
 _ff_cache_time = None
 _ff_cache_data = None
 
@@ -1103,24 +998,7 @@ async def disconnect_platform():
     except Exception as e:
         logger.error(f"[CONNECTION] Error desconectando: {e}")
         return {"success": False, "error": str(e)}
-_gpu_cache = {"data": None, "timestamp": 0, "ttl": 10}  # TTL aumentado para evitar polling innecesario
-_system_cache = {"data": None, "timestamp": 0, "ttl": 3}  # Cache para CPU/RAM
-
-def is_running_under_wine():
-    """Detecta de forma segura si estamos corriendo bajo Wine."""
-    if sys.platform != "win32":
-        return False
-    import ctypes
-    try:
-        # Wine expone esta función en ntdll
-        return hasattr(ctypes.windll.ntdll, "wine_get_version")
-    except:
-        return False
-
-IS_WINE = is_running_under_wine()
-if IS_WINE:
-    logger.info("[PLATFORM] Ejecución bajo WINE detectada. Desactivando telemetrías pesadas de GPU.")
-
+_gpu_cache = {"data": None, "timestamp": 0, "ttl": 5}  # TTL reducido a 5s para telemetría en tiempo real
 def _get_gpu_info_cached():
     """Detecta GPU disponibles usando torch CUDA (primario) y GPUtil (fallback).
     Reporta carga real de GPU (utilization %), no solo uso de VRAM."""
@@ -1130,12 +1008,7 @@ def _get_gpu_info_cached():
         "cuda": {"available": False, "device_name": None, "count": 0},
         "backend": "none",
         "error_detail": None,
-        "info": "GPU Telemetry Disabled (Wine Mode)" if IS_WINE else None
     }
-    
-    if IS_WINE:
-        return gpu_data
-
     # --- Nivel 1: torch CUDA (máxima precisión, con GPU utilization real via pynvml) ---
     try:
         import torch
@@ -1217,63 +1090,49 @@ def _get_gpu_info_cached():
     return gpu_data
 @app.get("/api/system/telemetry")
 async def get_system_telemetry():
-    global _system_cache
-    now = time.time()
-    
-    # 1. Retornar cache si es reciente para evitar NtQuerySystemInformation excesivos (TTL 3s en Wine)
-    if _system_cache["data"] and (now - _system_cache["timestamp"] < 3.0):
-        data = _system_cache["data"].copy()
-        data["status"] = ALGO_TYPE
-        return data
-
     try:
-        # Ejecutamos psutil en un hilo para no bloquear el event loop de FastAPI/Wine
-        def fetch_psutil():
-            vm = psutil.virtual_memory()
-            return {
-                "cpu": psutil.cpu_percent(interval=None),
-                "cpu_count": psutil.cpu_count(),
-                "vm_percent": vm.percent,
-                "vm_used": vm.used / (1024**3),
-                "vm_total": vm.total / (1024**3),
-                "app_memory": psutil.Process(os.getpid()).memory_info().rss / (1024**3)
-            }
-        
-        ps_data = await asyncio.to_thread(fetch_psutil)
-        
+        cpu_usage = psutil.cpu_percent(interval=None)
+        cpu_count = psutil.cpu_count()
+        vm = psutil.virtual_memory()
+        memory_used_gb = vm.used / (1024**3)
+        memory_total_gb = vm.total / (1024**3)
+        process = psutil.Process(os.getpid())
+        app_memory_gb = process.memory_info().rss / (1024**3)
         global _gpu_cache
-        if now - _gpu_cache["timestamp"] > _gpu_cache["ttl"] or _gpu_cache["data"] is None:
-            gpu_data = await asyncio.to_thread(_get_gpu_info_cached)
+        current_time = time.time()
+        if (
+            current_time - _gpu_cache["timestamp"] > _gpu_cache["ttl"]
+            or _gpu_cache["data"] is None
+        ):
+            gpu_data = _get_gpu_info_cached()
             _gpu_cache["data"] = gpu_data
-            _gpu_cache["timestamp"] = now
+            _gpu_cache["timestamp"] = current_time
+            # Log diagnóstico si GPU no se detecta
+            if not gpu_data.get("detected"):
+                logger.debug("[TELEMETRY] No GPU detected — running in CPU-only mode")
+            elif gpu_data.get("detected"):
+                logger.info(f"[TELEMETRY] GPU detectada via '{gpu_data.get('backend')}': {gpu_data['cuda'].get('device_name')}")
         else:
             gpu_data = _gpu_cache["data"]
-            
-        telemetry_data = {
+        return {
             "cpu": {
-                "usage": round(ps_data["cpu"], 1),
-                "count": ps_data["cpu_count"],
-                "label": f"CPU ({ps_data['cpu_count']} Threads)",
+                "usage": round(cpu_usage, 1),
+                "count": cpu_count,
+                "label": f"CPU ({cpu_count} Threads)",
             },
             "memory": {
-                "used": round(ps_data["vm_used"], 1),
-                "total": round(ps_data["vm_total"], 1),
-                "app_used": round(ps_data["app_memory"], 2),
-                "percent": ps_data["vm_percent"],
-                "label": f"{round(ps_data['vm_used'], 1)}GB / {round(ps_data['vm_total'], 1)}GB",
+                "used": round(memory_used_gb, 1),
+                "total": round(memory_total_gb, 1),
+                "app_used": round(app_memory_gb, 2),
+                "percent": vm.percent,
+                "label": f"{round(memory_used_gb, 1)}GB / {round(memory_total_gb, 1)}GB",
             },
             "gpu": gpu_data,
             "status": ALGO_TYPE,
         }
-        
-        _system_cache["data"] = telemetry_data
-        _system_cache["timestamp"] = now
-        return telemetry_data
-
     except Exception as e:
-        logger.error(f"Telemetry error: {e}")
-        return {"error": str(e), "gpu": {"detected": False, "devices": []}}
 
+        return {"error": str(e), "gpu": {"detected": False, "devices": []}}
 @app.get("/live_status.json")
 async def get_live_status_json():
     if os.path.exists(STATUS_FILE):
@@ -1328,7 +1187,8 @@ async def start_training(req: AlgoStartRequest):
         ]
 
     try:
-        log_dir = get_logs_dir()
+        log_dir = os.path.join(ROOT_DIR, "logs")
+        os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, "training.log")
         with open(log_file, "w") as out:
             kwargs = {}
@@ -1363,7 +1223,8 @@ async def start_live(req: LiveStartRequest):
             os.remove(STATUS_FILE)
         except:
             pass
-    log_dir = get_logs_dir()
+    log_dir = os.path.join(ROOT_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "live_trading.log")
     if getattr(sys, 'frozen', False):
         python_exe = sys.executable
@@ -1466,7 +1327,7 @@ async def get_logs(lines: int = 50):
     global ALGO_TYPE, LAST_ALGO_TYPE
     current_type = ALGO_TYPE if ALGO_TYPE != "idle" else LAST_ALGO_TYPE
     log_file = "live_trading.log" if current_type == "active" else "training.log"
-    path = os.path.join(get_logs_dir(), log_file)
+    path = os.path.join(ROOT_DIR, "logs", log_file)
     if os.path.exists(path):
         try:
             with open(path, "r") as f:
@@ -1537,10 +1398,6 @@ async def update_config(config: Dict[str, Any] = Body(...)):
             "chart_bg_color",
             "chart_candle_border_visible",
             "chart_candle_border_color",
-            "risk_max_daily_loss",
-            "risk_max_contracts",
-            "risk_emotional_guard",
-            "risk_locked_until",
         }
         ui_config = {k: v for k, v in config.items() if k in ui_keys}
         trading_config = {k: v for k, v in config.items() if k not in ui_keys}
@@ -1738,21 +1595,22 @@ async def save_workspace(session: str, workspace: Dict[str, Any] = Body(...)):
 @app.get("/api/workspaces")
 async def list_workspaces():
     try:
-        workspaces = db_get_all_workspaces()
-        return workspaces
+        data = get_all_workspaces()
+        logger.info(f"Retrieved {len(data)} workspaces from DB")
+        return data
     except Exception as e:
+        logger.error(f"Error listing workspaces: {e}")
+        return {}
+
+@app.delete("/api/workspace/{name}")
+async def remove_workspace(name: str):
+    try:
+        delete_workspace(name)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error deleting workspace: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/workspace/{session}")
-async def delete_workspace(session: str):
-    try:
-        success = db_delete_workspace(session)
-        if success:
-            return {"status": "ok", "message": f"Workspace '{session}' eliminado"}
-        else:
-            raise HTTPException(status_code=404, detail=f"Workspace '{session}' no encontrado")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/timeframes")
 async def get_timeframes(platform: str = Query("mt5", description="crypto or mt5")):
     try:
@@ -1904,22 +1762,21 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
         return s
     def _fetch_tv_price(session):
         try:
-            # Intentar con múltiples fuentes de TradingView para mayor robustez
-            for ticker in ["CBOE:VIX", "TVC:VIX", "CAPITALCOM:VIX"]:
-                payload = {
-                    "symbols": {"tickers": [ticker], "query": {"types": []}},
-                    "columns": ["close", "time"]
-                }
-                r = session.post(
-                    "https://scanner.tradingview.com/america/scan",
-                    json=payload, timeout=5
-                )
-                if r.ok:
-                    data = r.json().get("data", [])
-                    if data:
-                        d = data[0].get("d") or []
-                        if len(d) >= 1 and isinstance(d[0], (int, float)) and d[0] > 0:
-                            return float(d[0]), d[1] if len(d) > 1 else None
+            payload = {
+                "symbols": {"tickers": ["CBOE:VIX", "TVC:VIX"], "query": {"types": []}},
+                "columns": ["close", "time"]
+            }
+            r = session.post(
+                "https://scanner.tradingview.com/america/scan",
+                json=payload, timeout=8
+            )
+            if not r.ok:
+                return None, None
+            data = r.json().get("data", [])
+            for item in data:
+                d = item.get("d") or []
+                if len(d) >= 1 and isinstance(d[0], (int, float)) and d[0] > 0:
+                    return float(d[0]), d[1] if len(d) > 1 else None
         except Exception:
             pass
         return None, None
@@ -2021,15 +1878,12 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
                     VIX_LIVE_CACHE["last_fetch"] = 0
                     VIX_LIVE_CACHE["stale_count"] = 0
         if df is None or df.empty:
-            # Generar datos simulados con FECHAS ACTUALES para evitar problemas de correlación
-            now = datetime.now()
-            # Asegurarse de que el intervalo sea compatible con pandas
-            pd_freq = interval if interval != "1m" else "1min"
-            times = pd.date_range(end=now, periods=limit, freq=pd_freq)
+
             import random
+            times = pd.date_range(end=datetime.now(), periods=100, freq=interval)
             closes = [20.0]
-            for _ in range(len(times) - 1):
-                closes.append(closes[-1] + random.uniform(-0.15, 0.15))
+            for _ in range(99):
+                closes.append(closes[-1] + random.uniform(-0.1, 0.1))
             df = pd.DataFrame(
                 {"Open": closes, "High": closes, "Low": closes,
                  "Close": closes, "Volume": 0},
@@ -2183,6 +2037,7 @@ async def modify_position(req: ModifyRequest):
         if req.is_pending:
             logger.info(f"[MODIFY-PENDING] Modifying MT5 ticket {req.ticket} to price={req.price}")
             result = connector.modify_order(req.ticket, req.price, req.sl, req.tp)
+            connector.shutdown()
             if not result or (hasattr(result, 'retcode') and result.retcode != 10009):
                 err_code = getattr(result, 'retcode', 'UNKNOWN')
                 err_comment = getattr(result, 'comment', 'No result object (MT5 modification failed)')
@@ -2211,6 +2066,7 @@ async def modify_position(req: ModifyRequest):
             if positions and len(positions) > 0:
                 ticket = positions[0].ticket
             else:
+                connector.shutdown()
                 raise HTTPException(status_code=404, detail="No open position found to modify")
         entry_p = 0
         try:
@@ -2221,6 +2077,7 @@ async def modify_position(req: ModifyRequest):
                     actual_symbol = pos_list[0].symbol
         except: pass
         result = connector.modify_position(ticket, req.sl, req.tp, symbol=actual_symbol)
+        connector.shutdown()
         if not result:
             raise HTTPException(status_code=500, detail="Position Modification failed")
         replicate_to_nt8_background(actual_symbol, "MODIFY", 0, sl=req.sl, tp=req.tp, entry_price=entry_p)
@@ -2307,11 +2164,11 @@ async def debug_mt5():
 async def get_positions(symbol: str = Query(None)):
     try:
         actual_symbol = resolve_symbol(symbol) if symbol else None
-        connector = GLOBAL_MT5_CONNECTOR
-        if not connector.connected:
-            if not connector.connect():
-                raise HTTPException(status_code=500, detail="Could not connect to MT5")
+        connector = MT5Connector()
+        if not connector.connect():
+            raise HTTPException(status_code=500, detail="Could not connect to MT5")
         positions = connector.get_positions(actual_symbol)
+        connector.shutdown()
         result = []
         for pos in positions:
             result.append(
@@ -2341,10 +2198,9 @@ async def get_positions(symbol: str = Query(None)):
 @app.get("/api/account")
 async def get_account():
     try:
-        connector = GLOBAL_MT5_CONNECTOR
-        if not connector.connected:
-            if not connector.connect():
-                raise HTTPException(status_code=503, detail="Could not connect to MT5")
+        connector = MT5Connector()
+        if not connector.connect():
+            raise HTTPException(status_code=503, detail="Could not connect to MT5")
         balance = connector.get_balance()
         equity = connector.get_equity()
         import MetaTrader5 as mt5
@@ -2389,6 +2245,7 @@ async def get_tick(symbol: str):
             "time_msc": getattr(tick, "time_msc", int(tick.time * 1000)),
             "spread": round((tick.ask - tick.bid) * 4, 2),  
         }
+        connector.shutdown()
         return sanitize_float(result)
     except HTTPException:
         raise
@@ -2428,9 +2285,8 @@ async def get_realtime_batch(
     target_platform = platform or detect_platform_for_symbol(symbol_list[0])
     now = time.time()
     
-    # 1. Fetch Account + Positions (once per batch, cached 3.0s para evitar saturar Wine/MT5)
+    # 1. Fetch Account + Positions (once per batch, cached 1.5s)
     acc_cache_key = f"acc_{target_platform}"
-    # TTL de 1.5 segundos (como en versión FUNCIONAL estable)
     if acc_cache_key in _account_cache and (now - _account_cache[acc_cache_key]["ts"] < 1.5):
         acc_data = _account_cache[acc_cache_key]["data"]
     else:
@@ -2440,16 +2296,15 @@ async def get_realtime_batch(
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
-            master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or (accounts[0] if accounts else None)
+            master_acc = next((acc for acc in manager.get_accounts() if acc.get("is_master")), None) or (manager.get_accounts()[0] if manager.get_accounts() else None)
             if not master_acc:
                 acc_data = {"account": {}, "positions": [], "pending_orders": []}
             else:
                 crypto_conn = get_connector(master_acc["id"])
                 if crypto_conn is None or not hasattr(crypto_conn, 'get_balance'):
+                    logger.warning(f"[CRYPTO] Connector not available for account {master_acc['id']}")
                     acc_data = {"account": {}, "positions": [], "pending_orders": []}
                 else:
-                    # Usar threadpool para no bloquear el event loop principal
                     balance = await asyncio.to_thread(crypto_conn.get_balance)
                     equity = await asyncio.to_thread(crypto_conn.get_equity)
                     positions = await asyncio.to_thread(crypto_conn.get_positions)
@@ -2462,61 +2317,52 @@ async def get_realtime_batch(
                         "pending_orders": []
                     }
         else:
-            # MT5 account logic — Punto crítico de cuellos de botella en Wine
+            # MT5 account logic
             connector = GLOBAL_MT5_CONNECTOR
-            try:
-                if not connector.connected: 
-                    await asyncio.to_thread(connector.connect)
-                
-                # Sequential fetching to ensure stability in Wine/MT5 bridge
-                account_info = await asyncio.to_thread(connector.get_account_info)
-                positions = await asyncio.to_thread(connector.get_positions)
-                orders = await asyncio.to_thread(connector.get_pending_orders)
-                
-                pos_list = []
-                if positions:
-                    for pos in positions:
-                        pos_list.append({
-                            "ticket": pos.ticket, "type": "BUY" if pos.type == 0 else "SELL",
-                            "volume": pos.volume, "entry_price": pos.price_open,
-                            "current_price": pos.price_current, "sl": pos.sl, "tp": pos.tp,
-                            "profit": pos.profit, "symbol": pos.symbol,
-                        })
-                pending_list = []
-                if orders:
-                    for o in orders:
-                        ot = o.get("type", 0)
-                        side = "buy"
-                        type_str = "PENDING_BUY_LMT" # Default
-                        if ot == 2: # BUY LIMIT
-                            side = "buy"; type_str = "PENDING_BUY_LMT"
-                        elif ot == 3: # SELL LIMIT
-                            side = "sell"; type_str = "PENDING_SELL_LMT"
-                        elif ot == 4: # BUY STOP
-                            side = "buy"; type_str = "PENDING_BUY_STP"
-                        elif ot == 5: # SELL STOP
-                            side = "sell"; type_str = "PENDING_SELL_STP"
-                        elif ot == 0: # BUY (Market/Entry)
-                            side = "buy"; type_str = "PENDING_BUY"
-                        elif ot == 1: # SELL (Market/Entry)
-                            side = "sell"; type_str = "PENDING_SELL"
-                        
-                        pending_list.append({
-                            **o,
-                            "side": side,
-                            "type": type_str
-                        })
+            if not connector.connected: await asyncio.to_thread(connector.connect)
+            account_info = await asyncio.to_thread(connector.get_account_info)
+            positions = await asyncio.to_thread(connector.get_positions)
+            orders = await asyncio.to_thread(connector.get_pending_orders)
+            
+            pos_list = []
+            if positions:
+                for pos in positions:
+                    pos_list.append({
+                        "ticket": pos.ticket, "type": "BUY" if pos.type == 0 else "SELL",
+                        "volume": pos.volume, "entry_price": pos.price_open,
+                        "current_price": pos.price_current, "sl": pos.sl, "tp": pos.tp,
+                        "profit": pos.profit, "symbol": pos.symbol,
+                    })
+            pending_list = []
+            if orders:
+                for o in orders:
+                    ot = o.get("type", 0)
+                    side = "buy"
+                    type_str = "PENDING_BUY_LMT" # Default
+                    if ot == 2: # BUY LIMIT
+                        side = "buy"; type_str = "PENDING_BUY_LMT"
+                    elif ot == 3: # SELL LIMIT
+                        side = "sell"; type_str = "PENDING_SELL_LMT"
+                    elif ot == 4: # BUY STOP
+                        side = "buy"; type_str = "PENDING_BUY_STP"
+                    elif ot == 5: # SELL STOP
+                        side = "sell"; type_str = "PENDING_SELL_STP"
+                    elif ot == 0: # BUY (Market/Entry)
+                        side = "buy"; type_str = "PENDING_BUY"
+                    elif ot == 1: # SELL (Market/Entry)
+                        side = "sell"; type_str = "PENDING_SELL"
+                    
+                    pending_list.append({
+                        **o,
+                        "side": side,
+                        "type": type_str
+                    })
 
-                acc_data = {
-                    "account": account_info if account_info else {},
-                    "positions": pos_list,
-                    "pending_orders": pending_list
-                }
-            except Exception as e:
-                logger.error(f"[REALTIME_BATCH] Error fetching MT5 data: {e}")
-                acc_data = {"account": {}, "positions": [], "pending_orders": []}
-        
-        # Guardar en cache para las siguientes peticiones concurrentes
+            acc_data = {
+                "account": account_info,
+                "positions": pos_list,
+                "pending_orders": pending_list
+            }
         _account_cache[acc_cache_key] = {"data": acc_data, "ts": now}
 
     # 2. Fetch Ticks for all symbols in parallel
@@ -2913,6 +2759,7 @@ async def place_order(order: OrderRequest):
                 if is_pending:
                     logger.info(f"[CLOSE-DEBUG] Detected as pending order, using delete_order")
                     success = connector.delete_order(order.ticket)
+                    connector.shutdown()
                     if success and success.retcode == 10009:
                         replicate_to_nt8_background(actual_symbol, "CANCEL", 0, entry_price=0)
                         return {
@@ -2975,6 +2822,7 @@ async def place_order(order: OrderRequest):
                 import MetaTrader5 as mt5
                 symbol_info = mt5.symbol_info(actual_symbol)
                 if symbol_info is None:
+                    connector.shutdown()
                     raise HTTPException(
                         status_code=500, detail=f"Symbol {actual_symbol} not found"
                     )
@@ -3077,6 +2925,7 @@ async def place_order(order: OrderRequest):
                 else:
                     pass
 
+            connector.shutdown()
             if result is True:
                 return {"status": "executed", "details": "Action completed successfully"}
             if not result or not hasattr(result, "retcode") or result.retcode != 10009:

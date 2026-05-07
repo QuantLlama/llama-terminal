@@ -260,7 +260,7 @@ async def get_mt5_footprint(symbol: str, timeframe: str, limit: int) -> list:
     end_dt   = datetime.utcfromtimestamp(last_ts)
     raw_ticks = connector.copy_ticks_range(symbol, start_dt, end_dt, mt5.COPY_TICKS_ALL)
     ticks_df  = pd.DataFrame(raw_ticks) if raw_ticks is not None and len(raw_ticks) > 0 else pd.DataFrame()
-    tick_groups = await asyncio.to_thread(_ticks_to_footprint_map, ticks_df, tf_seconds, tick_size, digits)
+    tick_groups = _ticks_to_footprint_map(ticks_df, tf_seconds, tick_size, digits)
     cached_map = {c["time"]: c for c in cache_entry["candles"]} if cache_entry else {}
     result     = []
     for _, c in candles_df.iterrows():
@@ -412,7 +412,7 @@ async def backfill_mt5_history(
             if raw_ticks is None or len(raw_ticks) == 0:
                 continue
             ticks_df    = pd.DataFrame(raw_ticks)
-            chunk_results = await asyncio.to_thread(_ticks_to_footprint_map, ticks_df, tf_seconds, tick_size, digits)
+            chunk_results = _ticks_to_footprint_map(ticks_df, tf_seconds, tick_size, digits)
             entry = _footprint_cache.get(cache_key)
             if entry:
                 ts_map = {c["time"]: i for i, c in enumerate(entry["candles"])}
