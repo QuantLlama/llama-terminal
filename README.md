@@ -6,12 +6,13 @@
 
 <p align="center">
   <strong>Advanced AI-Powered Trading Platform - Desktop Edition</strong>
-</p> 
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-1.8.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/OS-Windows%20|%20Linux-brightgreen.svg" alt="OS Support">
+  <img src="https://img.shields.io/badge/Linux-Arch%20|%20Ubuntu%20|%20AppImage-orange.svg" alt="Linux Support">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
-  <img src="https://img.shields.io/badge/Electron-Desktop-333333.svg" alt="Electron">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p> 
 
@@ -20,9 +21,9 @@
 ## 📖 Table of Contents
 - [🚀 Overview](#-overview)
 - [✨ Key Features](#-key-features)
-- [📸 Platform Screenshots](#-platform-screenshots)
+- [📦 Native Desktop Distribution](#-native-desktop-distribution)
 - [🛠️ Technology Stack](#-technology-stack)
-- [📥 Installation & Setup](#-installation--setup)
+- [🏗️ Developer Installation](#-developer-installation)
 - [🛡️ License](#-license)
 
 ---
@@ -52,10 +53,46 @@ Whether you are trading Traditional Finance (TradFi) or Cryptocurrencies (DeFi),
 - **Crypto Exchanges**: Supported via the robust `CCXT` library (Binance, Bybit, etc.).
 - **Futures Platforms**: Integration keys for `NinjaTrader` and `Tradovate`.
 
-### ⚙️ High-Performance Architecture
-- **Desktop Client**: Built with `Electron` and `Monaco Editor` for a responsive, customizable workspace.
-- **FastAPI Backend**: Asynchronous, high-throughput backend communicating via `WebSockets`.
-- **Local Database**: Supabase backend connection available, with seamless local SQLite persistence.
+### 💼 Institutional Mode Support
+The platform includes 3 distinct, high-performance launch modes:
+- **Terminal App**: The full UI with high-frequency order flow and ML charting.
+- **Browser Mode**: A streamlined, lightweight web-native trading interface.
+- **Trainer CLI**: A high-speed command-line interface for backtesting and strategy training.
+
+---
+
+## 📦 Native Desktop Distribution
+
+Quantum Llama Terminal is distributed as a high-security binary, protecting core intellectual property while ensuring maximum performance.
+
+### 🪟 Windows (NSIS Installer)
+1. Download the `Quantum-Llama-Terminal-Setup.exe`.
+2. Run the installer and follow the wizard instructions.
+3. Access all modes via the desktop shortcuts.
+
+### 🐧 Linux (Cross-Distro Support)
+
+#### **Arch Linux / EndeavourOS / Manjaro**
+Install the native `.pacman` package for the best system integration:
+```bash
+sudo pacman -U Quantum-llama-Terminal-1.8.1.pacman
+```
+
+#### **Ubuntu / Debian / Kali**
+Use the standard `.deb` installer:
+```bash
+sudo dpkg -i Quantum-llama-Terminal_1.8.1_amd64.deb
+sudo apt-get install -f  # To resolve dependencies
+```
+
+#### **Portable (AppImage)**
+Runs on any modern Linux distribution without installation:
+```bash
+chmod +x "Quantum Llama Terminal-1.8.1.AppImage"
+./"Quantum Llama Terminal-1.8.1.AppImage"
+```
+
+---
 
 ---
 
@@ -81,11 +118,11 @@ Whether you are trading Traditional Finance (TradFi) or Cryptocurrencies (DeFi),
 | **AI / Data Science** | PyTorch, Transformers, XGBoost, Pandas, Numpy |
 | **Trading Interfaces** | MetaTrader5, CCXT, yFinance |
 | **Backtesting** | VectorBT, TA-Lib |
-| **Security & Build** | Bytenode, PyArmor, Electron-Builder |
+| **Security & Build** | Bytenode, **Cython (Binary Compilation)**, Electron-Builder |
 
 ---
 
-## 📥 Installation & Setup
+## 🏗️ Developer Installation
 
 ### Prerequisites
 - **Node.js** (v18+)
