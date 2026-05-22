@@ -23,6 +23,8 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
   const dragRef = useRef(null);
   const offsetRef = useRef({ x: 0, y: 0 });
   const initializedRef = useRef(false);
+  const primaryHistoryRef = useRef([]);
+  const secondaryHistoryRef = useRef([]);
   const [vixValue, setVixValue] = useState(0);
   const [symbolChange, setSymbolChange] = useState(0);
   const [vixChange, setVixChange] = useState(0);
@@ -489,86 +491,107 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
           } catch (_) {chart.timeScale().fitContent();}
         }
         setIsLoading(false);
-        if (lineDataSym.length > 0 && lineDataVix.length > 0) {
-          const SYM_W = Math.min(20, lineDataSym.length);
-          const recentSym = lineDataSym.slice(-SYM_W);
-          const lastSym = recentSym[recentSym.length - 1].value;
-          const refSym = recentSym[0].value;
-          setSymbolChange(refSym > 0 ? (lastSym - refSym) / refSym * 100 : 0);
-          initialPriceRef.current = refSym;
-          const VIX_W = Math.min(20, lineDataVix.length);
-          const recentVix = lineDataVix.slice(-VIX_W);
-          const lastVix = recentVix[recentVix.length - 1].value;
-          const refVix = recentVix[0].value;
-          if (!Number.isFinite(lastVix) || !Number.isFinite(refVix) || refVix <= 0) return;
-          setVixChange((lastVix - refVix) / refVix * 100);
-          setVixValue(lastVix);
-          liveVixPriceRef.current = lastVix;
-          initialVixRef.current = refVix;
-          lastVixTimeRef.current = lineDataVix[lineDataVix.length - 1].time;
-          const corrWindow = Math.min(40, lineDataSym.length, lineDataVix.length);
-          const vixMap2 = new Map(lineDataVix.map((d) => [d.time, d.value]));
-          const alignedS = [],alignedV = [];
-          lineDataSym.slice(-corrWindow).forEach((sp) => {
-            let best = null,bestDist = tfSeconds * 2;
-            for (const [vt, vv] of vixMap2) {
-              const dist = Math.abs(vt - sp.time);
-              if (dist < bestDist) {bestDist = dist;best = vv;}
-            }
-            if (best !== null) {alignedS.push(sp.value);alignedV.push(best);}
-          });
-          const corrN = alignedS.length;
-          if (corrN > 3) {
-            // Calcular correlación sobre los cambios porcentuales (retornos) para mayor precisión técnica
-            const returnsS = [], returnsV = [];
-            for (let i = 1; i < corrN; i++) {
-              if (alignedS[i-1] !== 0 && alignedV[i-1] !== 0) {
-                returnsS.push((alignedS[i] - alignedS[i-1]) / alignedS[i-1]);
-                returnsV.push((alignedV[i] - alignedV[i-1]) / alignedV[i-1]);
-              }
-            }
-            
-            const n = returnsS.length;
-            if (n > 2) {
-              const meanX = returnsS.reduce((a, b) => a + b, 0) / n;
-              const meanY = returnsV.reduce((a, b) => a + b, 0) / n;
-              let num = 0, denX = 0, denY = 0;
-              for (let i = 0; i < n; i++) {
-                const dx = returnsS[i] - meanX, dy = returnsV[i] - meanY;
-                num += dx * dy; denX += dx * dx; denY += dy * dy;
-              }
-              const denominator = Math.sqrt(denX) * Math.sqrt(denY);
-              const corr = denominator === 0 ? 0 : num / denominator;
-              setCorrelation(corr);
-            } else {
-              // Fallback a correlación de precios si no hay suficientes retornos
-              const meanX = alignedS.reduce((a, b) => a + b, 0) / corrN;
-              const meanY = alignedV.reduce((a, b) => a + b, 0) / corrN;
-              let num = 0, denX = 0, denY = 0;
-              for (let i = 0; i < corrN; i++) {
-                const dx = alignedS[i] - meanX, dy = alignedV[i] - meanY;
-                num += dx * dy; denX += dx * dx; denY += dy * dy;
-              }
-              const denominator = Math.sqrt(denX) * Math.sqrt(denY);
-              const corr = denominator === 0 ? 0 : num / denominator;
-              setCorrelation(corr);
-            }
-            if (secondaryIsVix) {
-              const MOM = 10;
-              const symM = lineDataSym.slice(-MOM);
-              const vixM = lineDataVix.slice(-MOM);
-              const symMom = symM.length > 1 ? (symM[symM.length - 1].value - symM[0].value) / symM[0].value * 100 : 0;
-              const vixMom = vixM.length > 1 ? (vixM[vixM.length - 1].value - vixM[0].value) / vixM[0].value * 100 : 0;
-              const vixSpike = vixM.length > 1 && vixM[vixM.length - 1].value - vixM[vixM.length - 2].value > 2;
-              setVixSignal(calculateVixSignal(lastVix, lastSym, symMom, vixMom, corr, vixSpike));
-            } else {
-              setVixSignal(null);
-            }
-          }
-        }
+        primaryHistoryRef.current = lineDataSym;
+        secondaryHistoryRef.current = lineDataVix;
+        recalculateCorrelation();
       } catch (e) {
         if (retryCount < 3 && isMounted) setTimeout(() => loadData(retryCount + 1), 2000);else
         setIsLoading(false);
+      }
+    };
+
+    const recalculateCorrelation = () => {
+      const lineDataSym = primaryHistoryRef.current;
+      const lineDataVix = secondaryHistoryRef.current;
+      if (!lineDataSym.length || !lineDataVix.length) return;
+
+      const SYM_W = Math.min(20, lineDataSym.length);
+      const recentSym = lineDataSym.slice(-SYM_W);
+      const lastSym = recentSym[recentSym.length - 1].value;
+      const refSym = recentSym[0].value;
+      setSymbolChange(refSym > 0 ? (lastSym - refSym) / refSym * 100 : 0);
+      initialPriceRef.current = refSym;
+
+      const VIX_W = Math.min(20, lineDataVix.length);
+      const recentVix = lineDataVix.slice(-VIX_W);
+      const lastVix = recentVix[recentVix.length - 1].value;
+      const refVix = recentVix[0].value;
+      if (!Number.isFinite(lastVix) || !Number.isFinite(refVix) || refVix <= 0) return;
+      
+      setVixChange((lastVix - refVix) / refVix * 100);
+      setVixValue(lastVix);
+      liveVixPriceRef.current = lastVix;
+      initialVixRef.current = refVix;
+      lastVixTimeRef.current = lineDataVix[lineDataVix.length - 1].time;
+
+      const corrWindow = Math.min(40, lineDataSym.length, lineDataVix.length);
+      const vixMap2 = new Map(lineDataVix.map((d) => [d.time, d.value]));
+      const alignedS = [], alignedV = [];
+      
+      lineDataSym.slice(-corrWindow).forEach((sp) => {
+        let best = null, bestDist = tfSeconds * 2;
+        // Optimized lookup: try exact match first
+        if (vixMap2.has(sp.time)) {
+          best = vixMap2.get(sp.time);
+        } else {
+          for (const [vt, vv] of vixMap2) {
+            const dist = Math.abs(vt - sp.time);
+            if (dist < bestDist) { bestDist = dist; best = vv; }
+          }
+        }
+        if (best !== null) { alignedS.push(sp.value); alignedV.push(best); }
+      });
+
+      const corrN = alignedS.length;
+      if (corrN > 3) {
+        const returnsS = [], returnsV = [];
+        for (let i = 1; i < corrN; i++) {
+          if (alignedS[i - 1] !== 0 && alignedV[i - 1] !== 0) {
+            returnsS.push((alignedS[i] - alignedS[i - 1]) / alignedS[i - 1]);
+            returnsV.push((alignedV[i] - alignedV[i - 1]) / alignedV[i - 1]);
+          }
+        }
+
+        const n = returnsS.length;
+        let finalCorr = 0;
+        if (n > 2) {
+          const meanX = returnsS.reduce((a, b) => a + b, 0) / n;
+          const meanY = returnsV.reduce((a, b) => a + b, 0) / n;
+          let num = 0, denX = 0, denY = 0;
+          for (let i = 0; i < n; i++) {
+            const dx = returnsS[i] - meanX, dy = returnsV[i] - meanY;
+            num += dx * dy; denX += dx * dx; denY += dy * dy;
+          }
+          const denominator = Math.sqrt(denX) * Math.sqrt(denY);
+          finalCorr = denominator === 0 ? 0 : num / denominator;
+        }
+
+        // Fallback to price correlation if returns correlation is 0 or not enough data
+        if (finalCorr === 0) {
+          const meanX = alignedS.reduce((a, b) => a + b, 0) / corrN;
+          const meanY = alignedV.reduce((a, b) => a + b, 0) / corrN;
+          let num = 0, denX = 0, denY = 0;
+          for (let i = 0; i < corrN; i++) {
+            const dx = alignedS[i] - meanX, dy = alignedV[i] - meanY;
+            num += dx * dy; denX += dx * dx; denY += dy * dy;
+          }
+          const denominator = Math.sqrt(denX) * Math.sqrt(denY);
+          finalCorr = denominator === 0 ? 0 : num / denominator;
+        }
+        
+        setCorrelation(finalCorr);
+
+        if (secondaryIsVix) {
+          const MOM = 10;
+          const symM = lineDataSym.slice(-MOM);
+          const vixM = lineDataVix.slice(-MOM);
+          const symMom = symM.length > 1 ? (symM[symM.length - 1].value - symM[0].value) / symM[0].value * 100 : 0;
+          const vixMom = vixM.length > 1 ? (vixM[vixM.length - 1].value - vixM[0].value) / vixM[0].value * 100 : 0;
+          const vixSpike = vixM.length > 1 && vixM[vixM.length - 1].value - vixM[vixM.length - 2].value > 2;
+          setVixSignal(calculateVixSignal(lastVix, lastSym, symMom, vixMom, finalCorr, vixSpike));
+        } else {
+          setVixSignal(null);
+        }
       }
     };
     setIsLoading(true);
@@ -607,7 +630,17 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
       roundedTime = Math.floor(Date.now() / 1000 / tfSeconds) * tfSeconds;
     }
     if (Number.isFinite(primaryPrice) && Number.isFinite(roundedTime)) {
-      try {symbolSeriesRef.current.update({ time: roundedTime, value: primaryPrice });} catch (_) {}
+      try {
+        symbolSeriesRef.current.update({ time: roundedTime, value: primaryPrice });
+        const history = primaryHistoryRef.current;
+        if (!history.length || history[history.length - 1].time !== roundedTime) {
+          history.push({ time: roundedTime, value: primaryPrice });
+          if (history.length > 500) history.shift();
+        } else {
+          history[history.length - 1].value = primaryPrice;
+        }
+        recalculateCorrelation();
+      } catch (_) {}
     }
     if (Number.isFinite(roundedTime) && roundedTime > (lastDataTimeRef.current || 0)) {
       lastDataTimeRef.current = roundedTime;
@@ -623,7 +656,16 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
         { time: roundedTime, value: secondaryPrice, color: getVixZoneColor(secondaryPrice) } :
         { time: roundedTime, value: secondaryPrice };
         if (Number.isFinite(updatePayload.time) && Number.isFinite(updatePayload.value)) {
-          try {vixSeriesRef.current.update(updatePayload);} catch (_) {}
+          try {
+            vixSeriesRef.current.update(updatePayload);
+            const history = secondaryHistoryRef.current;
+            if (!history.length || history[history.length - 1].time !== updatePayload.time) {
+              history.push({ time: updatePayload.time, value: updatePayload.value });
+              if (history.length > 500) history.shift();
+            } else {
+              history[history.length - 1].value = updatePayload.value;
+            }
+          } catch (_) {}
           lastVixTimeRef.current = roundedTime;
         }
         if (!secondaryIsVix && initialVixRef.current > 0) {
@@ -642,7 +684,7 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
         const res = await fetch('/api/vix/live');
         if (!res.ok) return;
         const data = await res.json();
-        const lv = data?.price;
+        const lv = data?.vix;
         if (!Number.isFinite(lv) || lv <= 0) return;
         liveVixPriceRef.current = lv;
         setVixValue(lv);
@@ -651,27 +693,44 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
           setVixChange((lv - initialVixRef.current) / initialVixRef.current * 100);
         }
         // Update chart series directly — don't depend on React re-render
-        if (vixSeriesRef.current) {
-          const nowSec = Math.floor(Date.now() / 1000);
-          const alignedNow = Math.floor(nowSec / tfSeconds) * tfSeconds;
-          // Allow update even if lastVixTimeRef is 0 (first load fallback)
-          const safeTime = (lastVixTimeRef.current > 0 && alignedNow >= lastVixTimeRef.current)
-            ? alignedNow
-            : (lastVixTimeRef.current > 0 ? lastVixTimeRef.current : alignedNow);
-          const payload = chartType === 'spectrum' ?
-          { time: safeTime, value: lv, color: getVixZoneColor(lv) } :
-          { time: safeTime, value: lv };
-          try {vixSeriesRef.current.update(payload);} catch (_) {}
-          lastVixTimeRef.current = safeTime;
-          // Use refs for latest primary price (avoids stale closures)
-          const pp = primaryPriceRef.current ?? currentPriceRef.current;
-          if (symbolSeriesRef.current && Number.isFinite(pp)) {
-            if (safeTime >= (lastDataTimeRef.current || 0)) {
-              try {symbolSeriesRef.current.update({ time: safeTime, value: pp });} catch (_) {}
-              lastDataTimeRef.current = safeTime;
+          if (vixSeriesRef.current) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const alignedNow = Math.floor(nowSec / tfSeconds) * tfSeconds;
+            const safeTime = (lastVixTimeRef.current > 0 && alignedNow >= lastVixTimeRef.current) ?
+            alignedNow :
+            (lastVixTimeRef.current > 0 ? lastVixTimeRef.current : alignedNow);
+            const payload = chartType === 'spectrum' ?
+            { time: safeTime, value: lv, color: getVixZoneColor(lv) } :
+            { time: safeTime, value: lv };
+            try {
+              vixSeriesRef.current.update(payload);
+              const history = secondaryHistoryRef.current;
+              if (!history.length || history[history.length - 1].time !== payload.time) {
+                history.push({ time: payload.time, value: payload.value });
+                if (history.length > 500) history.shift();
+              } else {
+                history[history.length - 1].value = payload.value;
+              }
+            } catch (_) {}
+            lastVixTimeRef.current = safeTime;
+            const pp = primaryPriceRef.current ?? currentPriceRef.current;
+            if (symbolSeriesRef.current && Number.isFinite(pp)) {
+              if (safeTime >= (lastDataTimeRef.current || 0)) {
+                try {
+                  symbolSeriesRef.current.update({ time: safeTime, value: pp });
+                  const sHistory = primaryHistoryRef.current;
+                  if (!sHistory.length || sHistory[sHistory.length - 1].time !== safeTime) {
+                    sHistory.push({ time: safeTime, value: pp });
+                    if (sHistory.length > 500) sHistory.shift();
+                  } else {
+                    sHistory[sHistory.length - 1].value = pp;
+                  }
+                } catch (_) {}
+                lastDataTimeRef.current = safeTime;
+              }
             }
+            recalculateCorrelation();
           }
-        }
       } catch (_) {} finally
       {vixFetchingRef.current = false;}
     };

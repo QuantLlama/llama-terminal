@@ -180,7 +180,7 @@ const SymbolSearchModal = ({ isOpen, onClose, onSelect, currentPlatform: initial
     React.createElement("td", { className: "p-3" },
     React.createElement("div", { className: "flex items-center gap-2" },
     React.createElement("span", { className: "font-bold text-white group-hover:text-accent font-mono text-xs" },
-    s.symbol
+    window.cleanSymbol(s.symbol)
     ),
     s.market_type && s.market_type !== 'UNKNOWN' &&
     React.createElement("span", { className: `px-1.5 py-0.5 rounded text-[8px] font-black tracking-wider ${s.market_type === 'SPOT' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :

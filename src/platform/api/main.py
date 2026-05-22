@@ -51,7 +51,7 @@ import GPUtil
 import certifi
 os.environ['SSL_CERT_FILE'] = certifi.where()
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
@@ -74,6 +74,10 @@ from src.platform.api.services_api import (
 from src.platform.api.services_api import router as services_router
 from src.platform.api.footprint_api import router as footprint_router
 from src.platform.api.backtesting_api import router as backtesting_router
+from src.platform.api.backtesting_api import router as backtesting_router
+
+# Standard routers
+from src.platform.api.analysis_api import router as analysis_router
 from src.services.auth import get_current_user, check_subscription, security
 from fastapi import Depends, Security
 from fastapi.security import HTTPAuthorizationCredentials
@@ -158,12 +162,12 @@ def detect_platform_for_symbol(symbol: str) -> str:
     if not symbol:
         return "mt5"
     s = symbol.upper()
-    if any(pattern in s for pattern in ["USDT", "USDC", "/USDT", ":USDT", "/USDC", ":USDC"]):
+    # Stablecoins and common crypto suffixes
+    if any(pattern in s for pattern in ["USDT", "USDC", "BUSD", "TUSD", "DAI", "/USDT", ":USDT", "/USDC", ":USDC"]):
         return "crypto"
-    crypto_bases = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT", "LINK", "AVAX", "PEPE", "SHIB", "DOGE"]
-    if any(base in s for base in crypto_bases) and ("/" in s or "-" in s):
-        return "crypto"
-    if ":" in s and any(p in s for p in ["USDT", "USDC"]):
+    # Crypto base symbols with delimiters
+    crypto_bases = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT", "LINK", "AVAX", "PEPE", "SHIB", "DOGE", "LTC", "MATIC"]
+    if any(base in s for base in crypto_bases) and ("/" in s or "-" in s or ":" in s):
         return "crypto"
     return "mt5"
 @asynccontextmanager
@@ -173,6 +177,15 @@ async def lifespan(app: FastAPI):
     try:
         init_db()
         logger.info("Base de datos SQLite inicializada")
+        
+        # --- NUEVO: Limpieza automática de logs al iniciar ---
+        try:
+            from src.utils.cleaner import auto_clean_logs
+            auto_clean_logs(max_days=7, max_size_mb=1000) # Mantener máximo 1GB o 7 días
+        except Exception as log_err:
+            logger.warning(f"Error en limpieza de logs: {log_err}")
+        # ---------------------------------------------------
+
         await startup_services(platform="mt5")
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Plataforma lista en {elapsed:.0f}ms (sin conexiones activas)")
@@ -188,14 +201,293 @@ app = FastAPI(
     version="2.4.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def log_not_found(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404:
+        logger.warning(f"[404] {request.method} {request.url.path}")
+    return response
+
+# ── PYDANTIC MODELS ────────────────────────────────────────────────
+class OrderRequest(BaseModel):
+    platform: str  
+    action: str  
+    symbol: str
+    volume: Optional[float] = 0.0
+    sl: Optional[float] = 0.0
+    tp: Optional[float] = 0.0
+    ticket: Optional[Any] = 0
+    type: Optional[str] = "MKT"  
+    price: Optional[float] = 0.0
+    account_id: Optional[str] = None  
+
+class ModifyRequest(BaseModel):
+    platform: str
+    symbol: str
+    ticket: Optional[Any] = 0
+    sl: Optional[float] = None  
+    tp: Optional[float] = None  
+    price: Optional[float] = 0.0  
+    is_pending: Optional[bool] = False  
+    order_type: Optional[str] = "MKT"
+
+class ConfigRequest(BaseModel):
+    automation_enabled: bool
+    volume: float
+    max_daily_loss: float
+    max_trades_per_day: int
+    daily_profit_target: float
+    start_hour: str
+    end_hour: str
+
+class AlgolabReadRequest(BaseModel):
+    path: str
+
+class AlgolabWriteRequest(BaseModel):
+    path: str
+    content: str
+
+class AlgolabCreateRequest(BaseModel):
+    name: str
+    type: str
+
+class AlgolabRunRequest(BaseModel):
+    path: str
+
+class AISettingsRequest(BaseModel):
+    apiKey: str
+    provider: str
+    model: str
+
+class AIChatRequest(BaseModel):
+    messages: List[Dict]
+    skill: Optional[str] = None
+    active_file_path: Optional[str] = None
+    agentic_mode: Optional[bool] = True
+
+class AlgoStartRequest(BaseModel):
+    asset_type: str
+    ticker: str
+    period: str
+    epochs: int
+    train_timeframe: str
+    trade_timeframe: str
+    seq_length: int
+    hidden_dim: int
+    num_layers: int
+
+class LiveStartRequest(BaseModel):
+    ticker: str
+    asset_type: str = "Futures"
+    platform: str = "mt5"
+    account_id: Optional[str] = None
+    timeframe: str = "1h"
+    algorithm: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    model_config = ConfigDict(
+        extra="ignore"
+    )
+
 VERSION = "2.4.0"
 STABLE_VERSION = "2.4.0" 
 UPDATE_REQUIRED = False
 UPDATE_MSG = "Nueva versión estable disponible. Por favor actualice para continuar."
+
+# ── /api/modify registrado PRIMERO — antes de cualquier router o middleware ──
+# Esto garantiza que ninguna ruta comodín ni sub-router lo sombree.
+@app.post("/api/modify")
+@app.post("/api/modify/")
+async def modify_position(req: ModifyRequest):
+    logger.info(f"[MODIFY] Request received: platform={req.platform}, symbol={req.symbol}, ticket={req.ticket}, sl={req.sl}, tp={req.tp}")
+    try:
+        actual_platform = req.platform.lower() if req.platform else "mt5"
+        
+        # CRITICAL: Override platform detection if symbol is clearly crypto
+        # The frontend may send platform='mt5' even for crypto symbols
+        if actual_platform != "crypto" and detect_platform_for_symbol(req.symbol) == "crypto":
+            logger.debug(f"[MODIFY] Platform override: '{actual_platform}' -> 'crypto' (symbol={req.symbol})")
+            actual_platform = "crypto"
+        
+        if actual_platform == "crypto":
+            from src.live.crypto_connector import get_connector as get_crypto_connector
+            from src.services.crypto_manager import get_crypto_manager
+            manager = get_crypto_manager()
+            accounts = manager.get_accounts()
+            master_acc = next((acc for acc in accounts if acc.get("is_master")), None)
+            if not master_acc and accounts:
+                master_acc = accounts[0]
+            if not master_acc:
+                raise HTTPException(status_code=400, detail="No crypto account available for modification")
+            
+            # LOG ACCOUNT INFO
+            logger.debug(f"[MODIFY] Using Account: {master_acc.get('id')} ({master_acc.get('broker')}) Type: {master_acc.get('account_type')}")
+            
+            connector = get_crypto_connector(master_acc["id"])
+            if not connector:
+                raise HTTPException(status_code=500, detail="Failed to initialize crypto connector")
+            
+            if not await asyncio.to_thread(connector.connect):
+                raise HTTPException(status_code=500, detail="Failed to connect to crypto exchange")
+            
+            actual_symbol = await asyncio.to_thread(connector._resolve_sym, req.symbol)
+            logger.debug(f"[MODIFY] Resolved Symbol: {req.symbol} -> {actual_symbol}")
+            logger.debug(f"[MODIFY] Connector id={id(connector)}, exchange={connector.exchange_id}, connected={connector.connected}")
+        else:
+            from src.live.connector import get_mt5_connector
+            connector = get_mt5_connector()
+            if not connector.connect():
+                raise HTTPException(status_code=500, detail="Could not connect to MT5")
+            actual_symbol = resolve_symbol(req.symbol)
+        
+        if not actual_symbol or actual_symbol == "DEFAULT":
+            try:
+                ticket_id = req.ticket
+                if ticket_id and str(ticket_id) not in ["0", "null", "None", ""]:
+                    if actual_platform == "crypto":
+                        all_p = await asyncio.to_thread(connector.get_positions, force_fetch=True)
+                        target = next((p for p in all_p if str(p.get('ticket')) == str(ticket_id)), None)
+                        if target: actual_symbol = target.get('symbol', actual_symbol)
+                    else:
+                        pos_info = await asyncio.to_thread(connector.get_positions, ticket=ticket_id)
+                        if pos_info:
+                            actual_symbol = pos_info[0].symbol
+                        else:
+                            pending_info = await asyncio.to_thread(connector.get_pending_orders)
+                            for o in pending_info:
+                                if int(o.get("ticket", 0)) == ticket_id:
+                                    actual_symbol = o.get("symbol")
+                                    break
+            except Exception as res_err:
+                logger.warning(f"[MODIFY] Symbol resolution error: {res_err}")
+        
+        logger.info(
+            f"[MODIFY] Executing | Symbol={req.symbol} -> {actual_symbol}, Ticket={req.ticket}, Price={req.price}, SL={req.sl}, TP={req.tp}"
+        )
+        
+        if req.is_pending:
+            logger.info(f"[MODIFY-PENDING] Modifying ticket {req.ticket} to price={req.price}")
+            result = await asyncio.to_thread(connector.modify_order, req.ticket, req.price, req.sl, req.tp)
+            if hasattr(connector, 'shutdown'): connector.shutdown()
+            
+            if not result or (hasattr(result, 'retcode') and result.retcode != 10009):
+                err_comment = getattr(result, 'comment', 'Modification failed')
+                raise HTTPException(status_code=500, detail=f"Modification failed: {err_comment}")
+            
+            # Replication for pending orders
+            replicate_to_nt8_background(actual_symbol, "MODIFY", 0, sl=req.sl, tp=req.tp, price=req.price or 0, entry_price=req.price or 0)
+            return {"status": "modified", "ticket": req.ticket}
+        
+        # ── Position Lookup ──
+        ticket = req.ticket
+        entry_p = 0
+        target_pos = None
+        
+        # 1. Fetch all positions (Force fetch to bypass cache for modification)
+        try:
+            if actual_platform == "crypto":
+                all_pos = await asyncio.to_thread(connector.get_positions, force_fetch=True)
+            else:
+                all_pos = await asyncio.to_thread(connector.get_positions)
+            
+            # 2. Try matching by ticket first
+            if ticket and ticket != 0:
+                target_pos = next((p for p in all_pos if str(p.get('ticket') if isinstance(p, dict) else getattr(p, 'ticket', 0)) == str(ticket)), None)
+            
+            # 3. If no ticket or ticket match failed, match by symbol (fuzzier for crypto)
+            if not target_pos and actual_symbol:
+                clean_actual = actual_symbol.replace("/", "").replace(":", "").replace("-", "").split(".")[0].upper()
+                for p in all_pos:
+                    p_sym = p.get('symbol') if isinstance(p, dict) else getattr(p, 'symbol', '')
+                    clean_p = p_sym.replace("/", "").replace(":", "").replace("-", "").split(".")[0].upper()
+                    if p_sym == actual_symbol or clean_p == clean_actual:
+                        target_pos = p
+                        break
+            
+            if target_pos:
+                ticket = target_pos.get('ticket') if isinstance(target_pos, dict) else getattr(target_pos, 'ticket', ticket)
+                entry_p = target_pos.get('entry_price', 0) if isinstance(target_pos, dict) else getattr(target_pos, 'entry_price', 0)
+                logger.debug(f"[MODIFY] Found position: ticket={ticket}, symbol={actual_symbol}, entry={entry_p}")
+            else:
+                logger.warning(f"[MODIFY] No matching position found for ticket={ticket} or symbol={actual_symbol}. Available: {[p.get('symbol') for p in all_pos]}")
+                raise HTTPException(status_code=404, detail=f"No open position found for {actual_symbol} (Ticket: {ticket})")
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[MODIFY] Error during position lookup: {e}")
+            raise HTTPException(status_code=500, detail=f"Error finding position: {str(e)}")
+        
+        logger.info(f"[MODIFY] Calling connector.modify_position(ticket={ticket}, sl={req.sl}, tp={req.tp}, symbol={actual_symbol})")
+        result = await asyncio.to_thread(connector.modify_position, ticket, req.sl, req.tp, symbol=actual_symbol)
+        if hasattr(connector, 'shutdown'): connector.shutdown()
+        
+        if not result:
+            raise HTTPException(status_code=500, detail="Position Modification failed (Connector returned False)")
+            
+        replicate_to_nt8_background(actual_symbol, "MODIFY", 0, sl=req.sl, tp=req.tp, entry_price=entry_p)
+        return {"status": "modified", "ticket": req.ticket}
+        
+    except Exception as e:
+        logger.error(f"[MODIFY] Final Error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ── APP INITIALIZATION ──────────────────────────────────────────────
 app.include_router(services_router)
 app.include_router(accounts_router)
 app.include_router(footprint_router)
 app.include_router(backtesting_router)
+
+# ── CRYPTO MONITORING TASK ──────────────────────────────────────────
+async def monitor_crypto_accounts():
+    """Background task to update crypto account status for the UI."""
+    while True:
+        try:
+            from src.services.crypto_manager import get_crypto_manager
+            from src.live.crypto_connector import get_connector
+            
+            manager = get_crypto_manager()
+            accounts = manager.get_accounts()
+            master_acc = next((a for a in accounts if a.get("is_master")), None)
+            
+            if master_acc:
+                connector = get_connector(master_acc["id"])
+                if connector and connector.connected:
+                    balance = await asyncio.to_thread(connector.get_balance)
+                    equity = await asyncio.to_thread(connector.get_equity)
+                    positions = await asyncio.to_thread(connector.get_positions)
+                    
+                    # Update STATUS_FILE format for UI Header
+                    status_data = {
+                        "type": "account_info",
+                        "account": {
+                            "balance": balance,
+                            "equity": equity,
+                            "profit": equity - balance,
+                            "margin": sum(p.get("margin", 0) for p in positions),
+                            "currency": "USD",
+                            "broker": master_acc["broker"].upper(),
+                            "login": master_acc["name"],
+                            "platform": "crypto"
+                        }
+                    }
+                    
+                    if os.path.exists(os.path.dirname(STATUS_FILE)):
+                        with open(STATUS_FILE, "w") as f:
+                            json.dump(status_data, f, indent=4)
+            
+        except Exception as e:
+            logger.error(f"Error in crypto monitor: {e}")
+        
+        await asyncio.sleep(2) # Poll every 2 seconds
+
+@app.on_event("startup")
+async def startup_crypto_monitor():
+    asyncio.create_task(monitor_crypto_accounts())
+
+
+app.include_router(analysis_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -221,53 +513,6 @@ dashboard_path = os.path.join(get_outputs_dir(), "dashboard.html")
 # These remain EXTERNAL because they are persistent or user-modifiable metadata
 ALGOLAB_REGISTRY_FILE = get_data_path("algolab_registry.json")
 CONFIG_FILE = sync_config(os.path.join("src", "config", "live_config.json"))
-class OrderRequest(BaseModel):
-    platform: str  
-    action: str  
-    symbol: str
-    volume: Optional[float] = 0.0
-    sl: Optional[float] = 0.0
-    tp: Optional[float] = 0.0
-    ticket: Optional[Any] = 0
-    type: Optional[str] = "MKT"  
-    price: Optional[float] = 0.0
-    account_id: Optional[str] = None  
-class ModifyRequest(BaseModel):
-    platform: str
-    symbol: str
-    ticket: Optional[int] = 0
-    sl: Optional[float] = None  
-    tp: Optional[float] = None  
-    price: Optional[float] = 0.0  
-    is_pending: Optional[bool] = False  
-    order_type: Optional[str] = "MKT"
-class ConfigRequest(BaseModel):
-    automation_enabled: bool
-    volume: float
-    max_daily_loss: float
-    max_trades_per_day: int
-    daily_profit_target: float
-    start_hour: str
-    end_hour: str
-class AlgolabReadRequest(BaseModel):
-    path: str
-class AlgolabWriteRequest(BaseModel):
-    path: str
-    content: str
-class AlgolabCreateRequest(BaseModel):
-    name: str
-    type: str
-class AlgolabRunRequest(BaseModel):
-    path: str
-class AISettingsRequest(BaseModel):
-    apiKey: str
-    provider: str
-    model: str
-class AIChatRequest(BaseModel):
-    messages: List[Dict]
-    skill: Optional[str] = None
-    active_file_path: Optional[str] = None
-    agentic_mode: Optional[bool] = True
 from src.platform.api.utils import sanitize_float, resolve_symbol
 ALGO_PROCESS = None
 ALGO_TYPE = "idle"  
@@ -290,29 +535,6 @@ def get_venv_python():
                 return candidate
                 
     return sys.executable or "python"
-
-class AlgoStartRequest(BaseModel):
-
-    asset_type: str
-    ticker: str
-    period: str
-    epochs: int
-    train_timeframe: str
-    trade_timeframe: str
-    seq_length: int
-    hidden_dim: int
-    num_layers: int
-class LiveStartRequest(BaseModel):
-    ticker: str
-    asset_type: str = "Futures"
-    platform: str = "mt5"
-    account_id: Optional[str] = None
-    timeframe: str = "1h"
-    algorithm: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    model_config = ConfigDict(
-        extra="ignore"
-    )  
 def run_training_background(cmd):
     global ALGO_PROCESS
     try:
@@ -1878,14 +2100,16 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
                     VIX_LIVE_CACHE["last_fetch"] = 0
                     VIX_LIVE_CACHE["stale_count"] = 0
         if df is None or df.empty:
-
+            logger.warning(f"Could not fetch real VIX data ({timeframe}). Using simulated fallback.")
             import random
-            times = pd.date_range(end=datetime.now(), periods=100, freq=interval)
-            closes = [20.0]
-            for _ in range(99):
-                closes.append(closes[-1] + random.uniform(-0.1, 0.1))
+            times = pd.date_range(end=datetime.now(), periods=limit if limit else 200, freq=interval)
+            # Use a more realistic starting point and slightly higher volatility
+            closes = [18.0]
+            for _ in range(len(times) - 1):
+                closes.append(max(10, min(80, closes[-1] + random.uniform(-0.5, 0.5))))
             df = pd.DataFrame(
-                {"Open": closes, "High": closes, "Low": closes,
+                {"Open": closes, "High": [c + random.uniform(0, 0.2) for c in closes], 
+                 "Low": [c - random.uniform(0, 0.2) for c in closes],
                  "Close": closes, "Volume": 0},
                 index=times
             )
@@ -1928,165 +2152,92 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
     except Exception as e:
 
         return []
+VIX_SESSION = None
+
 @app.get("/api/vix/live")
 async def get_vix_live():
-    import requests as _requests
-    def _fetch_live():
-        s = _requests.Session()
-        s.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/120.0.0.0 Safari/537.36'
-        })
-        try:
-            payload = {
-                "symbols": {"tickers": ["CBOE:VIX", "TVC:VIX"], "query": {"types": []}},
-                "columns": ["close", "time"]
-            }
-            r = s.post("https://scanner.tradingview.com/america/scan",
-                       json=payload, timeout=6)
-            if r.ok:
-                data = r.json().get("data", [])
-                for item in data:
-                    d = item.get("d") or []
-                    if len(d) >= 1 and isinstance(d[0], (int, float)) and d[0] > 0:
-                        return float(d[0]), d[1] if len(d) > 1 else None
-        except Exception:
-            pass
-        try:
-            df = yf.download("^VIX", period="1d", interval="1m",
-                             progress=False, session=s)
-            if df is not None and not df.empty:
-                return float(df["Close"].iloc[-1]), None
-        except Exception:
-            pass
-        try:
-            v = yf.Ticker("^VIX", session=s)
-            p = v.info.get("regularMarketPrice")
-            if p:
-                return float(p), None
-        except Exception:
-            pass
-        return None, None
+    global VIX_SESSION
     try:
         now_ts = time.time()
+        
+        # 1. Quick cache check (blocking lock but very fast)
         with VIX_CACHE_LOCK:
-            cache_age = now_ts - VIX_LIVE_CACHE["last_fetch"]
-            cached_price = VIX_LIVE_CACHE["price"]
+            cache_age = now_ts - VIX_LIVE_CACHE.get("last_fetch", 0)
+            cached_price = VIX_LIVE_CACHE.get("price")
             cached_time = VIX_LIVE_CACHE.get("time")
-        if cached_price is not None and cache_age <= 2:
+            
+        # If cache is fresh (< 5 seconds), return immediately
+        if cached_price is not None and cache_age < 5.0:
             return {
-                "price": cached_price,
-                "time": int(cached_time) if isinstance(cached_time, (int, float)) else int(now_ts),
-                "source": "cache",
-                "age_seconds": round(cache_age, 1)
+                "vix": cached_price, 
+                "time": cached_time or int(now_ts),
+                "cached": True,
+                "age": round(cache_age, 1)
             }
-        live_price, live_ts_raw = await asyncio.to_thread(_fetch_live)
+
+        def _fetch_live():
+            global VIX_SESSION
+            import requests as _requests
+            if VIX_SESSION is None:
+                VIX_SESSION = _requests.Session()
+                VIX_SESSION.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
+                })
+            
+            # Try TradingView first
+            try:
+                payload = {
+                    "symbols": {"tickers": ["CBOE:VIX", "TVC:VIX"]},
+                    "columns": ["close", "time"]
+                }
+                r = VIX_SESSION.post("https://scanner.tradingview.com/america/scan", json=payload, timeout=5)
+                if r.ok:
+                    data = r.json().get("data", [])
+                    if data:
+                        d = data[0].get("d", [])
+                        if d and len(d) >= 1:
+                            return float(d[0]), d[1] if len(d) > 1 else int(time.time())
+            except: pass
+            
+            # Fallback to Yahoo Finance (Fast Info)
+            try:
+                import yfinance as yf
+                ticker = yf.Ticker("^VIX", session=VIX_SESSION)
+                # fast_info is much faster than .info
+                p = ticker.fast_info.get("last_price")
+                if p: return float(p), int(time.time())
+            except: pass
+
+            # Fallback to Yahoo Finance (Download)
+            try:
+                import yfinance as yf
+                df = yf.download("^VIX", period="1d", interval="1m", progress=False, session=VIX_SESSION)
+                if df is not None and not df.empty:
+                    p = float(df["Close"].iloc[-1])
+                    return p, int(time.time())
+            except: pass
+            return None, None
+
+        # Execute fetch in background thread
+        live_price, live_ts = await asyncio.to_thread(_fetch_live)
+        
         if live_price is not None:
             with VIX_CACHE_LOCK:
                 VIX_LIVE_CACHE["price"] = live_price
-                VIX_LIVE_CACHE["time"] = live_ts_raw
+                VIX_LIVE_CACHE["time"] = live_ts
                 VIX_LIVE_CACHE["last_fetch"] = now_ts
-                VIX_LIVE_CACHE["stale_count"] = 0
-            ts_out = int(live_ts_raw) if isinstance(live_ts_raw, (int, float)) else int(now_ts)
-            return {
-                "price": live_price,
-                "time": ts_out,
-                "source": "live",
-                "age_seconds": 0
-            }
+            return {"vix": live_price, "time": live_ts, "cached": False}
+        
+        # If fetch failed, return stale cache if available
         if cached_price is not None:
-            return {
-                "price": cached_price,
-                "time": int(cached_time) if isinstance(cached_time, (int, float)) else int(now_ts),
-                "source": "stale",
-                "age_seconds": round(cache_age, 1)
-            }
-        return {"price": None, "time": int(now_ts), "source": "unavailable", "age_seconds": -1}
+            return {"vix": cached_price, "time": cached_time, "stale": True}
+            
+        return {"vix": 0, "time": int(now_ts), "error": "unavailable"}
+        
     except Exception as e:
+        logger.error(f"Error in get_vix_live: {e}")
+        return {"vix": 0, "time": int(time.time()), "error": str(e)}
 
-        return {"price": None, "time": int(time.time()), "source": "error", "age_seconds": -1}
-@app.post("/api/modify")
-async def modify_position(req: ModifyRequest):
-    try:
-        from src.live.connector import get_mt5_connector
-        connector = get_mt5_connector()
-        if not connector.connect():
-            raise HTTPException(status_code=500, detail="Could not connect to MT5")
-        actual_symbol = resolve_symbol(req.symbol)
-        if not actual_symbol or actual_symbol == "DEFAULT":
-            try:
-                ticket_id = int(req.ticket) if req.ticket is not None else 0
-                if ticket_id > 0:
-                    pos_info = connector.get_positions(ticket=ticket_id)
-                    if pos_info:
-                        actual_symbol = pos_info[0].symbol
-                    else:
-                        pending_info = connector.get_pending_orders()
-                        for o in pending_info:
-                            if int(o.get("ticket", 0)) == ticket_id:
-                                actual_symbol = o.get("symbol")
-                                break
-                if actual_symbol and actual_symbol != "DEFAULT":
-                    logger.info(f"[MODIFY] Resolved symbol from ticket {req.ticket}: {actual_symbol}")
-            except Exception as res_err:
-                logger.warning(f"[MODIFY] Symbol resolution error: {res_err}")
-        logger.info(
-            f"[MODIFY] MT5 | Symbol={req.symbol} -> {actual_symbol}, Ticket={req.ticket}, IsPending={req.is_pending}, Price={req.price}, SL={req.sl}, TP={req.tp}"
-        )
-        if req.is_pending:
-            logger.info(f"[MODIFY-PENDING] Modifying MT5 ticket {req.ticket} to price={req.price}")
-            result = connector.modify_order(req.ticket, req.price, req.sl, req.tp)
-            connector.shutdown()
-            if not result or (hasattr(result, 'retcode') and result.retcode != 10009):
-                err_code = getattr(result, 'retcode', 'UNKNOWN')
-                err_comment = getattr(result, 'comment', 'No result object (MT5 modification failed)')
-                logger.error(f"[MODIFY-PENDING] MT5 modification failed for ticket {req.ticket}: {err_comment} ({err_code})")
-                raise HTTPException(status_code=500, detail=f"Modification failed in MT5: {err_comment}")
-            ref_price = req.price
-            if not ref_price:
-                # Use the native mt5 call directly via the connector's lock or the helper method
-                orders = connector.get_pending_orders()
-                target_order = None
-                for o in orders:
-                    if int(o.get("ticket")) == int(req.ticket):
-                        target_order = o
-                        break
-                
-                if target_order:
-                    ref_price = target_order.get("price_open", 0)
-                    if not actual_symbol or actual_symbol == "DEFAULT":
-                        actual_symbol = target_order.get("symbol")
-            logger.info(f"[MODIFY-PENDING] MT5 Success. Result: {result}")
-            replicate_to_nt8_background(actual_symbol, "MODIFY", 0, sl=req.sl, tp=req.tp, price=req.price or 0, order_type=req.order_type, entry_price=ref_price)
-            return {"status": "modified", "ticket": req.ticket, "modified": "pending order"}
-        ticket = req.ticket
-        if not ticket or ticket == 0:
-            positions = connector.get_positions(symbol=actual_symbol)
-            if positions and len(positions) > 0:
-                ticket = positions[0].ticket
-            else:
-                connector.shutdown()
-                raise HTTPException(status_code=404, detail="No open position found to modify")
-        entry_p = 0
-        try:
-            pos_list = connector.get_positions(ticket=int(ticket))
-            if pos_list:
-                entry_p = pos_list[0].price_open
-                if not actual_symbol or actual_symbol == "DEFAULT":
-                    actual_symbol = pos_list[0].symbol
-        except: pass
-        result = connector.modify_position(ticket, req.sl, req.tp, symbol=actual_symbol)
-        connector.shutdown()
-        if not result:
-            raise HTTPException(status_code=500, detail="Position Modification failed")
-        replicate_to_nt8_background(actual_symbol, "MODIFY", 0, sl=req.sl, tp=req.tp, entry_price=entry_p)
-        return {"status": "modified", "ticket": ticket}
-    except HTTPException:
-        raise
-    except Exception as e:
-
-        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/deals")
 async def get_deals(
     days: int = Query(30),
@@ -2096,23 +2247,46 @@ async def get_deals(
 
     try:
         target_platform = platform or _connection_state.get("platform") or "mt5"
+        logger.info(f"[DEALS_REQUEST] platform={target_platform}, days={days}")
 
         deals = []
         account_balance = 0
+        date_from = None
+        if days:
+            date_from = datetime.now() - pd.Timedelta(days=days)
+
         if target_platform == "mt5":
             connector = GLOBAL_MT5_CONNECTOR
             if not connector.connected:
-
-                connector.connect()
-            date_from = None
-            if days:
-                date_from = datetime.now() - pd.Timedelta(days=days)
-            deals = connector.get_deals(date_from=date_from)
-            acc_info = connector.get_account_info()
+                await asyncio.to_thread(connector.connect)
+            deals = await asyncio.to_thread(connector.get_deals, date_from=date_from)
+            acc_info = await asyncio.to_thread(connector.get_account_info)
             if acc_info:
                 account_balance = acc_info.get("balance", 0)
+        elif target_platform == "crypto":
+            from src.services.crypto_manager import get_crypto_manager
+            from src.live.crypto_connector import get_connector
+            manager = get_crypto_manager()
+            accounts = manager.get_accounts()
+            master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or (accounts[0] if accounts else None)
+            
+            logger.info(f"[DEALS] Target Platform: crypto, Master Account: {master_acc['id'] if master_acc else 'None'}")
+            
+            if master_acc:
+                crypto_conn = get_connector(master_acc["id"])
+                if crypto_conn:
+                    date_from = None
+                    if days:
+                        date_from = datetime.now() - pd.Timedelta(days=days)
+                    deals = await asyncio.to_thread(crypto_conn.get_deals, date_from=date_from, symbol=symbol)
+                    account_balance = await asyncio.to_thread(crypto_conn.get_balance)
+                    logger.info(f"[DEALS] Fetched {len(deals)} deals for crypto")
+                else:
+                    logger.warning("[DEALS] No connector for master account")
+            else:
+                logger.warning("[DEALS] No master account found")
         else:
-            raise HTTPException(status_code=400, detail="Only MT5 platform is supported")
+            raise HTTPException(status_code=400, detail="Only MT5 and Crypto platforms are supported")
 
         sanitized_deals = sanitize_float(deals)
         response = {
@@ -2161,18 +2335,39 @@ async def debug_mt5():
     except Exception as r:
         return {"error": str(r), "trace": traceback.format_exc()}
 @app.get("/api/positions")
-async def get_positions(symbol: str = Query(None)):
+async def get_positions(
+    symbol: str = Query(None),
+    platform: str = Query(None)
+):
     try:
+        target_platform = platform or _connection_state.get("platform") or "mt5"
         actual_symbol = resolve_symbol(symbol) if symbol else None
-        connector = MT5Connector()
-        if not connector.connect():
-            raise HTTPException(status_code=500, detail="Could not connect to MT5")
-        positions = connector.get_positions(actual_symbol)
-        connector.shutdown()
-        result = []
-        for pos in positions:
-            result.append(
-                {
+        
+        if target_platform == "crypto":
+            from src.services.crypto_manager import get_crypto_manager
+            from src.live.crypto_connector import get_connector
+            manager = get_crypto_manager()
+            accounts = manager.get_accounts()
+            if not accounts:
+                return []
+            master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or accounts[0]
+            crypto_conn = get_connector(master_acc["id"])
+            if not crypto_conn:
+                return []
+            
+            # Use to_thread for the synchronous ccxt call
+            positions = await asyncio.to_thread(crypto_conn.get_positions, actual_symbol)
+            return sanitize_float(positions)
+            
+        else:
+            connector = MT5Connector()
+            if not connector.connect():
+                raise HTTPException(status_code=500, detail="Could not connect to MT5")
+            positions = connector.get_positions(actual_symbol)
+            connector.shutdown()
+            result = []
+            for pos in positions:
+                result.append({
                     "ticket": pos.ticket,
                     "symbol": pos.symbol,
                     "type": "BUY" if pos.type == 0 else "SELL",
@@ -2184,9 +2379,8 @@ async def get_positions(symbol: str = Query(None)):
                     "profit": pos.profit,
                     "swap": pos.swap if hasattr(pos, "swap") else 0,
                     "comment": pos.comment if hasattr(pos, "comment") else "",
-                }
-            )
-        return sanitize_float(result)
+                })
+            return sanitize_float(result)
     except Exception as e:
         logger.error(f"Positions Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2196,25 +2390,59 @@ async def get_positions(symbol: str = Query(None)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/account")
-async def get_account():
+async def get_account(
+    platform: str = Query(None)
+):
     try:
-        connector = MT5Connector()
-        if not connector.connect():
-            raise HTTPException(status_code=503, detail="Could not connect to MT5")
-        balance = connector.get_balance()
-        equity = connector.get_equity()
-        import MetaTrader5 as mt5
-        account_info = mt5.account_info()
-        result = {
-            "balance": balance,
-            "equity": equity,
-            "profit": account_info.profit if account_info else (equity - balance),
-            "margin": account_info.margin if account_info else 0,
-            "margin_free": account_info.margin_free if account_info else balance,
-            "margin_level": account_info.margin_level if account_info else 0,
-            "currency": account_info.currency if account_info else "USD",
-        }
-        return sanitize_float(result)
+        target_platform = platform or _connection_state.get("platform") or "mt5"
+        
+        if target_platform == "crypto":
+            from src.services.crypto_manager import get_crypto_manager
+            from src.live.crypto_connector import get_connector
+            manager = get_crypto_manager()
+            accounts = manager.get_accounts()
+            if not accounts:
+                raise HTTPException(status_code=404, detail="No crypto accounts")
+            master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or accounts[0]
+            crypto_conn = get_connector(master_acc["id"])
+            
+            balance = await asyncio.to_thread(crypto_conn.get_balance)
+            equity = await asyncio.to_thread(crypto_conn.get_equity)
+            
+            # Calculate floating profit from positions
+            positions = await asyncio.to_thread(crypto_conn.get_positions)
+            floating_pnl = sum(p.get('profit', 0) for p in positions)
+            
+            result = {
+                "balance": balance,
+                "equity": equity,
+                "profit": floating_pnl,
+                "margin": 0, # Should implement if needed
+                "margin_free": balance,
+                "margin_level": 0,
+                "currency": "USDT",
+                "daily_pnl": await asyncio.to_thread(crypto_conn.get_daily_pnl)
+            }
+            return sanitize_float(result)
+            
+        else:
+            connector = MT5Connector()
+            if not connector.connect():
+                raise HTTPException(status_code=503, detail="Could not connect to MT5")
+            balance = connector.get_balance()
+            equity = connector.get_equity()
+            import MetaTrader5 as mt5
+            account_info = mt5.account_info()
+            result = {
+                "balance": balance,
+                "equity": equity,
+                "profit": account_info.profit if account_info else (equity - balance),
+                "margin": account_info.margin if account_info else 0,
+                "margin_free": account_info.margin_free if account_info else balance,
+                "margin_level": account_info.margin_level if account_info else 0,
+                "currency": account_info.currency if account_info else "USD",
+            }
+            return sanitize_float(result)
     except Exception as e:
         logger.error(f"Account Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2270,6 +2498,10 @@ def _get_last_real_tick_time(symbol: str) -> float:
 _realtime_cache = {}
 _account_cache = {}
 
+# Global cache for realtime_batch to prevent multi-tab hammering
+_batch_response_cache = {}
+_batch_response_lock = asyncio.Lock()
+
 @app.get("/api/realtime_batch")
 async def get_realtime_batch(
     symbols: str = Query(...),
@@ -2284,10 +2516,18 @@ async def get_realtime_batch(
     
     target_platform = platform or detect_platform_for_symbol(symbol_list[0])
     now = time.time()
+    cache_key = f"{symbols}_{target_platform}"
     
-    # 1. Fetch Account + Positions (once per batch, cached 1.5s)
+    async with _batch_response_lock:
+        if cache_key in _batch_response_cache:
+            entry = _batch_response_cache[cache_key]
+            if now - entry['ts'] < 1.0: # 1 second global throttle
+                return entry['data']
+    
+    # 1. Fetch Account + Positions (once per batch, cached 1.5s for MT5, 5.0s for Crypto to avoid bans)
     acc_cache_key = f"acc_{target_platform}"
-    if acc_cache_key in _account_cache and (now - _account_cache[acc_cache_key]["ts"] < 1.5):
+    acc_ttl = 5.0 if target_platform == "crypto" else 1.5
+    if acc_cache_key in _account_cache and (now - _account_cache[acc_cache_key]["ts"] < acc_ttl):
         acc_data = _account_cache[acc_cache_key]["data"]
     else:
         # Fetch fresh
@@ -2305,24 +2545,36 @@ async def get_realtime_batch(
                     logger.warning(f"[CRYPTO] Connector not available for account {master_acc['id']}")
                     acc_data = {"account": {}, "positions": [], "pending_orders": []}
                 else:
-                    balance = await asyncio.to_thread(crypto_conn.get_balance)
-                    equity = await asyncio.to_thread(crypto_conn.get_equity)
-                    positions = await asyncio.to_thread(crypto_conn.get_positions)
+                    # Optimized: Single call to get everything (reduces API load and latency)
+                    snapshot = await asyncio.to_thread(crypto_conn.get_account_snapshot)
                     acc_data = {
                         "account": {
-                            "balance": balance, "equity": equity, "profit": equity - balance,
-                            "daily_pnl": 0, "margin": 0, "margin_free": balance, "account_type": "crypto"
+                            "balance": snapshot.get("balance", 0.0),
+                            "equity": snapshot.get("equity", 0.0),
+                            "profit": snapshot.get("equity", 0.0) - snapshot.get("balance", 0.0),
+                            "daily_pnl": snapshot.get("daily_pnl", 0.0),
+                            "margin": 0,
+                            "margin_free": snapshot.get("balance", 0.0),
+                            "account_type": "crypto"
                         },
-                        "positions": positions or [],
-                        "pending_orders": []
+                        "positions": snapshot.get("positions", []),
+                        "pending_orders": snapshot.get("pending_orders", [])
                     }
         else:
             # MT5 account logic
             connector = GLOBAL_MT5_CONNECTOR
             if not connector.connected: await asyncio.to_thread(connector.connect)
-            account_info = await asyncio.to_thread(connector.get_account_info)
-            positions = await asyncio.to_thread(connector.get_positions)
-            orders = await asyncio.to_thread(connector.get_pending_orders)
+            
+            # Parallelize MT5 calls
+            account_info, positions, orders, daily_pnl = await asyncio.gather(
+                asyncio.to_thread(connector.get_account_info),
+                asyncio.to_thread(connector.get_positions),
+                asyncio.to_thread(connector.get_pending_orders),
+                asyncio.to_thread(connector.get_daily_pnl)
+            )
+            
+            if account_info:
+                account_info["daily_pnl"] = daily_pnl
             
             pos_list = []
             if positions:
@@ -2412,11 +2664,15 @@ async def get_realtime_batch(
         if tr and "symbol" in tr:
             ticks[tr["symbol"]] = tr
 
-    from .utils import sanitize_float
-    return sanitize_float({
+    final_data = sanitize_float({
         **acc_data,
         "ticks": ticks
     })
+    
+    async with _batch_response_lock:
+        _batch_response_cache[cache_key] = {"data": final_data, "ts": now}
+        
+    return final_data
 
 @app.get("/api/realtime")
 @app.get("/api/realtime/{symbol:path}")
@@ -2645,6 +2901,13 @@ async def place_order(order: OrderRequest):
         )
         actual_symbol = resolve_symbol(order.symbol)
         actual_platform = order.platform or detect_platform_for_symbol(order.symbol)
+        
+        # CRITICAL: Override platform detection if symbol is clearly crypto
+        if actual_platform != "crypto" and detect_platform_for_symbol(order.symbol) == "crypto":
+            logger.debug(f"[ORDER] Platform override: '{actual_platform}' -> 'crypto' (symbol={order.symbol})")
+            actual_platform = "crypto"
+        
+        logger.debug(f"[ORDER] Platform detection: order.platform='{order.platform}', detected='{actual_platform}', symbol='{order.symbol}' -> actual_symbol='{actual_symbol}'")
         logger.info(
             f"[ORDER] Platform={actual_platform}, Symbol={order.symbol} -> {actual_symbol}, Action={order.action}, Type={order.type}, Volume={order.volume}, Account={order.account_id}"
         )
@@ -2694,8 +2957,9 @@ async def place_order(order: OrderRequest):
                 logger.info("[ORDER] Risk Validator not found, skipping validation.")
             except Exception as ve:
                 logger.warning(f"[ORDER] Validation bypass error: {ve}")
+        # 1. Initialize connector based on platform
         if actual_platform == "crypto":
-            from src.live.crypto_connector import get_connector
+            from src.live.crypto_connector import get_connector as get_crypto_connector
             from src.services.crypto_manager import get_crypto_manager
             manager = get_crypto_manager()
             account_id = order.account_id
@@ -2707,20 +2971,109 @@ async def place_order(order: OrderRequest):
                     account_id = master["id"]
             if not account_id:
                 raise HTTPException(status_code=400, detail="No crypto account specified or available")
-            connector = get_connector(account_id)
+            connector = get_crypto_connector(account_id)
             if not connector:
                 raise HTTPException(status_code=503, detail="Could not connect to crypto exchange")
+            # Re-resolve symbol using the crypto connector's market knowledge
+            actual_symbol = connector._resolve_sym(order.symbol)
+            logger.info(f"[ORDER] Crypto symbol resolved: {order.symbol} -> {actual_symbol}")
+        else:
+            from src.live.connector import get_mt5_connector
+            connector = get_mt5_connector()
+            # We don't connect yet, we'll do it inside the mt5 branch or use the helper
+
+        # 2. Unified SL/TP calculation
+        base_price = order.price
+        if not base_price or base_price == 0:
+            if actual_platform == "crypto":
+                # Ensure we have the connector-specific symbol
+                base_price = connector.get_current_price(actual_symbol)
+            else:
+                try:
+                    current_price = connector.get_current_price(actual_symbol)
+                except Exception as e:
+                    logger.warning(f"[ORDER] MT5 get_current_price failed: {e}")
+                    current_price = 0
+                
+                if not current_price:
+                    import MetaTrader5 as mt5_raw
+                    tick = mt5_raw.symbol_info_tick(actual_symbol)
+                    if tick:
+                        current_price = tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2
+                base_price = current_price or 0.0
+
+        point = 1.0 # Default for crypto offsets (Price units)
+        if actual_platform == "crypto":
+            # For crypto, users usually think in absolute price or price units (USD)
+            point = 1.0
+        else:
+            TICKS_MAP = {
+                "MNQ": 0.25, "NQ": 0.25, 
+                "MES": 0.25, "ES": 0.25, 
+                "RTY": 0.1,  "M2K": 0.1,
+                "YM": 1.0,   "MYM": 1.0 
+            }
+            actual_base = normalize_symbol_for_comparison(actual_symbol)
+            import MetaTrader5 as mt5_raw
+            symbol_info = mt5_raw.symbol_info(actual_symbol)
+            if symbol_info:
+                point = TICKS_MAP.get(actual_base, getattr(symbol_info, 'tick_size', symbol_info.point))
+
+        def is_absolute_price(val, base):
+            if not base or base == 0: return False
+            return abs(val - base) < base * 0.2
+            
+        final_sl = 0.0
+        final_tp = 0.0
+        order_sl = float(order.sl or 0)
+        order_tp = float(order.tp or 0)
+        
+        # Track intended distances for replication (in points/ticks)
+        dist_sl_intended = order_sl
+        dist_tp_intended = order_tp
+        
+        if order_sl > 0:
+            if is_absolute_price(order_sl, base_price):
+                final_sl = order_sl
+                # For replication, compute the distance in ticks from the absolute price
+                dist_sl_intended = abs(final_sl - base_price) / point if point > 0 else 0.0
+            else:
+                dist = order_sl * point
+                final_sl = base_price - dist if order.action == "BUY" else base_price + dist
+                dist_sl_intended = order_sl  # Already expressed as a distance
+        
+        if order_tp > 0:
+            if is_absolute_price(order_tp, base_price):
+                final_tp = order_tp
+                # For replication, compute the distance in ticks from the absolute price
+                dist_tp_intended = abs(final_tp - base_price) / point if point > 0 else 0.0
+            else:
+                dist = order_tp * point
+                final_tp = base_price + dist if order.action == "BUY" else base_price - dist
+                dist_tp_intended = order_tp  # Already expressed as a distance
+
+        # 3. Execution
+        logger.info(f"[ORDER] Executing {order.action} for {actual_symbol} | Vol={order.volume} | SL={final_sl} | TP={final_tp}")
+        if actual_platform == "crypto":
             if order.action == "BUY":
-                res = connector.place_order(actual_symbol, "BUY", order.volume, order.price, order.type)
+                res = await asyncio.to_thread(connector.place_order, actual_symbol, "BUY", order.volume, order.price, order.type, sl=final_sl, tp=final_tp)
             elif order.action == "SELL":
-                res = connector.place_order(actual_symbol, "SELL", order.volume, order.price, order.type)
+                res = await asyncio.to_thread(connector.place_order, actual_symbol, "SELL", order.volume, order.price, order.type, sl=final_sl, tp=final_tp)
             elif order.action == "CLOSE":
-                res = connector.cancel_order(order.ticket, actual_symbol)
+                # For Crypto, we need to distinguish between cancelling an order and closing a position
+                # Try cancelling first if it's a pending order, otherwise close position
+                res = False
+                if order.ticket and str(order.ticket).strip() not in ["0", "null", "None", ""]:
+                    res = await asyncio.to_thread(connector.cancel_order, order.ticket, actual_symbol)
+                
+                if not res:
+                    logger.info(f"[ORDER] Cancel order failed or ticket is empty, trying close_position for {actual_symbol}")
+                    res = await asyncio.to_thread(connector.close_position, order.ticket, actual_symbol, order.volume)
             elif order.action == "FLAT":
-                positions = connector.get_positions(actual_symbol)
+                positions = await asyncio.to_thread(connector.get_positions, actual_symbol)
                 for pos in positions:
                     side = "SELL" if pos["type"] == "BUY" else "BUY"
-                    connector.place_order(actual_symbol, side, pos["volume"], mode="MKT")
+                    await asyncio.to_thread(connector.place_order, actual_symbol, side, pos["volume"], mode="MKT")
                 return {"status": "executed", "details": f"Flatted {len(positions)} positions"}
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported action: {order.action}")
@@ -2748,7 +3101,7 @@ async def place_order(order: OrderRequest):
                             actual_symbol = ord_info[0].symbol
                 except Exception as sym_err:
                     logger.warning(f"[CLOSE] Could not resolve symbol from ticket {order.ticket}: {sym_err}")
-                pending_orders = connector.get_pending_orders(symbol=actual_symbol)
+                pending_orders = await asyncio.to_thread(connector.get_pending_orders, symbol=actual_symbol)
                 try:
                     target_ticket = int(order.ticket)
                 except (ValueError, TypeError):
@@ -2758,7 +3111,7 @@ async def place_order(order: OrderRequest):
                 )
                 if is_pending:
                     logger.info(f"[CLOSE-DEBUG] Detected as pending order, using delete_order")
-                    success = connector.delete_order(order.ticket)
+                    success = await asyncio.to_thread(connector.delete_order, order.ticket)
                     connector.shutdown()
                     if success and success.retcode == 10009:
                         replicate_to_nt8_background(actual_symbol, "CANCEL", 0, entry_price=0)
@@ -2777,20 +3130,20 @@ async def place_order(order: OrderRequest):
                         ticket_id = int(order.ticket)
                     except:
                         ticket_id = order.ticket
-                    result = connector.close_position(
+                    result = await asyncio.to_thread(connector.close_position, 
                         ticket_id, symbol=actual_symbol, volume=order.volume
                     )
                     replicate_to_nt8_background(actual_symbol, "CLOSE", order.volume, entry_price=0)
             elif order.action == "FLAT":
-                positions = connector.get_positions(symbol=actual_symbol)
+                positions = await asyncio.to_thread(connector.get_positions, symbol=actual_symbol)
                 results = []
                 for pos in positions:
-                    res = connector.close_position(pos.ticket, symbol=actual_symbol)
+                    res = await asyncio.to_thread(connector.close_position, pos.ticket, symbol=actual_symbol)
                     results.append(res)
-                pending = connector.get_pending_orders(symbol=actual_symbol)
+                pending = await asyncio.to_thread(connector.get_pending_orders, symbol=actual_symbol)
                 pending_results = []
                 for o in pending:
-                    res = connector.delete_order(o["ticket"])
+                    res = await asyncio.to_thread(connector.delete_order, o["ticket"])
                     pending_results.append(res)
                 pos_success = sum(1 for r in results if r and r.retcode == 10009)
                 pending_success = sum(1 for r in pending_results if r and r.retcode == 10009)
@@ -2812,111 +3165,21 @@ async def place_order(order: OrderRequest):
                         status_code=500, detail="Failed to flatten (clean) symbol"
                     )
             else:
-                TICKS_MAP = {
-                    "MNQ": 0.25, "NQ": 0.25, 
-                    "MES": 0.25, "ES": 0.25, 
-                    "RTY": 0.1,  "M2K": 0.1,
-                    "YM": 1.0,   "MYM": 1.0 
-                }
-                actual_base = normalize_symbol_for_comparison(actual_symbol)
-                import MetaTrader5 as mt5
-                symbol_info = mt5.symbol_info(actual_symbol)
-                if symbol_info is None:
-                    connector.shutdown()
-                    raise HTTPException(
-                        status_code=500, detail=f"Symbol {actual_symbol} not found"
-                    )
-                point = TICKS_MAP.get(actual_base, getattr(symbol_info, 'tick_size', symbol_info.point))
+                # Log diagnostics if needed
                 diag_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")), "mirror_diagnostics.txt")
                 def log_diag(m):
                     with open(diag_file, "a") as df:
                         df.write(f"{datetime.now()} | {m}\n")
-                log_diag(f"--- NEW ORDER: {actual_symbol} {order.action} ---")
-                log_diag(f"Input: SL={order.sl}, TP={order.tp}, UI_Price={order.price}, Point={point}")
-                base_price = order.price
-                if not base_price or base_price == 0:
-                    current_price = connector.get_current_price(actual_symbol)
-                    if not current_price:
-                        tick = mt5.symbol_info_tick(actual_symbol)
-                        if tick:
-                            current_price = tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2
-                    if not current_price:
-                        logger.warning(f"[ORDER] Could not get real-time price for {actual_symbol}, using 0.0 for SL/TP offsets")
-                        base_price = 0.0
-                    else:
-                        base_price = current_price
-                sl_price = 0.0
-                tp_price = 0.0
-                sl_price = 0.0
-                tp_price = 0.0
-                def safe_float(v):
-                    if v is None: return 0.0
-                    try:
-                        f = float(v)
-                        import math
-                        if math.isnan(f) or math.isinf(f): return 0.0
-                        return f
-                    except: return 0.0
-                order_sl = safe_float(order.sl)
-                order_tp = safe_float(order.tp)
-                def is_absolute_price(val, base):
-                    if base == 0: return False
-                    return abs(val - base) < base * 0.2 
-
-                dist_sl_intended = 0
-                if order_sl > 0:
-                    if is_absolute_price(order_sl, base_price):
-                        sl_price = order_sl
-                        dist_sl_intended = abs(base_price - sl_price)
-                        log_diag(f"SL {order_sl} is ABSOLUTE PRICE")
-                    else:
-                        dist_sl_intended = order_sl * point
-                        if order.action == "BUY":
-                            sl_price = base_price - dist_sl_intended
-                        else:
-                            sl_price = base_price + dist_sl_intended
-                        log_diag(f"SL {order_sl} is TICKS -> Intended Dist={dist_sl_intended} -> Calculated SL Price={sl_price}")
-                dist_tp_intended = 0
-                if order_tp > 0:
-                    if is_absolute_price(order_tp, base_price):
-                        tp_price = order_tp
-                        dist_tp_intended = abs(base_price - tp_price)
-                        log_diag(f"TP {order_tp} is ABSOLUTE PRICE")
-                    else:
-                        dist_tp_intended = order_tp * point
-                        if order.action == "BUY":
-                            tp_price = base_price + dist_tp_intended
-                        else:
-                            tp_price = base_price - dist_tp_intended
-                        log_diag(f"TP {order_tp} is TICKS -> Intended Dist={dist_tp_intended} -> Calculated TP Price={tp_price}")
-                client_ref_price = safe_float(order.price) if (order.type == "MKT" and order.price > 0) else 0.0
-                if client_ref_price > 0 and base_price > 0:
-                    slippage = base_price - client_ref_price
-                    if abs(slippage) > 0.0001: 
-                         if sl_price > 0:
-                             dist_sl = abs(client_ref_price - sl_price)
-                             if order.action == "BUY":
-                                 sl_price = base_price - dist_sl
-                             else:
-                                 sl_price = base_price + dist_sl
-
-                         if tp_price > 0:
-                             dist_tp = abs(client_ref_price - tp_price)
-                             if order.action == "BUY":
-                                 tp_price = base_price + dist_tp
-                             else:
-                                 tp_price = base_price - dist_tp
-
-                sl_price = max(0.0, sl_price)
-                tp_price = max(0.0, tp_price)
+                log_diag(f"--- MT5 ORDER: {actual_symbol} {order.action} ---")
+                log_diag(f"Final SL: {final_sl}, Final TP: {final_tp}, Point: {point}")
 
                 result = connector.place_order(
                     actual_symbol,
                     order.action,
                     order.volume,
-                    sl=sl_price if sl_price > 0 else None,
-                    tp=tp_price if tp_price > 0 else None,
-                    price=safe_float(order.price),
+                    sl=final_sl if final_sl > 0 else None,
+                    tp=final_tp if final_tp > 0 else None,
+                    price=float(order.price or 0),
                     mode=order.type,
                 )
                 if result and hasattr(result, 'retcode') and result.retcode == 10009:
@@ -3040,6 +3303,10 @@ async def websocket_endpoint(websocket: WebSocket):
                                 await websocket.send_json({"type": "algo_response", "status": "success", "result": res})
                             except Exception as e:
                                 await websocket.send_json({"type": "algo_response", "status": "error", "message": str(e)})
+                        elif msg_type == "request_account_info":
+                            if os.path.exists(STATUS_FILE):
+                                with open(STATUS_FILE, "r") as f:
+                                    await websocket.send_json(json.load(f))
                     except json.JSONDecodeError:
                         pass
                 except asyncio.TimeoutError:

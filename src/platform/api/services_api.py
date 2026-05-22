@@ -11,6 +11,7 @@ from fastapi import (
     Body,
     HTTPException,
     Query,
+    Request,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -215,16 +216,16 @@ async def unsubscribe_symbols(request: FeedSubscriptionRequest):
     mde.unsubscribe(request.symbols)
     return {"status": "unsubscribed", "symbols": request.symbols}
 @router.post("/feed/switch-platform")
-async def switch_platform(request: PlatformSwitchRequest):
+async def switch_platform(body: PlatformSwitchRequest, request: Request):
     mde = await ensure_market_data_engine()
     if not mde:
         raise HTTPException(status_code=503, detail="MarketDataEngine no disponible")
     try:
-        success = await asyncio.to_thread(_market_data_engine.switch_platform, request.platform)
+        success = await asyncio.to_thread(_market_data_engine.switch_platform, body.platform)
         if success:
             if hasattr(request, 'app') and hasattr(request.app, 'state'):
-                request.app.state.last_platform = request.platform
-            return {"status": "switched", "platform": request.platform}
+                request.app.state.last_platform = body.platform
+            return {"status": "switched", "platform": body.platform}
         else:
              raise HTTPException(status_code=500, detail="Error switching platform or platform already active")
     except Exception as e:

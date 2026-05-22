@@ -101,7 +101,8 @@ const ChartComponent = React.memo(({
   onLlamaActiveChange,
   symbolMetadata,
   volume,
-  onUpdateSettings
+  onUpdateSettings,
+  platform
 }) => {
   const chartContainerRef = useRef();
   const chartRef = useRef();
@@ -3053,7 +3054,7 @@ const ChartComponent = React.memo(({
               mixBlendMode: "overlay",
               filter: "blur(0.5px)"
             }
-          }, activeSymbol)
+          }, (activeSymbol || "").split(':')[0])
         ),
         window.CandleTimer &&
         React.createElement(window.CandleTimer, {
@@ -3165,6 +3166,7 @@ const ChartComponent = React.memo(({
                 chart: chartRef.current,
                 series: candleSeriesRef.current,
                 status: systemStatus,
+                platform: platform,
                 activeSymbol: activeSymbol,
                 mt5Positions: mt5Positions,
                 mt5PendingOrders: mt5PendingOrders,

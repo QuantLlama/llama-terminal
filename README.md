@@ -94,8 +94,8 @@ Whether you are trading Traditional Finance (TradFi) or Cryptocurrencies (DeFi),
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/QuantLlama/Plataforma_LamaTerminal_V1.8.1b.git
-cd Plataforma_LamaTerminal_V1.8.1b
+git clone https://github.com/QuantLlama/Plataforma_LamaTerminal_V0.1.7b.git
+cd Plataforma_LamaTerminal_V0.1.7b
 ```
 
 ### 2. Environment Setup

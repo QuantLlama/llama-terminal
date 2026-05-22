@@ -178,7 +178,7 @@ const OrderEntry = ({ systemStatus, config, onOrder, symbol, tickData, mt5Positi
     }
   }, [action, volume, price, sl, tp, orderType, onOrder]);
   const handleFlat = useCallback(() => {
-    if (window.confirm(`Are you sure you want to FLAT ${symbol}? This will close all open positions and cancel all pending orders for this symbol.`)) {
+    if (window.confirm(`Are you sure you want to FLAT ${window.cleanSymbol(symbol)}? This will close all open positions and cancel all pending orders for this symbol.`)) {
       onOrder("FLAT", 0, 0, 0, "MKT", 0);
     }
   }, [symbol, onOrder]);
@@ -277,16 +277,16 @@ const OrderEntry = ({ systemStatus, config, onOrder, symbol, tickData, mt5Positi
       disabled: !isConnected,
       className: "order-btn bg-yellow-600 hover:bg-yellow-500 text-black disabled:opacity-50 disabled:cursor-not-allowed" },
     "FLAT ",
-    symbol, " (", currentPosition.volume, ")"
+    window.cleanSymbol(symbol), " (", currentPosition.volume, ")"
     )
     ),
     React.createElement("div", { className: "flex-1 overflow-y-auto custom-scrollbar p-3 border-t border-border mt-auto" },
     React.createElement("h4", { className: "text-muted font-bold mb-2" }, "POSITIONS ", React.createElement("span", { className: "text-accent ml-1" }, mt5Positions.length)),
     mt5Positions.length === 0 && React.createElement("p", { className: "text-gray-600" }, "No open positions."),
     mt5Positions.map((pos) =>
-    React.createElement("div", { key: pos.ticket, className: `flex justify-between items-center p-2 rounded mb-1 ${pos.type === 'BUY' ? 'bg-green-900/20' : 'bg-red-900/20'}` },
+    React.createElement("div", { key: pos.ticket, className: `flex justify-between items-center p-2 rounded mb-1 ${(pos.type === 'BUY' || pos.type === 'LONG') ? 'bg-green-900/20' : 'bg-red-900/20'}` },
     React.createElement("div", null,
-    React.createElement("span", { className: "font-bold" }, pos.type, " ", pos.volume, " ", pos.symbol),
+    React.createElement("span", { className: "font-bold" }, pos.type, " ", pos.volume, " ", window.cleanSymbol(pos.symbol)),
     React.createElement("span", { className: "block text-gray-500" }, "@", pos.entry_price.toFixed(2))
     ),
     React.createElement("div", { className: "text-right" },
@@ -302,7 +302,7 @@ const OrderEntry = ({ systemStatus, config, onOrder, symbol, tickData, mt5Positi
     pendingOrders.map((order) =>
     React.createElement("div", { key: order.ticket, className: `flex justify-between items-center p-2 rounded mb-1 ${order.type === 2 || order.type === 4 ? 'bg-green-900/20' : 'bg-red-900/20'}` },
     React.createElement("div", null,
-    React.createElement("span", { className: "font-bold" }, order.type_str, " ", order.volume_current, " ", order.symbol),
+    React.createElement("span", { className: "font-bold" }, order.type_str, " ", order.volume_current, " ", window.cleanSymbol(order.symbol)),
     React.createElement("span", { className: "block text-gray-500" }, "@", order.price_open.toFixed(2))
     ),
     React.createElement("button", { onClick: () => onOrder("CANCEL", 0, 0, 0, "MKT", 0, order.ticket), className: "text-red-400 hover:text-red-300" },

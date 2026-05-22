@@ -94,19 +94,27 @@ const HistoryPanel = ({ activeSymbol }) => {
     let maxDD = 0;
     const balanceChartData = [];
     const drawdownChartData = [];
-    const ascFilteredDeals = [...filtered].sort((a, b) => a.time - b.time);
+    const ascFilteredDeals = [...filtered].sort((a, b) => {
+      if (a.time !== b.time) return a.time - b.time;
+      return (a.ticket || 0) - (b.ticket || 0);
+    });
     if (ascFilteredDeals.length > 0) {
       balanceChartData.push({ time: ascFilteredDeals[0].time, value: currentBalance });
       drawdownChartData.push({ time: ascFilteredDeals[0].time, value: 0 });
     }
-    ascFilteredDeals.forEach((d) => {
+    ascFilteredDeals.forEach((d, idx) => {
       if (d.entry === 1 || d.entry === 2 || d.entry === 3) {
         currentBalance += d.profit + (d.commission || 0) + (d.swap || 0);
-        balanceChartData.push({ time: d.time, value: currentBalance });
+        let adjustedTime = d.time;
+        if (idx > 0 && adjustedTime <= balanceChartData[balanceChartData.length - 1].time) {
+          adjustedTime = balanceChartData[balanceChartData.length - 1].time + 1;
+        }
+        d._adjustedTime = adjustedTime;
+        balanceChartData.push({ time: adjustedTime, value: currentBalance });
         if (currentBalance > peakBalance) peakBalance = currentBalance;
         const drawdown = peakBalance > 0 ? (peakBalance - currentBalance) / peakBalance * 100 : 0;
         maxDD = Math.max(maxDD, drawdown);
-        drawdownChartData.push({ time: d.time, value: drawdown > 0 ? -drawdown : 0 });
+        drawdownChartData.push({ time: adjustedTime, value: drawdown > 0 ? -drawdown : 0 });
       }
     });
     if (chartRef.current) {
@@ -140,7 +148,7 @@ const HistoryPanel = ({ activeSymbol }) => {
         const markers = ascFilteredDeals.filter((d) => d.entry === 1 || d.entry === 2 || d.entry === 3).map((d) => {
           const p = d.profit + (d.commission || 0) + (d.swap || 0);
           return {
-            time: d.time,
+            time: d._adjustedTime || d.time,
             position: 'aboveBar',
             color: p >= 0 ? '#10b981' : '#ef4444',
             shape: p >= 0 ? 'arrowUp' : 'arrowDown',

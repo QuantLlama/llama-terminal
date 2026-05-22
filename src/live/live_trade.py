@@ -193,22 +193,17 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
             auto_str = str(config.get("automation_enabled", "False")).lower()
             config["automation_enabled"] = auto_str == "true" or auto_str == "1"
             
-            current_balance = connector.get_balance()
-            current_equity = connector.get_equity()
+            acc_info = connector.get_account_info()
+            current_balance = acc_info.get('balance', 0.0)
+            current_equity = acc_info.get('equity', 0.0)
+            realized_today = acc_info.get('daily_pnl', 0.0)
             
-            # Risk-based volume calculation if risk_pct is provided
-            if "risk_pct" in config and float(config["risk_pct"]) > 0:
-                risk_pct = float(config["risk_pct"])
-                # Fallback to ATR if dataframe is available later, but for now we do a basic estimate or use config volume
-                # The actual volume will be re-calculated below before the order, but we set a default here
-                pass
-
             now = datetime.now()
             if now.date() != current_date:
                 current_date = now.date()
                 daily_trades = 0
                 initial_balance = current_balance
-            realized_today = connector.get_daily_pnl()
+                
             floating = current_equity - current_balance
             daily_pnl = realized_today + floating
             time_str = now.strftime("%H:%M")
@@ -338,7 +333,11 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                     if has_position:
                         pos = positions[0] 
                         p_type = safe_get(pos, 'type', 0)
-                        pos_type = "BUY" if p_type == 0 else "SELL" 
+                        # Handle both MT5 (0=BUY, 1=SELL) and crypto (LONG/SHORT string)
+                        if isinstance(p_type, str):
+                            pos_type = "BUY" if p_type.upper() in ("LONG", "BUY") else "SELL"
+                        else:
+                            pos_type = "BUY" if p_type == 0 else "SELL"
                         entry_price = safe_get(pos, 'price_open', 0.0)
                         if config["automation_enabled"]:
                             if (pos_type == "BUY" and signal == "SELL") or (pos_type == "SELL" and signal == "BUY"):
@@ -411,8 +410,13 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                             if res.success:
                                 daily_trades += 1
                                 last_trade_time = time.time()
+                                console.print(f"[bold green]Orden Exitosa! ID: {res.order_id}[/bold green]")
                             else:
-                                console.print(f"[bold red]Orden Fallida:[/bold red] {res.rejection_reason} - {res.error_message}")
+                                err_msg = f"{res.rejection_reason} - {res.error_message}"
+                                console.print(f"[bold red]Orden Fallida:[/bold red] {err_msg}")
+                                # If rate limited, maybe increase sleep temporarily
+                                if "rate" in err_msg.lower() or "limit" in err_msg.lower():
+                                    time.sleep(5)
                         else:
                             reason = []
                             if not config['automation_enabled']: reason.append("Auto Off")
@@ -539,7 +543,7 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                         except Exception as e:
                             console.print(f"[red]Error writing status: {e}[/red]")
                     console.print(f"P: {current_price:.2f} | S: {signal} | PnL: {daily_pnl:.2f} | Valid: {validation_msg}")
-            time.sleep(0.5) 
+            time.sleep(1.0) 
     except KeyboardInterrupt:
         console.print("\n[yellow]Deteniendo Trading en Vivo...[/yellow]")
     finally:

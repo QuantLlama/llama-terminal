@@ -277,6 +277,36 @@ class MT5ApiConnector:
             pass
         return False
 
+    def modify_position(self, ticket, sl, tp, symbol=None):
+        try:
+            with httpx.Client(base_url=self.base_url) as client:
+                res = client.post(f"/api/modify_position/{ticket}", json={
+                    "sl": sl, "tp": tp, "symbol": symbol
+                })
+                if res.status_code == 200:
+                    data = res.json()
+                    from collections import namedtuple
+                    Result = namedtuple('OrderSendResult', data.keys())
+                    return Result(**data)
+        except Exception as e:
+            logger.error(f"API modify_position error: {e}")
+        return None
+
+    def modify_order(self, ticket, price=0.0, sl=0.0, tp=0.0):
+        try:
+            with httpx.Client(base_url=self.base_url) as client:
+                res = client.post(f"/api/modify_order/{ticket}", json={
+                    "price": price, "sl": sl, "tp": tp
+                })
+                if res.status_code == 200:
+                    data = res.json()
+                    from collections import namedtuple
+                    Result = namedtuple('OrderSendResult', data.keys())
+                    return Result(**data)
+        except Exception as e:
+            logger.error(f"API modify_order error: {e}")
+        return None
+
     def get_daily_pnl(self):
         try:
             with httpx.Client(base_url=self.base_url) as client:

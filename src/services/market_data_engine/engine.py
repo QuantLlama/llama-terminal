@@ -736,7 +736,7 @@ class MarketDataEngine:
         if not connector: return
         try:
             last_trade_poll = self._last_crypto_trade_poll.get(s_upper, 0)
-            if now - last_trade_poll >= 0.5:
+            if now - last_trade_poll >= 2.0:
                 self._last_crypto_trade_poll[s_upper] = now
                 trades = connector.get_trades(broker_symbol, limit=50)
             else: trades = None
@@ -788,7 +788,7 @@ class MarketDataEngine:
                     if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(event); self._symbol_buffer.update(event); self._metrics.messages_received += 1; self._metrics.last_message_time = time.time()
             else:
                 last_ticker_poll = self._last_crypto_ticker_poll.get(s_upper, 0)
-                if now - last_ticker_poll >= 0.2:
+                if now - last_ticker_poll >= 1.0:
                     self._last_crypto_ticker_poll[s_upper] = now
                     try:
                         ticker_data = connector.get_tick(broker_symbol)
@@ -809,7 +809,7 @@ class MarketDataEngine:
                             if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(event); self._symbol_buffer.update(event); self._metrics.messages_received += 1; self._metrics.last_message_time = time.time()
                     except: pass
             last_candle_poll = self._last_crypto_candle_poll.get(s_upper, 0)
-            if now - last_candle_poll >= 1.0:
+            if now - last_candle_poll >= 5.0:
                 self._last_crypto_candle_poll[s_upper] = now
                 try:
                     ohlcv = connector.get_ohlcv(broker_symbol, timeframe="1m", limit=100)
@@ -861,7 +861,7 @@ class MarketDataEngine:
         depth = self._symbol_depths.get(s_upper, 50)
         valid_limits = [5, 10, 20, 50, 100, 500, 1000]
         binance_limit = next((lim for lim in valid_limits if depth <= lim), 1000)
-        req_delay = 0.5 if binance_limit <= 100 else 1.0 if binance_limit <= 500 else 1.5 if binance_limit <= 1000 else 3.0
+        req_delay = 1.0 if binance_limit <= 100 else 1.5 if binance_limit <= 500 else 2.0 if binance_limit <= 1000 else 3.0
         if not hasattr(self, '_last_crypto_book_poll_strict'): self._last_crypto_book_poll_strict = {}
         if now - self._last_crypto_book_poll_strict.get(s_upper, 0) < req_delay: return
         self._last_crypto_book_poll_strict[s_upper] = now

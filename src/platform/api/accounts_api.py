@@ -299,8 +299,15 @@ async def get_brokers(type: str = Query("mt5")):
             return brokers
         elif type == "crypto":
             import ccxt
-            exchanges = sorted(ccxt.exchanges)
-            logger.info(f"[ACCOUNTS] Returning {len(exchanges)} crypto exchanges")
+            # Priority/Verified exchanges that we have custom logic for
+            verified = ["binance", "bybit", "okx", "bitget", "bingx", "blofin"]
+            all_exchanges = set(ccxt.exchanges)
+            
+            # Combine verified (at top) with the rest of ccxt
+            remaining = sorted(list(all_exchanges - set(verified)))
+            exchanges = verified + remaining
+            
+            logger.info(f"[ACCOUNTS] Returning {len(exchanges)} crypto exchanges (verified first)")
             return exchanges
         elif type == "tradovate":
             return ["Tradovate"]

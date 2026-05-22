@@ -103,6 +103,30 @@ def api_close_position(ticket: int, symbol: Optional[str] = None, volume: Option
         raise HTTPException(status_code=500, detail="Failed to close position")
     return res._asdict() if hasattr(res, "_asdict") else res
 
+class ModifyPositionRequest(BaseModel):
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    symbol: Optional[str] = None
+
+@app.post("/api/modify_position/{ticket}")
+def api_modify_position(ticket: int, req: ModifyPositionRequest):
+    res = connector.modify_position(ticket, req.sl, req.tp, req.symbol)
+    if not res:
+        raise HTTPException(status_code=500, detail="Failed to modify position")
+    return res._asdict() if hasattr(res, "_asdict") else res
+
+class ModifyOrderRequest(BaseModel):
+    price: Optional[float] = None
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+
+@app.post("/api/modify_order/{ticket}")
+def api_modify_order(ticket: int, req: ModifyOrderRequest):
+    res = connector.modify_order(ticket, req.price, req.sl, req.tp)
+    if not res:
+        raise HTTPException(status_code=500, detail="Failed to modify order")
+    return res._asdict() if hasattr(res, "_asdict") else res
+
 @app.get("/api/daily_pnl")
 def api_daily_pnl():
     return {"pnl": connector.get_daily_pnl()}
