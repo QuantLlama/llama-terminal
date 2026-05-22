@@ -122,7 +122,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose, isLocked }) => {
       catch((e) => console.error("Status Check Error:", e));
     };
     checkStatus();
-    const interval = setInterval(checkStatus, 1000);
+    const interval = setInterval(checkStatus, 3000);
     return () => clearInterval(interval);
   }, []);
   useEffect(() => {
@@ -133,7 +133,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose, isLocked }) => {
       catch((e) => console.error("Telemetry Fetch Error:", e));
     };
     fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 2500);
+    const interval = setInterval(fetchTelemetry, 5000);
     return () => clearInterval(interval);
   }, []);
   useEffect(() => {

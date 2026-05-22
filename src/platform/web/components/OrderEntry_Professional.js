@@ -1,20 +1,24 @@
-const OrderEntry_Professional = ({
-  systemStatus,
-  config,
-  onOrder,
-  symbol,
-  tickData,
-  mt5Positions,
-  mt5PendingOrders = [],
-  oneClick,
-  setOneClick,
-  indicators,
-  onSymbolChange,
-  availableAccounts = [],
-  symbolMetadata,
-  volume,
-  onVolumeChange
-}) => {
+const OrderEntry_Professional = (props) => {
+  const {
+    systemStatus,
+    config,
+    onOrder,
+    symbol,
+    tickData,
+    mt5Positions,
+    mt5PendingOrders = [],
+    oneClick,
+    setOneClick,
+    indicators,
+    onSymbolChange,
+    availableAccounts = [],
+    symbolMetadata,
+    volume,
+    onVolumeChange
+  } = props;
+  
+  const accountBalance = props.accountBalance;
+
   const { useState, useEffect, useRef } = React;
   const lastSpreadRef = useRef("0.0");
   const NumInput = window.NumInput;
@@ -338,7 +342,7 @@ const OrderEntry_Professional = ({
         addNotification(
           "success",
           "Leverage Set",
-          `Leverage updated to ${leverage || 1}x for ${symbol}`
+          `Leverage updated to ${leverage || 1}x for ${window.cleanSymbol(symbol)}`
         );
       } else {
         addNotification(
@@ -436,6 +440,10 @@ const OrderEntry_Professional = ({
   const historyView = React.useMemo(() => {
     const Panel = window.HistoryPanel;
     if (!Panel) return React.createElement("div", { className: "p-8 text-center text-white/20" }, "History Panel Loading...");
+    
+    const selectedAccount = availableAccounts.find(a => a.id === selectedAccountId);
+    const balance = accountBalance !== undefined ? accountBalance : (selectedAccount ? selectedAccount.balance : 0);
+    
     return (
       React.createElement("div", { className: "flex-1 flex flex-col min-h-0 overflow-hidden" },
       React.createElement("div", { className: "px-3 py-2 border-b border-white/5 flex justify-end shrink-0 bg-black/40" },
@@ -451,10 +459,14 @@ const OrderEntry_Professional = ({
       )
       ),
       React.createElement("div", { className: "flex-1 min-h-0 bg-black overflow-hidden" },
-      React.createElement(Panel, { activeSymbol: symbol })
+      React.createElement(Panel, { 
+        activeSymbol: symbol,
+        accountBalance: balance,
+        platform: selectedAccount ? selectedAccount.platform : "mt5"
+      })
       )
       ));
-  }, [symbol]);
+  }, [symbol, availableAccounts, selectedAccountId, accountBalance]);
   return (
     React.createElement("div", { className: "w-full h-full bg-[#0d0d0d] border-l border-white/5 flex flex-col z-20 text-white select-none overflow-x-hidden" },
     React.createElement("div", { className: "px-4 py-3 border-b border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent shrink-0" },
@@ -469,7 +481,7 @@ const OrderEntry_Professional = ({
     )
     ),
     React.createElement("h3", { className: "text-sm font-black tracking-tight flex items-center gap-2" },
-    symbol,
+    window.cleanSymbol(symbol),
     React.createElement("span", { className: "px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[8px] font-mono border border-accent/20" },
     currentPlatform.toUpperCase()
     )
@@ -885,7 +897,8 @@ const OrderEntry_Professional = ({
         if (onVolumeChange) onVolumeChange(v);
       },
       step: qtyStep,
-      min: qtyStep }
+      min: qtyStep,
+      precision: currentSymbolPlatform === 'crypto' ? 8 : 2 }
     ),
     React.createElement(window.NumInput, {
       label: "Leverage",
@@ -1066,17 +1079,16 @@ const OrderEntry_Professional = ({
           pos.symbol
         ) },
       React.createElement("div", {
-        className: `absolute left-0 top-0 bottom-0 w-1 ${pos.type === "BUY" ? "bg-green-500/40" : "bg-red-500/40"}` }
+        className: `absolute left-0 top-0 bottom-0 w-1 ${(pos.type === "BUY" || pos.type === "LONG") ? "bg-green-500/40" : "bg-red-500/40"}` }
       ),
       React.createElement("div", { className: "flex justify-between items-center" },
       React.createElement("div", { className: "flex flex-col" },
       React.createElement("div", { className: "flex items-center gap-2 mb-1" },
       React.createElement("span", { className: "text-white font-black text-[11px] tracking-tight" },
-      pos.symbol ||
-      symbol
+      window.cleanSymbol(pos.symbol || symbol)
       ),
       React.createElement("span", {
-        className: `text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none ${pos.type === "BUY" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}` },
+        className: `text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none ${(pos.type === "BUY" || pos.type === "LONG") ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}` },
       pos.type
       )
       ),
@@ -1099,9 +1111,7 @@ const OrderEntry_Professional = ({
       0 ?
       "+" :
       "",
-      pos.profit?.toFixed(
-        2
-      )
+      pos.profit?.toFixed(2)
       ),
       React.createElement("div", { className: "flex items-center gap-1" },
       React.createElement("div", {

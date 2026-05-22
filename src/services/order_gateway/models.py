@@ -160,7 +160,7 @@ class RiskLimits:
     allowed_symbols: List[str] = field(default_factory=list)  
     trading_start_hour: str = "00:00"        
     trading_end_hour: str = "23:59"          
-    min_order_size: float = 0.01             
+    min_order_size: float = 0.00001             
     algo_max_position_size: float = 5.0      
     algo_max_orders_per_day: int = 20        
     manual_require_confirmation: bool = False 

@@ -576,41 +576,56 @@ class MT5Connector:
         with self._lock:
             if not self.connected:
                 if not self.connect(): return 0.0
-            now_utc = datetime.utcnow()
-            month = now_utc.month
-            is_dst = (month > 3 and month < 11) or (month == 3 and now_utc.day >= 8) or (month == 11 and now_utc.day < 2)
-            ny_offset = 4 if is_dst else 5
-            now_ny = now_utc - timedelta(hours=ny_offset)
-            if now_ny.hour >= 17:
-                session_start_ny = now_ny.replace(hour=17, minute=0, second=0, microsecond=0)
+            
+            # 1. Determine Broker Time Automatically
+            # We look at symbols in Market Watch to find the one with the latest tick
+            broker_now_ts = 0
+            symbols = mt5.symbols_get(group="*,!*") # Get symbols in Market Watch
+            if symbols:
+                # Try to find the maximum tick time among visible symbols
+                for s in symbols[:20]: # Check first 20 for performance
+                    tick = mt5.symbol_info_tick(s.name)
+                    if tick and tick.time > broker_now_ts:
+                        broker_now_ts = tick.time
+            
+            if broker_now_ts == 0:
+                # Fallback to system time if no market watch data
+                broker_now_dt = datetime.now()
             else:
-                yesterday_ny = now_ny - timedelta(days=1)
-                session_start_ny = yesterday_ny.replace(hour=17, minute=0, second=0, microsecond=0)
-            session_start_utc = session_start_ny + timedelta(hours=ny_offset)
-            ref_symbol = "EURUSD"
-            tick = mt5.symbol_info_tick(ref_symbol)
-            if not tick:
-                symbols = mt5.symbols_get(group="*,!*")
-                if symbols: ref_symbol = symbols[0].name
-                tick = mt5.symbol_info_tick(ref_symbol)
-            if tick and tick.time > 0:
-                broker_now = datetime.fromtimestamp(tick.time)
-                offset_sec = (broker_now - now_utc).total_seconds()
-            else:
-                broker_now = datetime.now()
-                offset_sec = 0
-            broker_start_time = session_start_utc + timedelta(seconds=offset_sec)
-            deals = mt5.history_deals_get(broker_start_time, broker_now + timedelta(hours=1))
-            if deals is None or len(deals) == 0:
+                broker_now_dt = datetime.fromtimestamp(broker_now_ts)
+                
+            # 2. Define Start of Day (Broker's Midnight)
+            start_of_day_dt = broker_now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_ts = int(start_of_day_dt.timestamp())
+            
+            # 3. Fetch Deals
+            # We fetch a slightly wider range to ensure sync, then filter in Python
+            # This handles cases where broker time and system time are out of sync
+            fetch_start = today_ts - 3600 # 1 hour buffer before midnight
+            fetch_end = int(time.time()) + 7200 # 2 hour buffer into the future
+            
+            deals = mt5.history_deals_get(fetch_start, fetch_end)
+            
+            if deals is None:
+                # Force sync by fetching a large range
+                mt5.history_deals_get(int(time.time()) - 86400, fetch_end)
+                deals = mt5.history_deals_get(fetch_start, fetch_end)
+
+            if not deals:
                 return 0.0
+                
             daily_realized = 0.0
             for d in deals:
-                if d.type in [mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL]:
-                    profit = getattr(d, 'profit', 0.0)
-                    comm   = getattr(d, 'commission', 0.0)
-                    swap   = getattr(d, 'swap', 0.0)
-                    daily_realized += (profit + comm + swap)
-            return daily_realized
+                # Filter deals that actually happened within the broker's current day
+                if d.time >= today_ts:
+                    # Sum profit, commission and swap for trading deals
+                    if d.type in [mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL]:
+                        p = getattr(d, 'profit', 0.0) or 0.0
+                        c = getattr(d, 'commission', 0.0) or 0.0
+                        s = getattr(d, 'swap', 0.0) or 0.0
+                        daily_realized += (p + c + s)
+                    
+            return float(round(daily_realized, 2))
     def get_available_symbols(self):
         with self._lock:
             if not self.connected:

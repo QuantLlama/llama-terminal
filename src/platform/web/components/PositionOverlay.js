@@ -1,7 +1,7 @@
 const PositionOverlay = ({
   chart, series, status, activeSymbol,
   mt5Positions = [], mt5PendingOrders = [], visible = true,
-  tickData
+  tickData, platform: propPlatform
 }) => {
   const { useState, useEffect, useRef, useCallback } = React;
   const [positions, setPositions] = useState([]);
@@ -16,6 +16,7 @@ const PositionOverlay = ({
   const [ghost, setGhost] = useState(null);
   let addNotification = () => {};
   try {const n = useNotification();addNotification = n.addNotification;} catch (_) {}
+  
   useEffect(() => {
     if (!chart) return;
     const measure = () => {
@@ -68,17 +69,15 @@ const PositionOverlay = ({
   useEffect(() => {
     if (!chart || !series) {setPositions([]);return;}
     const updatePos = () => {
-      if (dragItemRef.current) {
-        animFrameRef.current = requestAnimationFrame(updatePos);
-        return;
-      }
       const items = [];
       mt5Positions.forEach((pos) => {
-        if (activeSymbol && activeSymbol.split(":")[0] !== (pos.symbol || "").split(":")[0]) return;
+        const universalActive = typeof window.getUniversalSymbol === 'function' ? window.getUniversalSymbol(activeSymbol) : activeSymbol.split(':')[0];
+        const universalPos = typeof window.getUniversalSymbol === 'function' ? window.getUniversalSymbol(pos.symbol) : (pos.symbol || "").split(':')[0];
+        if (activeSymbol && universalActive !== universalPos) return;
         const entryY = series.priceToCoordinate(pos.entry_price);
         const slY = pos.sl > 0 ? series.priceToCoordinate(pos.sl) : null;
         const tpY = pos.tp > 0 ? series.priceToCoordinate(pos.tp) : null;
-        const isBuy = pos.type === "BUY";
+        const isBuy = pos.type === "BUY" || pos.type === "LONG";
         const posColor = isBuy ? "#2962FF" : "#FF6D00";
         if (entryY !== null) {
           const pv = getPointValue(pos, pos.symbol);
@@ -179,6 +178,13 @@ const PositionOverlay = ({
         setPositions(items);
       }
     };
+
+    const onVisibleChange = () => {
+      updatePos();
+    };
+
+    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleChange);
+
     const animate = () => {
       updatePos();
       animFrameRef.current = requestAnimationFrame(animate);
@@ -187,6 +193,9 @@ const PositionOverlay = ({
     animate();
 
     return () => {
+      if (chart && chart.timeScale()) {
+        chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleChange);
+      }
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [chart, series, mt5Positions, mt5PendingOrders, activeSymbol, displayMode, tickData]);
@@ -229,7 +238,7 @@ const PositionOverlay = ({
         } catch (_) {}
         dragItemRef.current = { ...cur, currentPrice: newPrice, currentY: newY };
         if (cur.isEntry) {
-          const isBuy = cur.pos_type === "BUY";
+          const isBuy = cur.pos_type === "BUY" || cur.pos_type === "LONG";
           const isAboveEntry = newPrice > cur.originalPrice;
           const kind = (isBuy ? isAboveEntry : !isAboveEntry) ? "TP" : "SL";
           const color = kind === "TP" ? "#089981" : "#F23645";
@@ -252,7 +261,7 @@ const PositionOverlay = ({
       if (!snap?.currentPrice) return;
       const { ticket, type, currentPrice, originalPrice, isEntry, ghostKind, pos_type, symbol: itemSymbol } = snap;
       const prec = getPrecision(activeSymbol);
-      const platform = status?.platform || "mt5";
+      const platform = propPlatform || status?.platform || (window.detectPlatformType ? window.detectPlatformType(itemSymbol || activeSymbol) : "mt5");
       if (isEntry) {
         if (Math.abs(currentPrice - originalPrice) < 0.00001) return;
         const which = ghostKind;
@@ -273,8 +282,13 @@ const PositionOverlay = ({
           });
           const data = await res.json();
           if (data.status === "success" || data.status === "modified") {
+            // Success - no notification needed or optional success message
           } else {
-            addNotification("error", "Failed", data.message || data.detail || `Cannot set ${which}`);
+            let errorMsg = data.message || data.detail || `Cannot set ${which}`;
+            if (typeof errorMsg === 'object') {
+              errorMsg = JSON.stringify(errorMsg);
+            }
+            addNotification("error", "Failed", errorMsg);
           }
         } catch (err) {
           addNotification("error", "Error", err.message);
@@ -341,7 +355,7 @@ const PositionOverlay = ({
   const handleClose = useCallback(async (e, p) => {
     e.stopPropagation();e.preventDefault();
     const platform = status?.platform || "mt5";
-    const isPending = p.type === "PENDING_BUY" || p.type === "PENDING_SELL";
+    const isPending = p.type === "PENDING_BUY" || p.type === "PENDING_SELL" || p.type === "LONG" || p.type === "SHORT";
     if (p.type === "SL" || p.type === "TP") {
       const payload = { platform, symbol: activeSymbol || p.symbol, ticket: p.ticket };
       if (p.type === "SL") payload.sl = 0;else payload.tp = 0;
@@ -439,9 +453,10 @@ const PositionOverlay = ({
       `${pnlPts >= 0 ? "+" : ""}${pnlPts.toFixed(prec)}pts` :
       p.price.toFixed(prec);
       const labelText = (() => {
+        const isBuySide = p.pos_type === "BUY" || p.pos_type === "LONG";
         if (p.label) return p.label;
-        if (p.type === "SL") return p.pos_type === "BUY" ? "SELL STP" : "BUY STP";
-        if (p.type === "TP") return p.pos_type === "BUY" ? "SELL LMT" : "BUY LMT";
+        if (p.type === "SL") return isBuySide ? "SELL STP" : "BUY STP";
+        if (p.type === "TP") return isBuySide ? "SELL LMT" : "BUY LMT";
         return {
           LONG: "Buy (long)", SHORT: "Sell (short)",
           PENDING_BUY: "BUY LMT", PENDING_SELL: "SELL LMT",

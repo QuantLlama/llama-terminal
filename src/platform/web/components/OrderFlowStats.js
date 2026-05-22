@@ -131,7 +131,7 @@ const OrderFlowStats = ({ symbol, marketStatus, lastPrice, volume }) => {
   }
   return (
     React.createElement("div", { className: "flex-1 bg-panel flex flex-col shrink-0 p-2 border-t border-border" },
-    React.createElement("h3", { className: "text-[10px] font-bold text-muted uppercase tracking-wider mb-2" }, "Order Flow Stats (", symbol, ")"),
+    React.createElement("h3", { className: "text-[10px] font-bold text-muted uppercase tracking-wider mb-2" }, "Order Flow Stats (", window.cleanSymbol(symbol), ")"),
     React.createElement("div", { className: "flex items-center gap-2 mb-1" },
     React.createElement("div", { className: "flex-1 h-2 bg-gray-800 rounded overflow-hidden flex" },
     React.createElement("div", { className: "h-full bg-success transition-all duration-300", style: { width: `${stats.deltaPercent}%` } }),

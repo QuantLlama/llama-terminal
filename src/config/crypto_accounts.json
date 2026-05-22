@@ -1,13 +1,26 @@
 {
-    "271c6a5e": {
-        "id": "271c6a5e",
-        "name": "Binance",
-        "broker": "binance",
-        "api_key": "IIQh2DtQ6nLv8KkzAHiahlnTAB4zwxDmzRmMu0kgGS7BE0BLUlFFabqO0mwn4iwC",
-        "api_secret": "gAAAAABp-7UrcWVXKjMnYOW1rEv4abb2zV_bsgUjoSFrDuPWDr01H58HNCaJI0grlhMucKN-dpjI8e-vEbDh4MygbxStBerXcoc9mxG4kqX0uBsg7ViH1LFsWcoNsta0hL44TEKLEf7k6EkmrjDmsjWhbVzDafp7gpHdv0pq2tW2UuSONxKKaB8=",
+    "590fa420": {
+        "id": "590fa420",
+        "name": "BitMex",
+        "broker": "bitmex",
+        "api_key": "Ays9qQymMRf5Y6pCpx3Jf6GP",
+        "api_secret": "gAAAAABp_VoYHynOuEFMOHgdQaVj1A2afTm-ib59ZLzE3fG2cd5yb2J30RBq8Dz0PGIFkmPyOm9RmpdUWnX5GpCAUPqIXnPPrfIFdXdJhgP-3oC9S68hLUD_TgcMunR8bVeqF2EzNtleTxcnhGBxIq1nX4tgQbpgCA==",
         "passphrase": "",
         "account_type": "real",
-        "created_at": "2026-05-06T18:39:55.820639",
+        "created_at": "2026-05-08T00:35:52.892467",
+        "status": "inactive",
+        "is_master": false,
+        "platform": "crypto"
+    },
+    "271c6a5e": {
+        "id": "271c6a5e",
+        "name": "BINANCE",
+        "broker": "binance",
+        "api_key": "IIQh2DtQ6nLv8KkzAHiahlnTAB4zwxDmzRmMu0kgGS7BE0BLUlFFabqO0mwn4iwC",
+        "api_secret": "gAAAAABp_j6r16Bf8tz8CUURKa0IbWg16v9kT4AI5C42_MzDvOHwFGQCHOcZx_IX34Jk-UeL0w1SKHjnWqv98nhC1VPS6pkXJnrBZ9XG7p-k-_MjpbUrTdjHNsA0P5G0VfziC33-yB5Qlmd5A9gQsdSOwL21asCNkoCKNDBXsQAVeitiYv61XBE=",
+        "passphrase": "",
+        "account_type": "real",
+        "created_at": "2026-05-08T16:51:07.552787",
         "status": "inactive",
         "is_master": true,
         "platform": "crypto"

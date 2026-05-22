@@ -14,7 +14,7 @@
         "AMD": "AMD"
     },
     "Crypto": {
-        "BTC-USD": "BTC/USDT:USDT",
+        "BTC-USD": "BTCUSDT",
         "ETH-USD": "ETHUSD",
         "SOL-USD": "SOLUSD"
     },

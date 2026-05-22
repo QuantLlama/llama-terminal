@@ -67,3 +67,10 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Bases de datos y archivos de respaldo
+*.db
+*.db-journal
+*.bak
+quantum_llama.db
+src/config/quantum_llama.db

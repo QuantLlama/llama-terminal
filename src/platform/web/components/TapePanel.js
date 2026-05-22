@@ -123,7 +123,7 @@ const TapePanel = ({
       aggregationMs: 0,
       forceWindowMs: 30_000
     };
-    if (configId === 'slow') return { ...base, aggregationMs: 300 };
+    if (configId === 'slow') return { ...base, aggregationMs: 300, minSize: p === 'crypto' ? 0.1 : 5 };
     return base;
   };
   const [config, setConfig] = useState(() => {
@@ -402,7 +402,7 @@ const TapePanel = ({
         fontSize: '9px', color: '#38bdf8', fontWeight: 700,
         lineHeight: 1, marginTop: 2, letterSpacing: '0.05em'
       } },
-    symbol
+    (symbol || "").split(':')[0]
     )
     ),
     React.createElement("div", { style: { display: 'flex', gap: 7, alignItems: 'center', fontSize: '9px', fontFamily: 'monospace' } },
