@@ -7,6 +7,7 @@ import importlib.util
 from .imbalance_impulse import ImbalanceImpulseIndicator
 from .caza_stop import CazaStopIndicator
 from .order_flow import OrderFlowIndicator
+from .liquidity_heatmap import LiquidityHeatmapIndicator
 
 # Registry of available indicators
 CORE_INDICATORS = {
@@ -26,6 +27,12 @@ CORE_INDICATORS = {
         'class': OrderFlowIndicator,
         'name': 'Order Flow Suite',
         'description': 'Advanced Volume Analysis (Delta, VWAP, Imbalances)',
+        'category': 'Order Flow'
+    },
+    'liquidity_heatmap': {
+        'class': LiquidityHeatmapIndicator,
+        'name': 'Liquidity Heatmap',
+        'description': 'Order Book & Market Depth visualization',
         'category': 'Order Flow'
     }
 }

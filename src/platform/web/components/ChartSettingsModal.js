@@ -72,7 +72,8 @@ const ChartSettingsModal = ({
         orderflow: { ...defaults.indicators.orderflow, ...(s?.indicators?.orderflow || {}) },
         volumeProfile: { ...defaults.indicators.volumeProfile, ...(s?.indicators?.volumeProfile || {}) },
         tpo: { ...defaults.indicators.tpo, ...(s?.indicators?.tpo || {}) },
-        bigTrades: { ...defaults.indicators.bigTrades, ...(s?.indicators?.bigTrades || {}) }
+        bigTrades: { ...defaults.indicators.bigTrades, ...(s?.indicators?.bigTrades || {}) },
+        liquidity_heatmap: { ...defaults.indicators?.liquidity_heatmap, ...(s?.indicators?.liquidity_heatmap || {}) }
       },
       overlays: {
         ...defaults.overlays,
@@ -415,6 +416,21 @@ const ChartSettingsModal = ({
               ),
               React.createElement(ControlRow, { label: "Calc Limit" },
                 React.createElement("input", { type: "number", step: "1000", min: "1000", max: "50000", value: localSettings.indicators.orderflow.limit || 5000, onChange: (e) => updateLocal('indicators.orderflow.limit', parseInt(e.target.value)), className: "w-20 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white" })
+              )
+            ),
+            React.createElement(CollapsibleSection, {
+              title: "Liquidity Heatmap",
+              icon: "fire",
+              enabled: localSettings.indicators?.liquidity_heatmap?.enabled ?? false,
+              onToggleEnabled: (val) => updateLocal('indicators.liquidity_heatmap.enabled', val)
+            },
+              React.createElement("div", { className: "grid grid-cols-1 gap-1 p-2 bg-white/[0.02] rounded-lg border border-white/5" },
+                React.createElement(ControlRow, { label: "Tick Size" },
+                  React.createElement("input", { type: "number", step: "0.25", min: "0.01", max: "100", value: localSettings.indicators?.liquidity_heatmap?.tickSize || 0.25, onChange: (e) => updateLocal('indicators.liquidity_heatmap.tickSize', parseFloat(e.target.value) || 0.25), className: "w-20 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white" })
+                ),
+                React.createElement(ControlRow, { label: "Opacidad" },
+                  React.createElement("input", { type: "range", step: "0.05", min: "0.1", max: "1.0", value: localSettings.indicators?.liquidity_heatmap?.opacity || 0.85, onChange: (e) => updateLocal('indicators.liquidity_heatmap.opacity', parseFloat(e.target.value) || 0.85), className: "w-20 accent-accent" })
+                )
               )
             ),
             React.createElement(CollapsibleSection, {
@@ -1531,6 +1547,11 @@ function getDefaultChartSettings() {
         cumDeltaColor: "#3b82f6",
         cumDeltaWidth: 2,
         limit: 5000
+      },
+      liquidity_heatmap: {
+        enabled: false,
+        tickSize: 0.25,
+        opacity: 0.85
       },
       imbalance: {
         enabled: false,

@@ -6,28 +6,76 @@ const http = require('http');
 const treeKill = require('tree-kill');
 const waitOn = require('wait-on');
 
+function getFreePort(startPort) {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const server = net.createServer();
+    server.listen(startPort, '127.0.0.1', () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(getFreePort(startPort + 1));
+      } else {
+        resolve(startPort);
+      }
+    });
+  });
+}
+
+function findRunningBackend() {
+  return new Promise((resolve) => {
+    const http = require('http');
+    let found = false;
+    let pending = 10;
+    for (let p = 8050; p < 8060; p++) {
+      const req = http.get(`http://127.0.0.1:${p}/api/health`, (res) => {
+        if (res.statusCode === 200 && !found) {
+          found = true;
+          resolve(p);
+        }
+        if (--pending === 0 && !found) resolve(null);
+      });
+      req.on('error', () => {
+        if (--pending === 0 && !found) resolve(null);
+      });
+      req.setTimeout(200, () => {
+        req.abort();
+      });
+    }
+  });
+}
+
 let mainWindow;
 let splashWindow;
 let backendProcess;
 
-// Constants
-const API_PORT = 8050;
+// Variables
+let API_PORT = 8050;
 const API_HOST = '127.0.0.1';
-const MAIN_URL = `http://${API_HOST}:${API_PORT}`;
+let MAIN_URL = `http://${API_HOST}:${API_PORT}`;
+
+// Icon Path Configuration (Cross-Platform)
+const isWin = process.platform === 'win32';
+const iconExtension = isWin ? 'ico' : 'png';
+const iconPath = path.join(__dirname, '..', 'images', `QuantumLLama.${iconExtension}`);
 
 app.setAppUserModelId('com.quantumllama.desktop');
 
-app.commandLine.appendSwitch('ignore-gpu-blacklist');
-app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
+if (process.platform === 'linux') {
+  app.disableHardwareAcceleration();
+} else {
+  app.commandLine.appendSwitch('ignore-gpu-blacklist');
+  app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+}
 
 // Determine python executable
 const getPythonPath = () => {
   const isWin = process.platform === 'win32';
   const venvFolder = isWin ? 'Scripts' : 'bin';
   const pythonExe = isWin ? 'python.exe' : 'python';
-  // En Linux preferimos venv_linux para no chocar con el venv de Wine
-  const venvName = isWin ? 'venv' : 'venv_linux';
   
   // 1. Check for bundled python in resources (for packaged app)
   if (app.isPackaged) {
@@ -35,7 +83,22 @@ const getPythonPath = () => {
   }
 
   // 2. Check for dev venv
-  let venvPath = path.join(__dirname, '..', venvName, venvFolder, pythonExe);
+  let venvPath;
+  if (!isWin) {
+    const pathFile = path.join(__dirname, '..', '.venv_linux_path');
+    if (fs.existsSync(pathFile)) {
+      const altPath = fs.readFileSync(pathFile, 'utf8').trim();
+      if (altPath && fs.existsSync(altPath)) {
+        venvPath = path.join(altPath, venvFolder, pythonExe);
+      }
+    }
+  }
+  
+  if (!venvPath || !fs.existsSync(venvPath)) {
+    const venvName = isWin ? 'venv' : 'venv_linux';
+    venvPath = path.join(__dirname, '..', venvName, venvFolder, pythonExe);
+  }
+  
   if (!fs.existsSync(venvPath)) {
     // Fallback to 'venv' if venvName doesn't exist (e.g. if user only has one)
     venvPath = path.join(__dirname, '..', 'venv', venvFolder, pythonExe);
@@ -69,7 +132,8 @@ const startBackend = () => {
 
   console.log(`Starting backend: ${backendCmd} ${app.isPackaged ? '' : backendPath}`);
 
-  backendProcess = spawn(backendCmd, app.isPackaged ? [] : [backendPath], {
+  const backendArgs = app.isPackaged ? ['--port', API_PORT.toString()] : [backendPath, '--port', API_PORT.toString()];
+  backendProcess = spawn(backendCmd, backendArgs, {
     cwd: app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'),
     stdio: ['ignore', out, err], // Pipe to log file, retained from original
     windowsHide: true, // Retained from original
@@ -104,7 +168,7 @@ function createSplashWindow() {
     transparent: true,
     frame: false,
     alwaysOnTop: true,
-    icon: path.join(__dirname, '..', 'images', 'QuantumLLama.ico'),
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -119,7 +183,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    icon: path.join(__dirname, '..', 'images', 'QuantumLLama.ico'),
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -157,7 +221,7 @@ function createWindow() {
       width: 1100,
       height: 720,
       parent: mainWindow,
-      icon: path.join(__dirname, '..', 'images', 'QuantumLLama.ico'),
+      icon: iconPath,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -221,6 +285,40 @@ if (!gotTheLock) {
   });
 
   app.on('ready', async () => {
+    // Si estamos en Linux, creamos los accesos directos de forma automatizada
+    if (process.platform === 'linux') {
+      try {
+        const scriptPath = path.join(__dirname, '..', 'scripts', 'setup_shortcuts.sh');
+        if (fs.existsSync(scriptPath)) {
+          console.log(`[Linux Shortcuts] Iniciando creación de accesos directos usando: ${scriptPath}`);
+          const mainExec = app.isPackaged ? process.execPath : path.join(__dirname, '..', 'node_modules', '.bin', 'electron');
+          const trainerExec = app.isPackaged 
+            ? path.join(process.resourcesPath, 'Trainer') 
+            : path.join(__dirname, '..', 'venv_linux', 'bin', 'python') + ' ' + path.join(__dirname, '..', 'run.py');
+          const browserExec = app.isPackaged 
+            ? path.join(process.resourcesPath, 'BrowserMode') 
+            : path.join(__dirname, '..', 'venv_linux', 'bin', 'python') + ' ' + path.join(__dirname, '..', 'browser_launcher.py');
+          const iconPng = path.join(__dirname, '..', 'images', 'QuantumLLama.png');
+          
+          exec(`bash "${scriptPath}" "${mainExec}" "${trainerExec}" "${browserExec}" "${iconPng}"`, (err, stdout, stderr) => {
+            if (err) {
+              console.error('[Linux Shortcuts] Error ejecutando script de accesos directos:', err);
+            } else {
+              console.log('[Linux Shortcuts] Accesos directos procesados:', stdout);
+            }
+          });
+        }
+      } catch (err) {
+        console.error('[Linux Shortcuts] Error al procesar accesos directos:', err);
+      }
+    }
+
+    API_PORT = await findRunningBackend();
+    if (!API_PORT) {
+        API_PORT = await getFreePort(8050);
+    }
+    MAIN_URL = `http://${API_HOST}:${API_PORT}`;
+
     createSplashWindow();
     startBackend();
 
@@ -233,19 +331,19 @@ if (!gotTheLock) {
     });
 
     try {
-        console.log(`Waiting for backend at http://127.0.0.1:8050/api/health...`);
+        console.log(`Waiting for backend at http://127.0.0.1:${API_PORT}/api/health...`);
         // Use waitOn to make sure backend is up
         await waitOn({
-            resources: ['http://127.0.0.1:8050/api/health'],
+            resources: [`http://127.0.0.1:${API_PORT}/api/health`],
             timeout: 30000, // Wait 30s
         });
 
-        console.log("Backend started and healthy at 127.0.0.1:8050");
+        console.log(`Backend started and healthy at 127.0.0.1:${API_PORT}`);
         
         // Verificación de Licencia Hardware
         const checkLicense = () => {
           return new Promise((resolve) => {
-            const req = http.get(`http://127.0.0.1:8050/api/license/check`, (res) => {
+            const req = http.get(`http://127.0.0.1:${API_PORT}/api/license/check`, (res) => {
               let data = '';
               res.on('data', (chunk) => data += chunk);
               res.on('end', () => {

@@ -17,15 +17,10 @@
     }, [lastPrice]);
     useEffect(() => {
       if (!enabled || !chart || !lastPrice) return;
-      const animate = () => {
-        try {
-          if (!window.smoothedPrices) window.smoothedPrices = {};
-          window.smoothedPrices[symbol] = targetPriceRef.current;
-        } catch (e) {
-        }
-        rafRef.current = requestAnimationFrame(animate);
-      };
-      rafRef.current = requestAnimationFrame(animate);
+      try {
+        if (!window.smoothedPrices) window.smoothedPrices = {};
+        window.smoothedPrices[symbol] = targetPriceRef.current;
+      } catch (e) {}
       return () => {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
       };

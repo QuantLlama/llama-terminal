@@ -540,21 +540,53 @@ class MT5Connector:
                     date_from = datetime.now() - timedelta(days=365*5)
                 df_ts = date_from.timestamp() if hasattr(date_from, 'timestamp') else date_from
                 dt_ts = date_to.timestamp() if hasattr(date_to, 'timestamp') else date_to
-                deals = mt5.history_deals_get(date_from, date_to)
-                if (deals is None or len(deals) == 0) and date_to is None:
-                     d_from_huge = datetime.now() - timedelta(days=365*2)
-                     deals = mt5.history_deals_get(d_from_huge, datetime.now() + timedelta(days=1))
+                
+                # Fetch a huge window because the frontend expects UTC timestamps
+                # We will convert broker time to UTC so the frontend can filter accurately!
+                five_years_ago = (datetime.now() - timedelta(days=365 * 5)).timestamp()
+                query_from = 0 if df_ts < five_years_ago else df_ts - 86400 * 2 # buffer for tz
+                
+                deals = mt5.history_deals_get(int(query_from), int(dt_ts + 86400 * 2))
+                if deals is None or len(deals) == 0:
+                    d_from_huge = datetime.now() - timedelta(days=365 * 5)
+                    deals = mt5.history_deals_get(int(d_from_huge.timestamp()), int(dt_ts + 86400 * 2))
                 if deals is None:
-                    err = mt5.last_error()
-                    logger.error(f"MT5_HISTORY: FAILED to get deals. Error: {err}")
                     return []
+                    
+                # Calculate Broker Timezone Offset to true UTC
+                import time
+                sys_utc = int(time.time())
+                broker_now = 0
+                symbols = mt5.symbols_get()
+                if symbols:
+                    for s in symbols[:20]:
+                        tick = mt5.symbol_info_tick(s.name)
+                        if tick and tick.time > broker_now:
+                            broker_now = tick.time
+                            
+                offset = 0
+                if broker_now > 0:
+                    raw_diff = broker_now - sys_utc
+                    # If weekend, the tick might be from Friday. 
+                    # We can use modulo 1 week if we really need to, but let's just 
+                    # use datetime to get the hours difference if it's within 24h
+                    if abs(raw_diff) < 86400 * 2:
+                        offset = round(raw_diff / 1800) * 1800
+                    else:
+                        # Fallback for weekends: assume offset hasn't changed drastically
+                        # We just take raw_diff modulo 24 hours
+                        day_diff = raw_diff % 86400
+                        if day_diff > 43200: day_diff -= 86400
+                        offset = round(day_diff / 1800) * 1800
+                        
                 result = []
                 for d in deals:
+                    true_utc_time = d.time - offset
                     result.append({
                         "ticket": d.ticket,
                         "order": d.order,
-                        "time": d.time,
-                        "time_msc": d.time_msc,
+                        "time": true_utc_time,
+                        "time_msc": d.time_msc - (offset * 1000),
                         "type": d.type, 
                         "entry": d.entry, 
                         "magic": d.magic,
@@ -564,68 +596,76 @@ class MT5Connector:
                         "price": d.price,
                         "commission": d.commission,
                         "swap": d.swap,
-                        "profit": d.profit,
-                        "symbol": d.symbol,
-                        "comment": d.comment
+                        "profit": getattr(d, 'profit', 0.0) or 0.0,
+                        "symbol": d.symbol
                     })
                 return result
             except Exception as e:
-                logger.error(f"MT5_HISTORY_CRITICAL: {e}")
+                logger.error(f"MT5_HISTORY: {e}")
                 return []
     def get_daily_pnl(self):
         with self._lock:
             if not self.connected:
                 if not self.connect(): return 0.0
             
-            # 1. Determine Broker Time Automatically
-            # We look at symbols in Market Watch to find the one with the latest tick
-            broker_now_ts = 0
-            symbols = mt5.symbols_get(group="*,!*") # Get symbols in Market Watch
-            if symbols:
-                # Try to find the maximum tick time among visible symbols
-                for s in symbols[:20]: # Check first 20 for performance
-                    tick = mt5.symbol_info_tick(s.name)
-                    if tick and tick.time > broker_now_ts:
-                        broker_now_ts = tick.time
+            import json
+            import time
+            from datetime import datetime, timedelta
             
-            if broker_now_ts == 0:
-                # Fallback to system time if no market watch data
-                broker_now_dt = datetime.now()
-            else:
-                broker_now_dt = datetime.fromtimestamp(broker_now_ts)
+            try:
+                deals_log = []
+                now_ts = int(time.time())
+                all_deals = mt5.history_deals_get(now_ts - 86400 * 7, now_ts + 86400)
                 
-            # 2. Define Start of Day (Broker's Midnight)
-            start_of_day_dt = broker_now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-            today_ts = int(start_of_day_dt.timestamp())
-            
-            # 3. Fetch Deals
-            # We fetch a slightly wider range to ensure sync, then filter in Python
-            # This handles cases where broker time and system time are out of sync
-            fetch_start = today_ts - 3600 # 1 hour buffer before midnight
-            fetch_end = int(time.time()) + 7200 # 2 hour buffer into the future
-            
-            deals = mt5.history_deals_get(fetch_start, fetch_end)
-            
-            if deals is None:
-                # Force sync by fetching a large range
-                mt5.history_deals_get(int(time.time()) - 86400, fetch_end)
-                deals = mt5.history_deals_get(fetch_start, fetch_end)
-
-            if not deals:
-                return 0.0
+                if all_deals:
+                    for d in all_deals:
+                        deals_log.append({
+                            "ticket": d.ticket,
+                            "time": d.time,
+                            "type": d.type,
+                            "profit": d.profit,
+                            "commission": d.commission,
+                            "swap": d.swap
+                        })
                 
-            daily_realized = 0.0
-            for d in deals:
-                # Filter deals that actually happened within the broker's current day
-                if d.time >= today_ts:
-                    # Sum profit, commission and swap for trading deals
-                    if d.type in [mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL]:
-                        p = getattr(d, 'profit', 0.0) or 0.0
-                        c = getattr(d, 'commission', 0.0) or 0.0
-                        s = getattr(d, 'swap', 0.0) or 0.0
-                        daily_realized += (p + c + s)
+                acc = mt5.account_info()
+                acc_data = {}
+                if acc:
+                    acc_data = {"balance": acc.balance, "equity": acc.equity, "profit": acc.profit}
                     
-            return float(round(daily_realized, 2))
+                with open("mt5_debug.json", "w") as f:
+                    json.dump({"deals": deals_log, "account": acc_data}, f, indent=2)
+                    
+                # Standard calculation fallback without datetime conversions
+                broker_now_ts = 0
+                symbols = mt5.symbols_get()
+                if symbols:
+                    for s in symbols[:20]:
+                        tick = mt5.symbol_info_tick(s.name)
+                        if tick and tick.time > broker_now_ts:
+                            broker_now_ts = tick.time
+                            
+                if broker_now_ts == 0:
+                    broker_now_ts = now_ts
+                    
+                # Use absolute integer math for Broker Midnight
+                broker_midnight = (broker_now_ts // 86400) * 86400
+                deals_today = mt5.history_deals_get(int(broker_midnight), int(broker_now_ts + 86400))
+                
+                daily_realized = 0.0
+                if deals_today:
+                    for d in deals_today:
+                        if d.type in [mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL]:
+                            p = getattr(d, 'profit', 0.0) or 0.0
+                            c = getattr(d, 'commission', 0.0) or 0.0
+                            s = getattr(d, 'swap', 0.0) or 0.0
+                            daily_realized += (p + c + s)
+                
+                return float(round(daily_realized, 2))
+            except Exception as e:
+                with open("mt5_debug_error.log", "w") as f:
+                    f.write(str(e))
+                return 0.0
     def get_available_symbols(self):
         with self._lock:
             if not self.connected:

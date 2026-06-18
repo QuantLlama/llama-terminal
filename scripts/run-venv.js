@@ -12,7 +12,21 @@ const venvFolder = isWin ? 'Scripts' : 'bin';
 const pythonExe = isWin ? 'python.exe' : 'python';
 
 const rootDir = path.join(__dirname, '..');
-const venvPath = path.join(rootDir, 'venv');
+let venvPath;
+
+if (!isWin) {
+  const pathFile = path.join(rootDir, '.venv_linux_path');
+  if (fs.existsSync(pathFile)) {
+    const altPath = fs.readFileSync(pathFile, 'utf8').trim();
+    if (altPath && fs.existsSync(altPath)) {
+      venvPath = altPath;
+    }
+  }
+}
+
+if (!venvPath) {
+  venvPath = path.join(rootDir, isWin ? 'venv' : 'venv_linux');
+}
 const pythonPath = path.join(venvPath, venvFolder, pythonExe);
 const pyvenvCfgPath = path.join(venvPath, 'pyvenv.cfg');
 

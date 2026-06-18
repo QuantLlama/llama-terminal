@@ -116,6 +116,9 @@ if __name__ == "__main__":
     parser.add_argument('--timeframe', type=str)
     parser.add_argument('--config', type=str)
     
+    # Port configuration
+    parser.add_argument('--port', type=int, default=8050, help='Port to run the API on')
+    
     args, unknown = parser.parse_known_args()
     
     if args.train:
@@ -137,11 +140,29 @@ if __name__ == "__main__":
         )
     else:
         import uvicorn
+        import socket
+        
+        # Determine port
+        port = args.port
+        # If default port is selected (8050) but might be in use, we try to bind or find a free one.
+        # But since the user specifically requested dynamic port when 8050 is in use,
+        # we can ensure we bind to a free port.
+        if port == 8050:
+            def get_free_port(start_port=8050):
+                for p in range(start_port, start_port + 100):
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        if s.connect_ex(('127.0.0.1', p)) != 0:
+                            return p
+                return start_port
+            port = get_free_port(8050)
+            
+        print(f"Starting API server on port {port}...")
+        
         # Run the API server
         uvicorn.run(
             "src.platform.api.main:app",
             host="127.0.0.1",
-            port=8050,
+            port=port,
             reload=False,
             log_level="info"
         )

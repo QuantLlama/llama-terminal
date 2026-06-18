@@ -17,20 +17,63 @@ class VolumeProfileRenderer {
     this.ctx = this.canvas.getContext("2d");
     this._pixelRatio = window.devicePixelRatio || 1;
     this._rafId = null;
-    this._animate = this._animate.bind(this);
-    this._rafId = requestAnimationFrame(this._animate);
+    this.scheduleRender = this.scheduleRender.bind(this);
+    this._drawScheduled = this._drawScheduled.bind(this);
+    
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange(this.scheduleRender);
+    this.chart.timeScale().subscribeVisibleTimeRangeChange(this.scheduleRender);
+    this.chart.subscribeCrosshairMove(this.scheduleRender);
+    this._isDrawing = false;
+    this._needsRedraw = false;
+    this._lastPriceCoord = null;
+    this._lastTimeCoord = null;
+    this._monitorRaf = null;
+    const monitorScale = () => {
+        if (this._destroyed) return;
+        if (this.chart && this._latestSeries) {
+            try {
+                const pc = this._latestSeries.priceToCoordinate(0) || this._latestSeries.priceToCoordinate(100);
+                const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
+                const tc = logicalRange ? logicalRange.from : null;
+                if (pc !== this._lastPriceCoord || tc !== this._lastTimeCoord) {
+                    this._lastPriceCoord = pc;
+                    this._lastTimeCoord = tc;
+                    this.scheduleRender();
+                }
+            } catch(e) {}
+        }
+        this._monitorRaf = requestAnimationFrame(monitorScale);
+    };
+    this._monitorRaf = requestAnimationFrame(monitorScale);
   }
   render(profiles, params, series) {
     this._latestProfiles = profiles;
     this._latestParams = params;
     this._latestSeries = series;
+    this.scheduleRender();
   }
-  _animate() {
+  scheduleRender() {
+    if (this._destroyed) return;
+    if (this._isDrawing) {
+        this._needsRedraw = true;
+        return;
+    }
+    this._isDrawing = true;
+    try { this._drawScheduled(); } catch(e) {}
+    requestAnimationFrame(() => {
+        this._isDrawing = false;
+        if (this._needsRedraw) {
+            this._needsRedraw = false;
+            this.scheduleRender();
+        }
+    });
+  }
+  _drawScheduled() {
+    this._rafId = null;
     if (this._destroyed) return;
     if (this._latestProfiles && this._latestParams && this._latestSeries) {
       this._drawFrame(this._latestProfiles, this._latestParams, this._latestSeries);
     }
-    this._rafId = requestAnimationFrame(this._animate);
   }
   _drawFrame(profiles, params, series) {
     const rect = this.container.getBoundingClientRect();
@@ -195,6 +238,11 @@ class VolumeProfileRenderer {
   }
   destroy() {
     this._destroyed = true;
+    if (this.chart) {
+      this.chart.timeScale().unsubscribeVisibleLogicalRangeChange(this.scheduleRender);
+      this.chart.timeScale().unsubscribeVisibleTimeRangeChange(this.scheduleRender);
+      this.chart.unsubscribeCrosshairMove(this.scheduleRender);
+    }
     if (this._rafId) cancelAnimationFrame(this._rafId);
     if (this.canvas && this.canvas.parentNode) {
       this.canvas.parentNode.removeChild(this.canvas);

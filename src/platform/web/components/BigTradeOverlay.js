@@ -9,6 +9,8 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
   const tfSecondsRef = useRef(tfSeconds);
   const sortedTradesRef = useRef([]);
   const lastRectRef = useRef({ width: 0, height: 0 });
+  // Referencia al scheduleRender del loop de renderizado (se asigna en el segundo useEffect)
+  const scheduleRenderRef = useRef(null);
   useEffect(() => {
     chartRef.current = chart;
     seriesRef.current = series;
@@ -17,7 +19,16 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
     visibleRef.current = visible;
     tfSecondsRef.current = tfSeconds;
     if (trades) {
-      sortedTradesRef.current = [...trades].sort((a, b) => {
+      sortedTradesRef.current = [...trades].map(t => {
+        let vTime = t.time;
+        if (typeof vTime === 'string') {
+          if (/^\d{2}:\d{2}:\d{2}$/.test(vTime)) return { ...t, _parsedTime: null };
+          let timeStr = vTime.replace(" ", "T");
+          if (!timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
+          vTime = new Date(timeStr).getTime() / 1000;
+        }
+        return { ...t, _parsedTime: vTime };
+      }).sort((a, b) => {
         const aType = a.bt_type === 'cumulative' || a.bt_type === 'agg' ? 1 : 0;
         const bType = b.bt_type === 'cumulative' || b.bt_type === 'agg' ? 1 : 0;
         return aType - bType;
@@ -25,16 +36,18 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
     } else {
       sortedTradesRef.current = [];
     }
+    if (scheduleRenderRef.current) scheduleRenderRef.current();
   }, [chart, series, trades, settings, visible, tfSeconds]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    let animationFrameId;
+    let rafId = null;
+
     const render = () => {
+      rafId = null;
       if (!visibleRef.current || !chartRef.current || !seriesRef.current) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        animationFrameId = requestAnimationFrame(render);
         return;
       }
       const currentChart = chartRef.current;
@@ -44,6 +57,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
       const tfSecs = tfSecondsRef.current || 0;
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
       if (rect.width !== lastRectRef.current.width || rect.height !== lastRectRef.current.height || canvas.width !== rect.width * dpr) {
         lastRectRef.current = { width: rect.width, height: rect.height };
         canvas.width = rect.width * dpr;
@@ -53,23 +67,28 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, currentRect.width, currentRect.height);
       const timeScale = currentChart.timeScale();
+      let minTime = timeScale.coordinateToTime(-200);
+      let maxTime = timeScale.coordinateToTime(rect.width + 200);
+      if (minTime && typeof minTime === 'object') minTime = minTime.timestamp;
+      if (maxTime && typeof maxTime === 'object') maxTime = maxTime.timestamp;
+      if (minTime == null) minTime = 0;
+      if (maxTime == null) maxTime = Infinity;
+
       sortedTrades.forEach((t) => {
-        let vTime = t.time;
-        if (typeof vTime === 'string') {
-          if (/^\d{2}:\d{2}:\d{2}$/.test(vTime)) return;
-          let timeStr = vTime.replace(" ", "T");
-          if (!timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
-          vTime = new Date(timeStr).getTime() / 1000;
-        }
+        if (t._parsedTime === null) return;
+        let vTime = t._parsedTime;
         
         // Alinear al centro de la vela usando el timeframe activo
         if (tfSecs > 0) {
           vTime = Math.floor(vTime / tfSecs) * tfSecs;
         }
+
+        if (vTime < minTime || vTime > maxTime) return;
         
         const x = timeScale.timeToCoordinate(vTime);
+        if (x === null || x < -100 || x > rect.width + 100) return;
         const y = currentSeries.priceToCoordinate(t.price);
-        if (x !== null && y !== null && x >= 0 && x <= rect.width) {
+        if (y !== null) {
           const mode = t.bt_type === 'cumulative' || t.bt_type === 'agg' ? 'cumulative' : 'real';
           const modeSettings = currentSettings?.[mode];
           if (!modeSettings || modeSettings.enabled === false) return;
@@ -138,11 +157,70 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
           ctx.globalAlpha = 1.0;
         }
       });
-      animationFrameId = requestAnimationFrame(render);
     };
-    animationFrameId = requestAnimationFrame(render);
+
+    // Renderizar solo cuando ocurre un evento real (sin loop continuo)
+    
+        let _isDrawing = false;
+        let _needsRedraw = false;
+        const scheduleRender = () => {
+            if (_isDrawing) {
+                _needsRedraw = true;
+                return;
+            }
+            _isDrawing = true;
+            try { render(); } catch(e) {}
+            requestAnimationFrame(() => {
+                _isDrawing = false;
+                if (_needsRedraw) {
+                    _needsRedraw = false;
+                    scheduleRender();
+                }
+            });
+        };
+        
+        let _lastPriceCoord = null;
+        let _lastTimeCoord = null;
+        let _monitorRaf = null;
+        const monitorScale = () => {
+            if (series) {
+                try {
+                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
+                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+                    const tc = logicalRange ? logicalRange.from : null;
+                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                        _lastPriceCoord = pc;
+                        _lastTimeCoord = tc;
+                        scheduleRender();
+                    }
+                } catch(e) {}
+            }
+            _monitorRaf = requestAnimationFrame(monitorScale);
+        };
+        _monitorRaf = requestAnimationFrame(monitorScale);
+
+    
+    scheduleRenderRef.current = scheduleRender;
+
+    // Renderizado inicial
+    scheduleRender();
+
+    if (chartRef.current) {
+      chartRef.current.timeScale().subscribeVisibleLogicalRangeChange(scheduleRender);
+      chartRef.current.timeScale().subscribeVisibleTimeRangeChange(scheduleRender);
+      chartRef.current.subscribeCrosshairMove(scheduleRender);
+      try { currentSeries.priceScale().subscribeVisiblePriceRangeChange(scheduleRender); } catch(_) {}
+    }
+
     return () => {
-      cancelAnimationFrame(animationFrameId);
+            if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
+      if (chartRef.current) {
+        chartRef.current.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleRender);
+        chartRef.current.timeScale().unsubscribeVisibleTimeRangeChange(scheduleRender);
+        chartRef.current.unsubscribeCrosshairMove(scheduleRender);
+        try { currentSeries.priceScale().unsubscribeVisiblePriceRangeChange(scheduleRender); } catch(_) {}
+      }
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []);
   return (

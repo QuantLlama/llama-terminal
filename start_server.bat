@@ -9,7 +9,7 @@ if exist "venv\Scripts\activate.bat" (
 )
 
 REM Start the API server
-echo Starting API server on http://127.0.0.1:8050
+echo Starting API server (default port 8050, will auto-detect free port if in use)
 echo Press Ctrl+C to stop the server
 echo.
 python start_api.py

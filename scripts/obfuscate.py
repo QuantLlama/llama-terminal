@@ -17,7 +17,23 @@ import time
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR  = os.path.join(ROOT_DIR, 'src')
 OBF_DIR  = os.path.join(ROOT_DIR, 'build', 'obf_src')
-PYARMOR  = os.path.join(ROOT_DIR, 'venv', 'Scripts', 'pyarmor.exe')
+is_win = sys.platform == "win32"
+venv_folder = "Scripts" if is_win else "bin"
+pyarmor_name = "pyarmor.exe" if is_win else "pyarmor"
+if not is_win:
+    # Comprobar si hay una ruta alternativa guardada
+    path_file = os.path.join(ROOT_DIR, '.venv_linux_path')
+    if os.path.exists(path_file):
+        with open(path_file, 'r', encoding='utf-8') as f:
+            alt_path = f.read().strip()
+            if alt_path and os.path.exists(alt_path):
+                PYARMOR = os.path.join(alt_path, venv_folder, pyarmor_name)
+            else:
+                PYARMOR = os.path.join(ROOT_DIR, "venv_linux", venv_folder, pyarmor_name)
+    else:
+        PYARMOR = os.path.join(ROOT_DIR, "venv_linux", venv_folder, pyarmor_name)
+else:
+    PYARMOR = os.path.join(ROOT_DIR, "venv", venv_folder, pyarmor_name)
 
 # Critical files to protect with PyArmor (relative to ROOT_DIR, using forward slashes)
 CRITICAL = [
@@ -69,52 +85,89 @@ def copy_src():
 
 
 def obfuscate_critical():
-    """Use PyArmor to obfuscate the critical files, then place results correctly."""
-    print("Running PyArmor on critical files ...")
+    """Use Cython to compile critical files individually to C extensions (.so/.pyd)."""
+    print("Running Cython on critical files ...")
 
-    # PyArmor outputs to a temp dir so we can extract runtime separately
-    temp = os.path.join(OBF_DIR, '_pyarmor_tmp')
+    temp = os.path.join(OBF_DIR, '_cython_tmp')
     os.makedirs(temp, exist_ok=True)
 
-    # Build command: gen -O <output> <file1> <file2> ...
-    # Bypass corrupted pyarmor.exe wrapper on Windows by using module invocation
-    cmd = [sys.executable, '-m', 'pyarmor.cli', 'gen', '-O', temp]
-    for rel in CRITICAL:
-        cmd.append(os.path.join(ROOT_DIR, rel))
-
     env = os.environ.copy()
-    env.pop('PYTHONPATH', None)          # avoid PyArmor picking up wrong platform module
-    print(f"  Command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
-        print(f"\n[FATAL ERROR] PyArmor failed with exit code {result.returncode}")
-        print(f"STDOUT:\n{result.stdout}")
-        print(f"STDERR:\n{result.stderr}")
-        print("\nAborting build to prevent non-obfuscated deployment.")
-        sys.exit(1)
+    env.pop('PYTHONPATH', None)
 
-    # Move obfuscated files to their final positions (overwrite plain copies)
     for rel in CRITICAL:
         fname = os.path.basename(rel)
-        src   = os.path.join(temp, fname)
-        dst   = os.path.join(OBF_DIR, *rel.split('/'))   # OBF_DIR/src/services/auth.py etc.
-        if os.path.exists(src):
-            shutil.copy2(src, dst)
-            print(f"  Protected (PyArmor): {rel}")
+        name_only = os.path.splitext(fname)[0]
+        src_file = os.path.join(ROOT_DIR, rel)
+        
+        if not os.path.exists(src_file):
+            print(f"  WARNING: File to compile not found: {rel}")
+            continue
+
+        # For entry points, we skip Cython compilation because PyInstaller needs .py entry points
+        if fname in ['train.py', 'run.py', 'start_api.py', 'browser_launcher.py']:
+            print(f"  [INFO] Skipping Cython compilation for entry point: {rel}")
+            dst = os.path.join(OBF_DIR, *rel.split('/'))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src_file, dst)
+            continue
+
+        print(f"  Cythonizing {rel} ...")
+        
+        # Ensure Cython is installed in the current venv
+        subprocess.run([sys.executable, '-m', 'pip', 'install', 'cython'], check=True, stdout=subprocess.DEVNULL)
+        
+        # Copy to temp dir first so we don't pollute src/
+        temp_src = os.path.join(temp, fname)
+        shutil.copy2(src_file, temp_src)
+        
+        # Use the venv's cythonize executable to ensure correct ABI (e.g. cpython-311 instead of 314)
+        cythonize_bin = os.path.join(os.path.dirname(sys.executable), 'cythonize')
+        if not os.path.exists(cythonize_bin):
+            cythonize_bin = 'cythonize' # fallback
+            
+        cmd = [cythonize_bin, '-i', '-3', temp_src]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        
+        dst_dir = os.path.join(OBF_DIR, *rel.split('/')[:-1])
+        os.makedirs(dst_dir, exist_ok=True)
+
+        # Look for the generated .so or .pyd
+        compiled_files = [f for f in os.listdir(temp) if f.startswith(name_only + '.') and (f.endswith('.so') or f.endswith('.pyd'))]
+        
+        if result.returncode == 0 and compiled_files:
+            compiled_file = compiled_files[0]
+            compiled_src = os.path.join(temp, compiled_file)
+            
+            # Copy compiled file to destination
+            shutil.copy2(compiled_src, os.path.join(dst_dir, compiled_file))
+            
+            # Remove the plain .py file from OBF_DIR so PyInstaller picks up the compiled version
+            plain_py = os.path.join(dst_dir, fname)
+            if os.path.exists(plain_py):
+                os.remove(plain_py)
+                
+            print(f"    [OK] Compiled (Cython): {rel} -> {compiled_file}")
+            
+            # Clean up temp files for this module
+            for f in os.listdir(temp):
+                item_path = os.path.join(temp, f)
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
         else:
-            print(f"  WARNING: PyArmor did not produce {fname} – keeping plain .py")
+            print(f"    [WARNING] Cython could not compile: {rel}")
+            if result.stderr:
+                print(f"      Error Details: {result.stderr.strip()}")
+            
+            # Fallback
+            plain_dst = os.path.join(dst_dir, fname)
+            shutil.copy2(src_file, plain_dst)
+            print(f"    [INFO] Packaged regular version for {rel}")
 
-    # Copy PyArmor runtime to ROOT of OBF_DIR so it ends up at resources root
-    runtime_name = 'pyarmor_runtime_000000'
-    runtime_src  = os.path.join(temp, runtime_name)
-    if os.path.exists(runtime_src):
-        runtime_dst = os.path.join(OBF_DIR, runtime_name)
-        shutil.copytree(runtime_src, runtime_dst)
-        print(f"  Runtime copied -> {runtime_dst}")
-    else:
-        print("  WARNING: PyArmor runtime folder not found in temp output.")
-
-    shutil.rmtree(temp)
+    if os.path.exists(temp):
+        shutil.rmtree(temp)
 
 
 def copy_extras():

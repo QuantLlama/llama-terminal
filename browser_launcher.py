@@ -6,12 +6,36 @@ import time
 import requests
 
 # Port used by the backend
-API_PORT = 8050
+import socket
+
+def find_running_backend():
+    for port in range(8050, 8060):
+        try:
+            response = requests.get(f"http://127.0.0.1:{port}/api/health", timeout=0.2)
+            if response.status_code == 200:
+                return port
+        except:
+            continue
+    return None
+
+def get_free_port(start_port=8050, max_port=8100):
+    for port in range(start_port, max_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('127.0.0.1', port)) != 0:
+                return port
+    return start_port
+
+API_PORT = find_running_backend()
+if not API_PORT:
+    API_PORT = get_free_port(8050)
+
 API_URL = f"http://127.0.0.1:{API_PORT}"
 
-def is_backend_running():
+def is_backend_running(port=None):
+    if port is None:
+        port = API_PORT
     try:
-        response = requests.get(f"{API_URL}/api/health", timeout=1)
+        response = requests.get(f"http://127.0.0.1:{port}/api/health", timeout=1)
         return response.status_code == 200
     except:
         return False
@@ -58,7 +82,7 @@ def main():
         backend_exe = os.path.join(current_dir, "backend.exe")
         
         if os.path.exists(backend_exe):
-            subprocess.Popen(backend_exe, 
+            subprocess.Popen([backend_exe, "--port", str(API_PORT)], 
                              creationflags=subprocess.CREATE_NO_WINDOW,
                              cwd=current_dir)
             

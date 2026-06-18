@@ -4,6 +4,7 @@ const DeltaGridOverlay = ({ chart, series, data, settings, visible = true, style
   const dataRef = useRef(data);
   const settingsRef = useRef(settings);
   const visibleRef = useRef(visible);
+  const processedCandlesRef = useRef([]);
 
   useEffect(() => {
     dataRef.current = data;
@@ -11,20 +12,52 @@ const DeltaGridOverlay = ({ chart, series, data, settings, visible = true, style
     visibleRef.current = visible;
   }, [data, settings, visible, style]);
 
+  // Pre-process candles when data changes, outside the animation frame
+  useEffect(() => {
+    if (!data || data.length === 0) {
+      processedCandlesRef.current = [];
+      return;
+    }
+    let cum = 0;
+    let md = 0;
+    const result = new Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      const c = data[i];
+      const vol = c.volume || 0;
+      const delta = c.delta || 0;
+      cum += delta;
+      if (Math.abs(delta) > Math.abs(md)) md = delta;
+      let ask = c.ask;
+      let bid = c.bid;
+      if (ask === undefined || bid === undefined) {
+        ask = (vol + delta) / 2;
+        bid = (vol - delta) / 2;
+      }
+      result[i] = {
+        ask, bid, delta,
+        deltaVolPct: vol > 0 ? (delta / vol) * 100 : 0,
+        cumDelta: cum,
+        maxDelta: md,
+        vol,
+        time: c.time,
+        logicalIndex: i
+      };
+    }
+    processedCandlesRef.current = result;
+  }, [data]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !chart) return;
     const ctx = canvas.getContext('2d', { alpha: true });
-    let animationFrameId;
+    let rafId = null;
 
     const render = () => {
+      rafId = null;
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.parentNode.getBoundingClientRect();
       
-      if (rect.width === 0 || rect.height === 0) {
-        animationFrameId = requestAnimationFrame(render);
-        return;
-      }
+      if (rect.width === 0 || rect.height === 0) return;
 
       const canvasWidth = rect.width * dpr;
       const canvasHeight = rect.height * dpr;
@@ -40,16 +73,12 @@ const DeltaGridOverlay = ({ chart, series, data, settings, visible = true, style
       ctx.clearRect(0, 0, rect.width, rect.height);
 
       if (!visibleRef.current || !dataRef.current || dataRef.current.length === 0) {
-        animationFrameId = requestAnimationFrame(render);
         return;
       }
 
       const timeScale = chart.timeScale();
       const visibleRange = timeScale.getVisibleLogicalRange();
-      if (!visibleRange) {
-        animationFrameId = requestAnimationFrame(render);
-        return;
-      }
+      if (!visibleRange) return;
 
       const barSpacing = timeScale.options().barSpacing || 6;
       const cellW = Math.max(2, Math.floor(barSpacing) - 1);
@@ -105,50 +134,12 @@ const DeltaGridOverlay = ({ chart, series, data, settings, visible = true, style
       // We will loop through all data to calculate cumulative values up to the visible range
       // In a highly optimized version, we'd cache this, but for <10k bars it's fast enough in JS
       
-      const candles = dataRef.current;
       const startLogical = Math.floor(visibleRange.from);
       const endLogical = Math.ceil(visibleRange.to);
       
       // Calculate running values
       // Map to store precalculated values so we don't recalculate per frame
-      const processCandles = () => {
-        let cum = 0;
-        let md = 0;
-        const result = new Array(candles.length);
-        for (let i = 0; i < candles.length; i++) {
-          const c = candles[i];
-          const vol = c.volume || 0;
-          const delta = c.delta || 0;
-          
-          cum += delta;
-          if (Math.abs(delta) > Math.abs(md)) md = delta; // approximate max delta tracking
-          
-          let ask = c.ask;
-          let bid = c.bid;
-          if (ask === undefined || bid === undefined) {
-            ask = (vol + delta) / 2;
-            bid = (vol - delta) / 2;
-          }
-          
-          let deltaVolPct = vol > 0 ? (delta / vol) * 100 : 0;
-          
-          result[i] = {
-            ask: ask,
-            bid: bid,
-            delta: delta,
-            deltaVolPct: deltaVolPct,
-            cumDelta: cum,
-            maxDelta: md,
-            vol: vol,
-            time: c.time,
-            logicalIndex: i
-          };
-        }
-        return result;
-      };
-      
-      // In production we'd want to memoize this, but doing it in render for now.
-      const processed = processCandles();
+      const processed = processedCandlesRef.current;
 
       for (let i = Math.max(0, startLogical - 10); i <= Math.min(processed.length - 1, endLogical + 10); i++) {
         const item = processed[i];
@@ -210,12 +201,62 @@ const DeltaGridOverlay = ({ chart, series, data, settings, visible = true, style
         ctx.lineTo(cx + cellW/2, rect.height);
         ctx.stroke();
       }
-
-      animationFrameId = requestAnimationFrame(render);
     };
 
-    animationFrameId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animationFrameId);
+    // Renderizar solo cuando ocurre un evento real (sin loop continuo)
+    
+        let _isDrawing = false;
+        let _needsRedraw = false;
+        const scheduleRender = () => {
+            if (_isDrawing) {
+                _needsRedraw = true;
+                return;
+            }
+            _isDrawing = true;
+            try { render(); } catch(e) {}
+            requestAnimationFrame(() => {
+                _isDrawing = false;
+                if (_needsRedraw) {
+                    _needsRedraw = false;
+                    scheduleRender();
+                }
+            });
+        };
+        
+        let _lastPriceCoord = null;
+        let _lastTimeCoord = null;
+        let _monitorRaf = null;
+        const monitorScale = () => {
+            if (series) {
+                try {
+                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
+                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+                    const tc = logicalRange ? logicalRange.from : null;
+                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                        _lastPriceCoord = pc;
+                        _lastTimeCoord = tc;
+                        scheduleRender();
+                    }
+                } catch(e) {}
+            }
+            _monitorRaf = requestAnimationFrame(monitorScale);
+        };
+        _monitorRaf = requestAnimationFrame(monitorScale);
+
+
+    scheduleRender();
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleRender);
+    chart.timeScale().subscribeVisibleTimeRangeChange(scheduleRender);
+    chart.subscribeCrosshairMove(scheduleRender);
+
+    return () => {
+            if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleRender);
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(scheduleRender);
+      chart.unsubscribeCrosshairMove(scheduleRender);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
   }, [chart]);
 
   return (

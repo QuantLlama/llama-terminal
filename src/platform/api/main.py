@@ -732,7 +732,8 @@ async def get_algorithms():
 INDICATOR_SETTINGS = {
     "imbalance_impulse": {"enabled": False, "config": {}},
     "caza_stop": {"enabled": False, "config": {}},
-    "order_flow": {"enabled": True, "config": {}},  
+    "order_flow": {"enabled": True, "config": {}},
+    "liquidity_heatmap": {"enabled": False, "config": {}},
 }
 @app.get("/api/indicators")
 async def get_indicators():
@@ -2240,7 +2241,7 @@ async def get_vix_live():
 
 @app.get("/api/deals")
 async def get_deals(
-    days: int = Query(30),
+    days: int = Query(365),
     symbol: Optional[str] = Query(None),
     platform: Optional[str] = Query(None)
 ):
@@ -2574,7 +2575,8 @@ async def get_realtime_batch(
             )
             
             if account_info:
-                account_info["daily_pnl"] = daily_pnl
+                account_info["realized_today"] = daily_pnl
+                account_info["daily_pnl"] = daily_pnl + account_info.get("profit", 0.0)
             
             pos_list = []
             if positions:

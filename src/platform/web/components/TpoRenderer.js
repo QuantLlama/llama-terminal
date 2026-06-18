@@ -258,13 +258,60 @@ const TpoRenderer = ({ chart, series, data, settings, visible = true }) => {
           }
         });
       });
-
-      animationFrameId = requestAnimationFrame(render);
     };
 
-    animationFrameId = requestAnimationFrame(render);
+    
+        let _isDrawing = false;
+        let _needsRedraw = false;
+        const scheduleRender = () => {
+            if (_isDrawing) {
+                _needsRedraw = true;
+                return;
+            }
+            _isDrawing = true;
+            try { render(); } catch(e) {}
+            requestAnimationFrame(() => {
+                _isDrawing = false;
+                if (_needsRedraw) {
+                    _needsRedraw = false;
+                    scheduleRender();
+                }
+            });
+        };
+        
+        let _lastPriceCoord = null;
+        let _lastTimeCoord = null;
+        let _monitorRaf = null;
+        const monitorScale = () => {
+            if (series) {
+                try {
+                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
+                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+                    const tc = logicalRange ? logicalRange.from : null;
+                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                        _lastPriceCoord = pc;
+                        _lastTimeCoord = tc;
+                        scheduleRender();
+                    }
+                } catch(e) {}
+            }
+            _monitorRaf = requestAnimationFrame(monitorScale);
+        };
+        _monitorRaf = requestAnimationFrame(monitorScale);
+
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleRender);
+    chart.timeScale().subscribeVisibleTimeRangeChange(scheduleRender);
+    chart.subscribeCrosshairMove(scheduleRender);
+
+    scheduleRender();
+
     return () => {
-      cancelAnimationFrame(animationFrameId);
+            if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleRender);
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(scheduleRender);
+      chart.unsubscribeCrosshairMove(scheduleRender);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [chart, series, profiles, visible]);
 
