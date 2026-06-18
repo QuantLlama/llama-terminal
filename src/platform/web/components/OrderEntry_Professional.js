@@ -1105,21 +1105,22 @@ const OrderEntry_Professional = (props) => {
       ),
       React.createElement("div", { className: "flex items-center gap-3" },
       React.createElement("div", { className: "flex flex-col items-end" },
-      React.createElement("span", {
-        className: `text-[12px] font-black font-mono leading-none mb-1 ${pos.profit >= 0 ? "text-green-400" : "text-red-400"}` },
-      pos.profit >=
-      0 ?
-      "+" :
-      "",
-      pos.profit?.toFixed(2)
-      ),
-      React.createElement("div", { className: "flex items-center gap-1" },
-      React.createElement("div", {
-        className: `w-1 h-1 rounded-full ${pos.profit >= 0 ? "bg-green-500" : "bg-red-500"}` }
-      ),
-      React.createElement("span", { className: "text-[8px] text-muted font-bold uppercase tracking-tighter" }, "USD PnL"
-      )
-      )
+      (() => {
+        const liveProfit = pos.profit !== undefined ? pos.profit : 0;
+        return React.createElement(React.Fragment, null,
+          React.createElement("span", {
+            className: `text-[12px] font-black font-mono leading-none mb-1 ${liveProfit >= 0 ? "text-green-400" : "text-red-400"}` },
+            liveProfit >= 0 ? "+" : "",
+            liveProfit?.toFixed(2)
+          ),
+          React.createElement("div", { className: "flex items-center gap-1" },
+            React.createElement("div", {
+              className: `w-1 h-1 rounded-full ${liveProfit >= 0 ? "bg-green-500" : "bg-red-500"}` }
+            ),
+            React.createElement("span", { className: "text-[8px] text-muted font-bold uppercase tracking-tighter" }, "USD PnL")
+          )
+        );
+      })(),
       ),
       React.createElement("button", {
         onClick: (

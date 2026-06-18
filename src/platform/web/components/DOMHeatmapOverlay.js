@@ -356,24 +356,58 @@ const DOMHeatmapOverlay = ({
             }
         };
 
-        const rafDraw = () => {
-            if (animationId) cancelAnimationFrame(animationId);
-            animationId = requestAnimationFrame(draw);
+        let _isDrawing = false;
+        let _needsRedraw = false;
+        const onEventDraw = () => {
+            if (_isDrawing) {
+                _needsRedraw = true;
+                return;
+            }
+            _isDrawing = true;
+            try { draw(); } catch(e) {}
+            requestAnimationFrame(() => {
+                _isDrawing = false;
+                if (_needsRedraw) {
+                    _needsRedraw = false;
+                    onEventDraw();
+                }
+            });
         };
 
+        let _lastPriceCoord = null;
+        let _lastTimeCoord = null;
+        let _monitorRaf = null;
+        const monitorScale = () => {
+            if (series) {
+                try {
+                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
+                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+                    const tc = logicalRange ? logicalRange.from : null;
+                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                        _lastPriceCoord = pc;
+                        _lastTimeCoord = tc;
+                        onEventDraw();
+                    }
+                } catch(e) {}
+            }
+            _monitorRaf = requestAnimationFrame(monitorScale);
+        };
+        _monitorRaf = requestAnimationFrame(monitorScale);
+
         if (chart) {
-            chart.timeScale().subscribeVisibleTimeRangeChange(rafDraw);
-            chart.subscribeCrosshairMove(rafDraw);
+            chart.timeScale().subscribeVisibleTimeRangeChange(onEventDraw);
+            chart.subscribeCrosshairMove(onEventDraw);
         }
 
         // Initial draw
-        rafDraw();
+        onEventDraw();
 
         return () => {
             if (chart) {
-                chart.timeScale().unsubscribeVisibleTimeRangeChange(rafDraw);
-                chart.unsubscribeCrosshairMove(rafDraw);
+                chart.timeScale().unsubscribeVisibleTimeRangeChange(onEventDraw);
+                chart.unsubscribeCrosshairMove(onEventDraw);
             }
+            if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
             if (animationId) cancelAnimationFrame(animationId);
         };
     }, [

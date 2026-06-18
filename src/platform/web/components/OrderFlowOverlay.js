@@ -1,11 +1,9 @@
 const { useMemo, useEffect, useState, useRef } = React;
 const OrderFlowOverlay = ({ chart, series, data, visible, color = "#3b82f6", width = 2 }) => {
-  const [points, setPoints] = useState([]);
-  const rafId = useRef(null);
-  const lastRangeRef = useRef(null);
+  const pathRef = useRef(null);
   useEffect(() => {
     if (!chart || !series || !data || data.length === 0 || !visible) {
-      setPoints([]);
+      if (pathRef.current) pathRef.current.setAttribute('d', '');
       return;
     }
     const updatePoints = () => {
@@ -55,32 +53,63 @@ const OrderFlowOverlay = ({ chart, series, data, visible, color = "#3b82f6", wid
         const y = series.priceToCoordinate(valAsPrice);
         return { x, y };
       }).filter((p) => p !== null && p.x !== null && p.y !== null);
-      setPoints(newPoints);
-    };
-    const onRangeChange = () => {
-      const range = chart.timeScale().getVisibleLogicalRange();
-      if (lastRangeRef.current &&
-      Math.abs(lastRangeRef.current.from - range.from) < 0.01 &&
-      Math.abs(lastRangeRef.current.to - range.to) < 0.01) {
-        return;
+      const newPathData = newPoints.reduce((acc, p, i) => {
+        return acc + (i === 0 ? `M ${p.x} ${p.y}` : ` L ${p.x} ${p.y}`);
+      }, "");
+      if (pathRef.current) {
+        pathRef.current.setAttribute('d', newPathData);
       }
-      lastRangeRef.current = range;
-      if (rafId.current) cancelAnimationFrame(rafId.current);
-      rafId.current = requestAnimationFrame(updatePoints);
     };
+        let _isDrawing = false;
+        let _needsRedraw = false;
+        const onRangeChange = () => {
+            if (_isDrawing) {
+                _needsRedraw = true;
+                return;
+            }
+            _isDrawing = true;
+            try { updatePoints(); } catch(e) {}
+            requestAnimationFrame(() => {
+                _isDrawing = false;
+                if (_needsRedraw) {
+                    _needsRedraw = false;
+                    onRangeChange();
+                }
+            });
+        };
+        
+        let _lastPriceCoord = null;
+        let _lastTimeCoord = null;
+        let _monitorRaf = null;
+        const monitorScale = () => {
+            if (series) {
+                try {
+                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
+                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+                    const tc = logicalRange ? logicalRange.from : null;
+                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                        _lastPriceCoord = pc;
+                        _lastTimeCoord = tc;
+                        onRangeChange();
+                    }
+                } catch(e) {}
+            }
+            _monitorRaf = requestAnimationFrame(monitorScale);
+        };
+        _monitorRaf = requestAnimationFrame(monitorScale);
+        
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
-    const interval = setInterval(updatePoints, 100);
+    chart.timeScale().subscribeVisibleTimeRangeChange(onRangeChange);
+    chart.subscribeCrosshairMove(onRangeChange);
     updatePoints();
     return () => {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
-      if (rafId.current) cancelAnimationFrame(rafId.current);
-      clearInterval(interval);
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(onRangeChange);
+      chart.unsubscribeCrosshairMove(onRangeChange);
+      if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
     };
   }, [chart, series, data, visible]);
-  if (!visible || points.length < 2) return null;
-  const pathData = points.reduce((acc, p, i) => {
-    return acc + (i === 0 ? `M ${p.x} ${p.y}` : ` L ${p.x} ${p.y}`);
-  }, "");
+  if (!visible) return null;
   return (
     React.createElement("div", { style: {
         position: 'absolute',
@@ -97,7 +126,7 @@ const OrderFlowOverlay = ({ chart, series, data, visible, color = "#3b82f6", wid
       height: "100%",
       style: { overflow: 'visible' } },
     React.createElement("path", {
-      d: pathData,
+      ref: pathRef,
       fill: "none",
       stroke: color,
       strokeWidth: width,

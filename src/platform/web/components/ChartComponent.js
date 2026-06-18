@@ -9,6 +9,7 @@ const DOMHeatmapOverlay = window.DOMHeatmapOverlay;
 const getDefaultChartSettings = window.getDefaultChartSettings;
 const ChartSettingsModal = window.ChartSettingsModal;
 const OrderFlowOverlay = window.OrderFlowOverlay;
+const LiquidityHeatmapOverlay = window.LiquidityHeatmapOverlay;
 const PriceChangeIndicator = window.PriceChangeIndicator;
 
 // Helper: ensure a color string is a valid hex (fallback to #000000)
@@ -712,6 +713,71 @@ const ChartComponent = React.memo(({
       cleanupOrderFlowSeries();
     };
   }, [activeSymbol, activeTimeframe, isChartReady, localLastCandleTime, chartSettings]);
+
+  // ── Liquidity Heatmap: dedicated state and fetch ──
+  const [liquidityHeatmapData, setLiquidityHeatmapData] = useState([]);
+  useEffect(() => {
+    let isMounted = true;
+    let isFetching = false;
+    let fetchTimeout = null;
+    const fetchLiquidityHeatmap = async () => {
+      const lhConfig = chartSettings?.indicators?.liquidity_heatmap || getDefaultChartSettings().indicators.liquidity_heatmap;
+      if (!lhConfig.enabled) {
+        setLiquidityHeatmapData([]);
+        return;
+      }
+      if (isFetching || !chartRef.current || !isMounted) return;
+      isFetching = true;
+      try {
+        const platform = typeof detectPlatformType === "function"
+          ? detectPlatformType()
+          : window.detectPlatformType ? window.detectPlatformType() : localStorage.getItem("broker_platform") || localStorage.getItem("platform") || "futures";
+        let fetchLimit = 2000;
+        try {
+          const storedLimits = JSON.parse(localStorage.getItem('chart_history_limits') || '{}');
+          fetchLimit = Math.min(fetchLimit, storedLimits[activeTimeframe] || 3000);
+        } catch (e) {
+          fetchLimit = 2000;
+        }
+        const url = `/api/indicators/calculate?symbol=${activeSymbol}&timeframe=${activeTimeframe}&limit=${fetchLimit}&platform=${encodeURIComponent(platform)}`;
+        let res = null;
+        for (let i = 0; i < 3; i++) {
+          try {
+            res = await fetch(url);
+            if (res.ok) break;
+          } catch (e) { }
+          if (i < 2) await new Promise((r) => setTimeout(r, 1000));
+        }
+        if (!res || !res.ok || !isMounted) { isFetching = false; return; }
+        const data = await res.json();
+        if (!isMounted) return;
+        if (data.indicators && data.indicators.liquidity_heatmap && data.indicators.liquidity_heatmap.data) {
+          setLiquidityHeatmapData(data.indicators.liquidity_heatmap.data);
+        } else {
+          setLiquidityHeatmapData([]);
+        }
+      } catch (e) {
+        console.error("[LIQUIDITY_HEATMAP] Error:", e);
+      } finally {
+        if (isMounted) isFetching = false;
+      }
+    };
+    fetchLiquidityHeatmap();
+    const handleUpdate = () => {
+      if (fetchTimeout) clearTimeout(fetchTimeout);
+      fetchTimeout = setTimeout(() => {
+        if (isMounted) fetchLiquidityHeatmap();
+      }, 500);
+    };
+    window.addEventListener("cazastop_config_changed", handleUpdate);
+    
+    return () => {
+      isMounted = false;
+      if (fetchTimeout) clearTimeout(fetchTimeout);
+      window.removeEventListener("cazastop_config_changed", handleUpdate);
+    };
+  }, [activeSymbol, activeTimeframe, isChartReady, chartSettings]);
+
   const [llamaParams, setLlamaParams] = useState({ big: null, inbalance: null, caza: null });
   useEffect(() => {
     const handleLlama = (e) => {
@@ -2578,7 +2644,11 @@ const ChartComponent = React.memo(({
         const normTs = bt.timestamp > 1e11 ? bt.timestamp / 1000 : bt.timestamp;
         const newTrade = { ...bt, id, time: Math.floor(normTs / tfSeconds) * tfSeconds, bt_type: bt.bt_type || 'real' };
         const updated = [...prev, newTrade].sort((a, b) => a.time - b.time);
-        const limit = chartSettings?.indicators?.bigTrades?.[newTrade.bt_type]?.displayLimit || 100;
+        
+        // Read safely from ref to avoid dependency array thrashing
+        const currentBTSettings = settingsRef.current?.indicators?.bigTrades;
+        const limit = currentBTSettings?.[newTrade.bt_type]?.displayLimit || 100;
+        
         const filtered = updated.filter((t) => t.bt_type === newTrade.bt_type).slice(-limit);
         const other = updated.filter((t) => t.bt_type !== newTrade.bt_type);
         const final = [...filtered, ...other].sort((a, b) => a.time - b.time);
@@ -2588,7 +2658,7 @@ const ChartComponent = React.memo(({
     };
     window.addEventListener('market_big_trade', handleBackendBigTrade);
     return () => window.removeEventListener('market_big_trade', handleBackendBigTrade);
-  }, [activeSymbol, activeTimeframe, getTimeframeSeconds, chartSettings?.indicators?.bigTrades]);
+  }, [activeSymbol, activeTimeframe, getTimeframeSeconds]);
 
   const handleChartContextMenu = (e) => {
     e.preventDefault();
@@ -3114,6 +3184,14 @@ const ChartComponent = React.memo(({
                 visible: showAllOverlays && (chartSettings?.overlays?.showOrderFlow ?? false),
                 color: chartSettings?.indicators?.orderflow?.cumDeltaColor || "#3b82f6",
                 width: chartSettings?.indicators?.orderflow?.cumDeltaWidth || 2
+              }),
+              React.createElement(LiquidityHeatmapOverlay, {
+                chart: chartRef.current,
+                series: candleSeriesRef.current,
+                data: liquidityHeatmapData,
+                visible: showAllOverlays && (chartSettings?.indicators?.liquidity_heatmap?.enabled ?? false),
+                tickSize: chartSettings?.indicators?.liquidity_heatmap?.tickSize || 0.25,
+                opacity: chartSettings?.indicators?.liquidity_heatmap?.opacity || 0.85
               }),
               (() => {
                 const Overlay = window.TpoRenderer;

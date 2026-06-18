@@ -133,6 +133,7 @@
   <script type="text/babel" src="components/PriceSmoothingOverlay.js?v=2.4.7"></script>
   <script type="text/babel" src="components/UserDrawingOverlay.js?v=2.8.8"></script>
   <script type="text/babel" src="components/OrderFlowOverlay.js?v=2.4.8"></script>
+  <script type="text/babel" src="components/LiquidityHeatmapOverlay.js?v=1.0.0"></script>
   <script type="text/babel" src="components/PositionOverlay.js?v=2.5.1"></script>
   <script type="text/babel" src="components/ChartComponent.js?v=2.7.5"></script>
   <script type="text/babel" src="components/VixCorrelationPanel.js?v=2.4.9"></script>
@@ -1392,7 +1393,6 @@
         lastCandleTime,
         chartType,
         onChartTypeChange,
-        realizedDailyPnl,
         setCurrentPlatform,
         activeWorkspaceName
       } = props;
@@ -1445,7 +1445,9 @@
       const isAfterHours = marketStatus?.session === "AFTER-HOURS" || marketStatus?.session === "CLOSED";
       const isCryptoPlatform = detectPlatformType() === "crypto";
       // The user wants accumulated Daily PNL (Realized + Floating) matching MT5 logic
-      const totalDailyPnl = isCryptoPlatform ? (accountData?.daily_pnl || 0) : (realizedDailyPnl + (accountData?.profit || 0));
+      // We rely directly on the backend's daily_pnl which is already correctly calculated as (realized_today + floating_profit)
+      const acc = accountData || systemStatus?.account || {};
+      const totalDailyPnl = Number(acc.daily_pnl) || 0;
       return (
         React.createElement("div", { className: "h-12 border-b border-border bg-panel flex items-center justify-between px-4 shrink-0 shadow-sm" },
           React.createElement("div", { className: "flex items-center gap-2" },
@@ -2230,6 +2232,9 @@
       const accountBalance = props.accountBalance;
 
       const { useState, useEffect, useRef, useMemo } = React;
+      const [localSymbol, setLocalSymbol] = useState(activeSymbol);
+      useEffect(() => { setLocalSymbol(activeSymbol); }, [activeSymbol]);
+      
       const [allDeals, setAllDeals] = useState([]);
       const [deals, setDeals] = useState([]);
       const [days, setDays] = useState(isModal ? 30 : 0);
@@ -2279,11 +2284,35 @@
           });
         }
       }, [chartMode, chartBg]);
+      // ─── Deal Classification Helpers ───
+      // Trading deals: type=0 (BUY) or type=1 (SELL)
+      const isTradingDeal = (d) => d.type === 0 || d.type === 1;
+      // Balance deals: type=2 (deposits, withdrawals, corrections)
+      const isBalanceDeal = (d) => d.type === 2;
+      // Closing trades: entry=1 (OUT), entry=2 (INOUT), entry=3 (OUT_BY)
+      const isClosingTrade = (d) => isTradingDeal(d) && (d.entry === 1 || d.entry === 2 || d.entry === 3);
+      // Opening trades: entry=0 (IN) — only for commission tracking
+      const isOpeningTrade = (d) => isTradingDeal(d) && d.entry === 0;
+      // Any deal with financial impact for balance reconstruction
+      const isClosingDeal = (d) => isClosingTrade(d) || isBalanceDeal(d);
+      
+      // ─── Helper: get deal commission (uses real broker commission, fallback to estimate for crypto) ───
+      const getDealComm = (d) => {
+        let comm = d.commission || 0;
+        // Only estimate commissions for crypto when broker doesn't provide them
+        if (comm === 0 && platform === "crypto") {
+          const estPrice = d.price || d.price_open || d.price_current || 0;
+          comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
+        }
+        return isNaN(comm) ? 0 : comm;
+      };
       useEffect(() => {
         const fetchDeals = async () => {
           try {
             const platformParam = platform || localStorage.getItem("broker_platform") || "mt5";
-            const rDeals = await fetch(`/api/deals?platform=${platformParam}`);
+            // BUG FIX: se pasa days=9999 para traer todo el historial disponible;
+            // el filtrado por período se hace en el cliente según el selector.
+            const rDeals = await fetch(`/api/deals?platform=${platformParam}&days=9999`);
             if (rDeals.ok) {
               const data = await rDeals.json();
               const fetchedDeals = Array.isArray(data) ? data : data.deals || [];
@@ -2322,14 +2351,19 @@
         if (days === 0) {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
-          startTime = Math.min(today.getTime() / 1000, Date.now() / 1000 - 18 * 3600);
+          const currentPlatform = platform || localStorage.getItem("broker_platform") || "mt5";
+          if (currentPlatform === 'mt5') {
+            startTime = today.getTime() / 1000;
+          } else {
+            startTime = Math.min(today.getTime() / 1000, Date.now() / 1000 - 18 * 3600);
+          }
         } else {
           startTime = Date.now() / 1000 - days * 24 * 3600;
         }
         const filteredByTime = allDeals.filter((d) => d.time >= startTime);
         const filtered = filteredByTime.filter((d) => {
-          if (!activeSymbol) return true;
-          const s1 = activeSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (!localSymbol) return true;
+          const s1 = localSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
           const s2 = (d.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, '');
           let match = s2 === s1 || s2.includes(s1) || s1.includes(s2);
           if (!match && s1.length >= 2 && s2.length >= 2) {
@@ -2343,47 +2377,59 @@
         let symbolProfitInPeriod = 0;
         let commissionInPeriod = 0;
         
-        // Use allDeals (filtered by time only) for balance calculation
+        // ─── Calculate totalProfitInPeriod (ALL symbols) for balance reconstruction ───
+        // This includes: closing trade PnL + opening trade commissions + balance transactions
+        let totalBalanceImpact = 0; // For balance curve startup calculation
         filteredByTime.forEach((d) => {
-          if (d.entry === 1 || d.entry === 2 || d.entry === 3 || (d.profit !== 0 && d.entry !== 0)) {
-             let comm = d.commission || 0;
-             if (comm === 0 && platform === "crypto") {
-                const estPrice = d.price || d.price_open || d.price_current || 0;
-                comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-             }
-             if (isNaN(comm)) comm = 0;
-             const pnl = parseFloat(d.profit) || 0;
-             const swap = parseFloat(d.swap) || 0;
-             totalProfitInPeriod += (pnl + comm + swap);
+          if (isClosingTrade(d)) {
+            // Closing trades contribute: profit + commission + swap
+            const comm = getDealComm(d);
+            totalBalanceImpact += (parseFloat(d.profit) || 0) + comm + (parseFloat(d.swap) || 0);
+          } else if (isOpeningTrade(d)) {
+            // Opening trades only contribute their commission (charged at entry)
+            totalBalanceImpact += getDealComm(d);
+          } else if (isBalanceDeal(d)) {
+            // Balance transactions (deposits/withdrawals) affect the balance curve
+            totalBalanceImpact += (parseFloat(d.profit) || 0);
           }
         });
 
-        // Use filtered deals (by symbol) for symbol metrics
+        // ─── Calculate trading PnL only (for the Net PnL display metric) ───
+        // This EXCLUDES balance transactions (deposits/withdrawals are NOT trading profit)
+        let tradingPnlAllSymbols = 0;
+        filteredByTime.forEach((d) => {
+          if (isClosingTrade(d)) {
+            tradingPnlAllSymbols += (parseFloat(d.profit) || 0) + getDealComm(d) + (parseFloat(d.swap) || 0);
+          } else if (isOpeningTrade(d)) {
+            tradingPnlAllSymbols += getDealComm(d);
+          }
+        });
+
+        // ─── Calculate symbol-specific metrics (when filtering by symbol) ───
         filtered.forEach((d) => {
-          if (d.entry === 1 || d.entry === 2 || d.entry === 3 || (d.profit !== 0 && d.entry !== 0)) {
-            let comm = d.commission || 0;
-            if (comm === 0 && platform === "crypto") {
-               const estPrice = d.price || d.price_open || d.price_current || 0;
-               comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-            }
-            if (isNaN(comm)) comm = 0;
-            const pnl = parseFloat(d.profit) || 0;
-            const swap = parseFloat(d.swap) || 0;
-            symbolProfitInPeriod += (pnl + comm + swap);
+          if (isClosingTrade(d)) {
+            const comm = getDealComm(d);
+            const pnl = (parseFloat(d.profit) || 0) + comm + (parseFloat(d.swap) || 0);
+            symbolProfitInPeriod += pnl;
+            commissionInPeriod += comm;
+          } else if (isOpeningTrade(d)) {
+            const comm = getDealComm(d);
+            symbolProfitInPeriod += comm;
             commissionInPeriod += comm;
           }
         });
 
         const safeBalance = parseFloat(accountBalance) || 0;
-        if (isNaN(totalProfitInPeriod)) totalProfitInPeriod = 0;
+        if (isNaN(totalBalanceImpact)) totalBalanceImpact = 0;
         if (isNaN(symbolProfitInPeriod)) symbolProfitInPeriod = 0;
         if (isNaN(commissionInPeriod)) commissionInPeriod = 0;
-        // Startup = Current Balance - Profit of ALL symbols in the period
-        setInitialBalance(safeBalance - totalProfitInPeriod);
-        setNetProfit(symbolProfitInPeriod);
-        setTotalCommission(commissionInPeriod);
+        // Startup = Current Balance - ALL balance impacts in the period (trading + deposits)
+        setInitialBalance(safeBalance - totalBalanceImpact);
+        // Net PnL = only TRADING profit (no deposits/withdrawals)
+        setNetProfit(localSymbol ? symbolProfitInPeriod : tradingPnlAllSymbols);
+        setTotalCommission(localSymbol ? commissionInPeriod : filteredByTime.reduce((acc, d) => acc + (isTradingDeal(d) ? getDealComm(d) : 0), 0));
         
-        let currentBalance = safeBalance - totalProfitInPeriod;
+        let currentBalance = safeBalance - totalBalanceImpact;
         if (isNaN(currentBalance)) currentBalance = safeBalance;
         let peakBalance = currentBalance;
         let maxDD = 0;
@@ -2396,35 +2442,34 @@
         }
         let lastTime = 0;
         ascDeals.forEach((d) => {
-          if (d.entry === 1 || d.entry === 2 || d.entry === 3) {
-            let comm = d.commission || 0;
-            if (comm >= 0 && platform === "crypto") {
-              const estPrice = d.price || d.price_open || d.price_current || 0;
-              comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-            } else if (comm >= 0) {
-              const estPrice = d.price || d.price_open || 0;
-              comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-            }
-            if (isNaN(comm)) comm = 0;
-            const pnl = parseFloat(d.profit) || 0;
-            const swap = parseFloat(d.swap) || 0;
-            const dealPnl = pnl + comm + swap;
-            currentBalance += dealPnl;
-            
-            // CRITICAL: LightweightCharts requires strictly increasing time
-            let chartTime = d.time;
-            if (chartTime <= lastTime) {
-              chartTime = lastTime + 1; // Offset by 1 second to ensure order
-            }
-            
-            balanceData.push({ time: chartTime, value: currentBalance });
-            if (currentBalance > peakBalance) peakBalance = currentBalance;
-            const dd = peakBalance > 0 ? (peakBalance - currentBalance) / peakBalance * 100 : 0;
-            maxDD = Math.max(maxDD, dd);
-            ddData.push({ time: chartTime, value: dd > 0 ? -dd : 0 });
-            
-            lastTime = chartTime;
+          // Calculate balance impact for closing trades, opening trade commissions, and balance deals
+          let dealBalanceImpact = 0;
+          if (isClosingTrade(d)) {
+            dealBalanceImpact = (parseFloat(d.profit) || 0) + getDealComm(d) + (parseFloat(d.swap) || 0);
+          } else if (isOpeningTrade(d)) {
+            dealBalanceImpact = getDealComm(d);
+          } else if (isBalanceDeal(d)) {
+            dealBalanceImpact = parseFloat(d.profit) || 0;
+          } else {
+            return; // Skip deals with no balance impact
           }
+          if (dealBalanceImpact === 0 && !isBalanceDeal(d)) return; // Skip zero-impact deals
+
+          currentBalance += dealBalanceImpact;
+            
+          // CRITICAL: LightweightCharts requires strictly increasing time
+          let chartTime = d.time;
+          if (chartTime <= lastTime) {
+            chartTime = lastTime + 1; // Offset by 1 second to ensure order
+          }
+            
+          balanceData.push({ time: chartTime, value: currentBalance });
+          if (currentBalance > peakBalance) peakBalance = currentBalance;
+          const dd = peakBalance > 0 ? (peakBalance - currentBalance) / peakBalance * 100 : 0;
+          maxDD = Math.max(maxDD, dd);
+          ddData.push({ time: chartTime, value: dd > 0 ? -dd : 0 });
+            
+          lastTime = chartTime;
         });
 
         if (chartRef.current) {
@@ -2451,17 +2496,13 @@
             drawdownSeriesRef.current.setData(ddData);
             if (isModal) {
               let markerLastTime = 0;
-              const markers = ascDeals.filter((d) => d.entry === 1 || d.entry === 2 || d.entry === 3).map((d) => {
-                let comm = d.commission || 0;
-                if (comm >= 0 && platform === "crypto") {
-                  const estPrice = d.price || d.price_open || d.price_current || 0;
-                  comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-                } else if (comm >= 0) {
-                  const estPrice = d.price || d.price_open || 0;
-                  comm = (estPrice > 0 && !isNaN(estPrice)) ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
+              const markers = ascDeals.filter((d) => isClosingTrade(d) || isBalanceDeal(d)).map((d) => {
+                let p;
+                if (isBalanceDeal(d)) {
+                  p = parseFloat(d.profit) || 0;
+                } else {
+                  p = (parseFloat(d.profit) || 0) + getDealComm(d) + (parseFloat(d.swap) || 0);
                 }
-                if (isNaN(comm)) comm = 0;
-                const p = (parseFloat(d.profit) || 0) + comm + (parseFloat(d.swap) || 0);
                 
                 let mTime = d.time;
                 if (mTime <= markerLastTime) mTime = markerLastTime + 1;
@@ -2470,10 +2511,10 @@
                 return {
                   time: mTime,
                   position: 'aboveBar',
-                  color: p >= 0 ? '#10b981' : '#ef4444',
-                  shape: p >= 0 ? 'arrowUp' : 'arrowDown',
+                  color: isBalanceDeal(d) ? '#3b82f6' : (p >= 0 ? '#10b981' : '#ef4444'),
+                  shape: isBalanceDeal(d) ? 'circle' : (p >= 0 ? 'arrowUp' : 'arrowDown'),
                   size: 0.4,
-                  text: (p >= 0 ? '+' : '') + p.toFixed(2)
+                  text: isBalanceDeal(d) ? ('💰' + (p >= 0 ? '+' : '') + p.toFixed(2)) : ((p >= 0 ? '+' : '') + p.toFixed(2))
                 };
               });
 
@@ -2483,7 +2524,7 @@
           }
         }
         setMaxDrawdown(maxDD);
-      }, [days, activeSymbol, allDeals, accountBalance, chartMode]);
+      }, [days, localSymbol, allDeals, accountBalance, chartMode]);
       useEffect(() => {
         const chart = LightweightCharts.createChart(chartContainerRef.current, {
           layout: { background: { type: 'solid', color: chartBg }, textColor: '#64748b', fontSize: 10 },
@@ -2519,12 +2560,22 @@
               )
             )
           ),
-          React.createElement("div", { className: "px-3 py-2 border-b border-white/5 flex items-center justify-between bg-black/40" },
+          React.createElement("div", { className: "px-3 py-2 border-b border-white/5 flex items-center justify-between bg-black/40 flex-wrap gap-2" },
             React.createElement("div", { className: "flex gap-1" },
               (isModal ? [0, 1, 7, 30, 90, 365] : [0, 1, 7, 30]).map((d) =>
                 React.createElement("button", { key: d, onClick: () => setDays(d), className: `px-2 py-1 text-[9px] font-black rounded transition-all ${days === d ? 'bg-accent text-black' : 'bg-white/5 text-white/40 hover:text-white'}` },
                   d === 0 ? 'TODAY' : `${d}D`
                 )
+              ),
+              // Separator
+              React.createElement("div", { className: "w-px bg-white/10 mx-1 h-5 my-auto" }),
+              // Symbol Toggle
+              React.createElement("button", { 
+                onClick: () => setLocalSymbol(localSymbol ? null : activeSymbol), 
+                className: `px-2 py-1 text-[9px] font-black rounded transition-all flex items-center gap-1 ${!localSymbol ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-white/40 hover:text-white'}` 
+              },
+                React.createElement("i", { className: "fas fa-globe" }),
+                "ALL SYMBOLS"
               )
             ),
             isModal &&
@@ -2579,37 +2630,36 @@
                 )
               ),
               React.createElement("tbody", { className: "divide-y divide-white/5" },
-                deals.filter((d) => d.entry === 1 || d.entry === 2 || d.entry === 3).slice(0, 100).map((d) => {
-                  let comm = d.commission || 0;
-                  if (comm === 0 && platform === "crypto") {
-                    const estPrice = d.price || d.price_open || d.price_current || 0;
-                    comm = estPrice > 0 ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-                  }
-                  if (isNaN(comm)) comm = 0;
-                  const netP = ((d.profit || 0) + comm + (d.swap || 0)) || 0;
+                deals.filter((d) => isClosingTrade(d) || isBalanceDeal(d)).slice(0, 100).map((d) => {
+                  const isBalance = isBalanceDeal(d);
+                  const comm = isBalance ? 0 : getDealComm(d);
+                  const netP = isBalance
+                    ? (parseFloat(d.profit) || 0)
+                    : ((parseFloat(d.profit) || 0) + comm + (parseFloat(d.swap) || 0));
                   
-                  // For MT5: If it's an OUT deal (entry 1), the direction is OPPOSITE of the deal type
-                  // Type 0 = BUY, Type 1 = SELL
-                  let displayType = "BUY";
+                  // Display type for trading deals
+                  let displayType = isBalance ? (netP >= 0 ? "DEP" : "WDR") : "BUY";
                   let isBuy = true;
                   
-                  if (d.entry === 1) { // OUT
-                     isBuy = (d.type === 1); // If closing deal is SELL, original was BUY
-                  } else { // IN or INOUT (usually behaves like IN for the dominant part)
-                     isBuy = (d.type === 0);
+                  if (!isBalance) {
+                    if (d.entry === 1) { // OUT
+                       isBuy = (d.type === 1); // If closing deal is SELL, original was BUY
+                    } else {
+                       isBuy = (d.type === 0);
+                    }
+                    displayType = isBuy ? "BUY" : "SELL";
                   }
-                  displayType = isBuy ? "BUY" : "SELL";
 
                   return (
                     React.createElement("tr", { key: d.ticket, className: "hover:bg-white/[0.02] group transition-colors" },
                       React.createElement("td", { className: "px-4 py-2.5 text-white/30 group-hover:text-white/60" }, formatDate(d.time)),
                       React.createElement("td", { className: "px-2 py-2.5 text-center" },
-                        React.createElement("span", { className: `px-2 py-0.5 rounded-sm font-black text-[9px] ${isBuy ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}` }, displayType)
+                        React.createElement("span", { className: `px-2 py-0.5 rounded-sm font-black text-[9px] ${isBalance ? 'bg-blue-500/10 text-blue-400' : (isBuy ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500')}` }, displayType)
                       ),
-                      React.createElement("td", { className: "px-2 py-2.5 text-white/70 font-bold" }, window.cleanSymbol(d.symbol)),
+                      React.createElement("td", { className: "px-2 py-2.5 text-white/70 font-bold" }, isBalance ? "Balance" : window.cleanSymbol(d.symbol)),
                       React.createElement("td", { className: "px-2 py-2.5 text-right text-white/30 font-mono" }, d.ticket),
                       React.createElement("td", { className: "px-2 py-2.5 text-right text-white/30 font-mono" }, comm.toFixed(2)),
-                      React.createElement("td", { className: `px-4 py-2.5 text-right font-black ${netP >= 0 ? 'text-green-500' : 'text-red-500'}` },
+                      React.createElement("td", { className: `px-4 py-2.5 text-right font-black ${isBalance ? 'text-blue-400' : (netP >= 0 ? 'text-green-500' : 'text-red-500')}` },
                         netP >= 0 ? '+' : '', "$", netP.toFixed(2)
                       )
                     ));
@@ -4908,95 +4958,6 @@
           }, 500);
         }
       }, []);
-      const [realizedDailyPnl, setRealizedDailyPnl] = useState(0);
-      useEffect(() => {
-        const fetchDailyPnlFromHistory = async () => {
-          try {
-            const res = await fetch('/api/deals');
-            if (!res.ok) {
-              return;
-            }
-            const data = await res.json();
-            const deals = data.deals || [];
-            const platform = detectPlatformType();
-            const isCrypto = platform === 'crypto';
-            const nowMs = Date.now();
-            let sessionStartSec;
-            if (isCrypto) {
-              const d = new Date(nowMs);
-              d.setUTCHours(0, 0, 0, 0);
-              sessionStartSec = d.getTime() / 1000;
-            } else {
-              const nyParts = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/New_York',
-                year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', second: '2-digit',
-                hour12: false
-              }).formatToParts(new Date(nowMs));
-              const p = {};
-              nyParts.forEach((part) => { p[part.type] = parseInt(part.value, 10); });
-              const nyHour = p.hour === 24 ? 0 : p.hour;
-              const sessionDay = new Date(nowMs);
-              if (nyHour < 17) {
-                sessionDay.setUTCDate(sessionDay.getUTCDate() - 1);
-              }
-              const sessionNyDate = nyHour >= 17 ?
-                `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}` :
-                (() => {
-                  const yesterday = new Date(nowMs);
-                  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-                  const yp = new Intl.DateTimeFormat('en-US', {
-                    timeZone: 'America/New_York',
-                    year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour12: false
-                  }).formatToParts(yesterday);
-                  const ypp = {};
-                  yp.forEach((part) => { ypp[part.type] = part.value; });
-                  return `${ypp.year}-${ypp.month}-${ypp.day}`;
-                })();
-              const sessionNyStr = `${sessionNyDate}T17:00:00`;
-              const parsedLocal = new Date(sessionNyStr);
-              const nowNyOffset = nowMs - new Date(new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/New_York', hour12: false,
-                year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', second: '2-digit'
-              }).format(new Date(nowMs)).replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, '$3-$1-$2T$4:$5:$6')).getTime();
-              const month = new Date(nowMs).getUTCMonth() + 1;
-              const nyOffsetHours = month >= 3 && month <= 11 ? 4 : 5;
-              const sessionUtcHour = 17 + nyOffsetHours;
-              const nyDateStr = nyHour >= 17 ?
-                `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}` :
-                (() => {
-                  const yest = new Date(Date.UTC(p.year, p.month - 1, p.day) - 86400000);
-                  return `${yest.getUTCFullYear()}-${String(yest.getUTCMonth() + 1).padStart(2, '0')}-${String(yest.getUTCDate()).padStart(2, '0')}`;
-                })();
-              const [sy, sm, sd] = nyDateStr.split('-').map(Number);
-              const sessionStart = new Date(Date.UTC(sy, sm - 1, sd, sessionUtcHour, 0, 0, 0));
-              sessionStartSec = sessionStart.getTime() / 1000;
-            }
-            let realizedProfit = 0;
-            let matchCount = 0;
-            deals.forEach((d) => {
-              const isClose = d.entry === 1 || d.entry === 2;
-              if (d.time >= sessionStartSec && isClose) {
-                let comm = d.commission || 0;
-                if (comm >= 0) {
-                  const estPrice = d.price || d.price_open || d.price_current || 0;
-                  comm = estPrice > 0 ? -calculateCommission(d.symbol, d.volume || 1, estPrice) : 0;
-                }
-                if (isNaN(comm)) comm = 0;
-                realizedProfit += ((d.profit || 0) + comm + (d.swap || 0)) || 0;
-                matchCount++;
-              }
-            });
-            setRealizedDailyPnl(realizedProfit);
-          } catch (e) {
-          }
-        };
-        fetchDailyPnlFromHistory();
-        const interval = setInterval(fetchDailyPnlFromHistory, 15000);
-        return () => clearInterval(interval);
-      }, [activeSymbol]);
       useEffect(() => {
         const handleOpenCalendar = () => setShowCalendar(true);
         const handleOpenTechnical = () => setShowTechnical(true);
@@ -6790,7 +6751,6 @@
                   isPopout: true,
                   chartSettings: popoutSettings,
                   onChartTypeChange: setChartType,
-                  realizedDailyPnl: realizedDailyPnl,
                   onOpenSettings: () =>
                     setChartSettingsOpen(true),
                   onSymbolChange: handleSymbolChange,
@@ -6939,7 +6899,7 @@
           React.createElement(Header, {
             connectionStatus: connectionStatus,
             systemStatus: status,
-            accountData: accountData,
+            accountData: accountData || status?.account || {},
             activeSymbol: activeSymbol,
             activeTF: activeTF,
             onSymbolChange: handleSymbolChange,
@@ -6984,7 +6944,6 @@
             },
             showDom: showDom,
             toggleDom: () => setShowDom((p) => !p),
-            realizedDailyPnl: realizedDailyPnl,
             setCurrentPlatform: handlePlatformChange,
             activeWorkspaceName: activeWorkspaceName
           }

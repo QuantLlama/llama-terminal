@@ -24,9 +24,18 @@ const PerformanceModal = ({ isOpen, onClose }) => {
     const fetchPerformanceData = async () => {
         setLoading(true);
         try {
-            const response = await fetch('/api/deals');
+            // BUG FIX: se pasa days=9999 para traer todo el historial disponible;
+            // el filtrado por período se hace en el cliente.
+            const response = await fetch('/api/deals?days=9999');
             const data = await response.json();
-            setDeals(Array.isArray(data) ? data : []);
+            const rawDeals = Array.isArray(data) ? data : (data.deals || []);
+            // MT5 retorna solo los deals de cierre con profit; filtramos los de entrada
+            const closingDeals = rawDeals.filter((d) => {
+                if (d.entry === 1 || d.entry === 2 || d.entry === 3) return true;
+                if (d.entry === 0 && d.profit !== 0) return true;
+                return false;
+            });
+            setDeals(closingDeals);
         } catch (error) {
             console.error("Error fetching performance data:", error);
         } finally {
@@ -44,8 +53,8 @@ const PerformanceModal = ({ isOpen, onClose }) => {
             averageProfit: 0
         };
 
-        const totalProfit = deals.reduce((acc, deal) => acc + (deal.profit || 0), 0);
-        const winningTrades = deals.filter(deal => (deal.profit || 0) > 0).length;
+        const totalProfit = deals.reduce((acc, deal) => acc + (deal.profit || 0) + (deal.commission || 0) + (deal.swap || 0), 0);
+        const winningTrades = deals.filter(deal => ((deal.profit || 0) + (deal.commission || 0) + (deal.swap || 0)) > 0).length;
         const totalTrades = deals.length;
         const winRate = ((winningTrades / totalTrades) * 100).toFixed(1);
         const averageProfit = totalProfit / totalTrades;
@@ -62,14 +71,14 @@ const PerformanceModal = ({ isOpen, onClose }) => {
 
     const chartData = useMemo(() => {
         let runningProfit = 0;
-        return deals
-            .sort((a, b) => new Date(a.time) - new Date(b.time))
+        return [...deals]
+            .sort((a, b) => (a.time || 0) - (b.time || 0))
             .map(deal => {
-                runningProfit += (deal.profit || 0);
+                runningProfit += (deal.profit || 0) + (deal.commission || 0) + (deal.swap || 0);
                 return {
-                    date: format(new Date(deal.time), 'MM/dd'),
+                    date: deal.time ? format(new Date(deal.time * 1000), 'MM/dd') : '—',
                     profit: parseFloat(runningProfit.toFixed(2)),
-                    fullDate: format(new Date(deal.time), 'yyyy-MM-dd HH:mm')
+                    fullDate: deal.time ? format(new Date(deal.time * 1000), 'yyyy-MM-dd HH:mm') : '—'
                 };
             });
     }, [deals]);

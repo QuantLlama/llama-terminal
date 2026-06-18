@@ -248,7 +248,7 @@ const TapePanel = ({
       const m = computeTapeMetrics();
       setForceBaseline(m.baseline);
       setRollingMomentum(m.momentum);
-    }, 100);
+    }, 500);
     return () => {if (forceTimer.current) clearInterval(forceTimer.current);};
   }, [computeTapeMetrics]);
   useEffect(() => {
@@ -258,7 +258,7 @@ const TapePanel = ({
         sell: sessionSellVol.current,
         total: sessionTotalVol.current
       });
-    }, 200);
+    }, 500);
     return () => {if (statsTimer.current) clearInterval(statsTimer.current);};
   }, []);
   const deltaBarMetrics = useMemo(() => {

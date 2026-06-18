@@ -24,15 +24,12 @@
     ],
     "extraResources": [
       {
-        "from": "build/pyinstaller_dist/backend.exe",
-        "to": "."
-      },
-      {
-        "from": "build/pyinstaller_dist/Trainer.exe",
-        "to": "."
-      },
-      {
-        "from": "build/pyinstaller_dist/BrowserMode.exe",
+        "from": "build/pyinstaller_dist",
+        "filter": [
+          "backend*",
+          "Trainer*",
+          "BrowserMode*"
+        ],
         "to": "."
       },
       {
@@ -75,9 +72,20 @@
       "createStartMenuShortcut": true,
       "include": "nsis/installer.nsh",
       "license": "legal/EULA.txt"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "images/QuantumLLama.png",
+      "category": "Utility"
+    },
+    "deb": {
+      "compression": "gz"
     }
   },
-  "author": "Trae",
+  "author": "Trae <contacto@quantumllama.com>",
   "license": "MIT",
   "devDependencies": {
     "@babel/core": "^7.29.0",

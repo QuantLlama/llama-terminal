@@ -35,10 +35,53 @@ const HistoryPanel = ({ activeSymbol }) => {
       });
     }
   }, [chartMode, chartBg]);
+  const getDealCommission = (d) => {
+    // Si viene la comisión del deal en MT5/CFD/Crypto, la usamos directamente (suele ser negativa)
+    if (d.commission !== undefined && d.commission !== null) {
+      return d.commission;
+    }
+    return 0;
+  };
+
+  const isTradingDeal = (d) => {
+    return d.type === 0 || d.type === 1;
+  };
+
+  const isBalanceTransaction = (d) => {
+    return d.type === 2;
+  };
+
+  const isClosingTradingDeal = (d) => {
+    // Un deal de trading es de cierre si tiene impacto financiero (profit, swap o comisión no nulos)
+    // Esto es mucho más seguro que depender de 'entry', que puede variar según la cuenta de netting/hedging
+    // o el broker, asegurando que el 100% de las ganancias y pérdidas reales se sumen siempre correctamente.
+    return isTradingDeal(d) && ((d.profit || 0) !== 0 || (d.swap || 0) !== 0 || getDealCommission(d) !== 0);
+  };
+
+  const isClosingOrBalanceDeal = (d) => {
+    return isClosingTradingDeal(d) || isBalanceTransaction(d);
+  };
+
+  const getDealBalanceImpact = (d) => {
+    if (isBalanceTransaction(d)) {
+      return d.profit || 0;
+    }
+    if (isClosingTradingDeal(d)) {
+      return (d.profit || 0) + getDealCommission(d) + (d.swap || 0);
+    }
+    return 0;
+  };
+
+  const isClosingDeal = (d) => {
+    return isClosingOrBalanceDeal(d);
+  };
+
   useEffect(() => {
     const fetchDeals = async () => {
       try {
-        const response = await fetch('/api/deals');
+        // BUG FIX: se pasa days=9999 para traer todo el historial disponible;
+        // el filtrado por período se hace en el cliente según el selector.
+        const response = await fetch('/api/deals?days=9999');
         if (response.ok) {
           const data = await response.json();
           const fetchedDeals = Array.isArray(data) ? data : data.deals || [];
@@ -53,14 +96,23 @@ const HistoryPanel = ({ activeSymbol }) => {
     const interval = setInterval(fetchDeals, 10000);
     return () => clearInterval(interval);
   }, []);
+
   useEffect(() => {
     if (allDeals.length === 0) return;
     let profitInPeriod = 0;
     let commissionInPeriod = 0;
     const now = Date.now() / 1000;
     const startTime = now - days * 24 * 60 * 60;
+
+    // 1. Filtrar los deals para el periodo y el símbolo actual
     const filtered = allDeals.filter((d) => {
       const matchesTime = d.time >= startTime;
+
+      // Si es una transacción de balance, sólo incluir si no hay un símbolo activo (vista global de la cuenta)
+      if (isBalanceTransaction(d)) {
+        return matchesTime && !activeSymbol;
+      }
+
       let matchesSymbol = !activeSymbol;
       if (activeSymbol && d.symbol) {
         const s1 = activeSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -74,49 +126,81 @@ const HistoryPanel = ({ activeSymbol }) => {
       }
       return matchesTime && matchesSymbol;
     });
-    const sortedFilteredDeals = filtered.sort((a, b) => b.time - a.time);
+
+    const sortedFilteredDeals = [...filtered].sort((a, b) => b.time - a.time);
     setDeals(sortedFilteredDeals);
+
+    // 2. Calcular PnL y Comisiones sólo de operaciones de trading cerradas en el periodo
     filtered.forEach((d) => {
-      if (d.entry === 1 || d.entry === 2 || d.entry === 3) {
-        let comm = d.commission || 0;
-        if (comm >= 0) {
-          comm = -calculateRoundTripCommission(d.symbol, d.volume || 1);
-        }
-        profitInPeriod += d.profit + comm + (d.swap || 0);
+      if (isClosingTradingDeal(d)) {
+        const comm = getDealCommission(d);
+        profitInPeriod += (d.profit || 0) + comm + (d.swap || 0);
         commissionInPeriod += comm;
       }
     });
-    setInitialBalance(accountBalance - profitInPeriod);
+
     setNetProfit(profitInPeriod);
     setTotalCommission(commissionInPeriod);
-    let currentBalance = accountBalance - profitInPeriod;
+
+    // 3. Reconstruir el Balance Inicial de forma matemática exacta
+    let initialBalanceCalculated = 0;
+    if (activeSymbol) {
+      // Si hay un símbolo activo, el balance de partida es 0 y muestra el PnL acumulado
+      initialBalanceCalculated = 0;
+    } else {
+      // Si es la cuenta completa, retrocedemos desde el balance actual restando todos los impactos
+      // de todos los deals de la cuenta que ocurrieron desde el inicio del período hasta el momento actual.
+      // Así el balance final del gráfico calzará al centavo con el balance actual de la cuenta.
+      let tempBalance = accountBalance;
+      const dealsForReconstruction = allDeals.filter((d) => d.time >= startTime);
+      const descDeals = [...dealsForReconstruction].sort((a, b) => {
+        if (b.time !== a.time) return b.time - a.time;
+        return (b.ticket || 0) - (a.ticket || 0);
+      });
+      
+      descDeals.forEach((d) => {
+        tempBalance -= getDealBalanceImpact(d);
+      });
+      initialBalanceCalculated = tempBalance;
+    }
+
+    setInitialBalance(initialBalanceCalculated);
+
+    // 4. Construir curva de balance y drawdown en orden cronológico (ascendente)
+    let currentBalance = initialBalanceCalculated;
     let peakBalance = currentBalance;
     let maxDD = 0;
     const balanceChartData = [];
     const drawdownChartData = [];
+
     const ascFilteredDeals = [...filtered].sort((a, b) => {
       if (a.time !== b.time) return a.time - b.time;
       return (a.ticket || 0) - (b.ticket || 0);
     });
+
     if (ascFilteredDeals.length > 0) {
       balanceChartData.push({ time: ascFilteredDeals[0].time, value: currentBalance });
       drawdownChartData.push({ time: ascFilteredDeals[0].time, value: 0 });
     }
+
     ascFilteredDeals.forEach((d, idx) => {
-      if (d.entry === 1 || d.entry === 2 || d.entry === 3) {
-        currentBalance += d.profit + (d.commission || 0) + (d.swap || 0);
+      if (isClosingOrBalanceDeal(d)) {
+        currentBalance += getDealBalanceImpact(d);
         let adjustedTime = d.time;
         if (idx > 0 && adjustedTime <= balanceChartData[balanceChartData.length - 1].time) {
           adjustedTime = balanceChartData[balanceChartData.length - 1].time + 1;
         }
         d._adjustedTime = adjustedTime;
         balanceChartData.push({ time: adjustedTime, value: currentBalance });
+
         if (currentBalance > peakBalance) peakBalance = currentBalance;
-        const drawdown = peakBalance > 0 ? (peakBalance - currentBalance) / peakBalance * 100 : 0;
+        const drawdown = peakBalance > 0 ? ((peakBalance - currentBalance) / peakBalance) * 100 : 0;
         maxDD = Math.max(maxDD, drawdown);
         drawdownChartData.push({ time: adjustedTime, value: drawdown > 0 ? -drawdown : 0 });
       }
     });
+
+    // 5. Dibujar en el gráfico
     if (chartRef.current) {
       if (balanceSeriesRef.current) {
         chartRef.current.removeSeries(balanceSeriesRef.current);
@@ -142,20 +226,25 @@ const HistoryPanel = ({ activeSymbol }) => {
       });
       chartRef.current.priceScale('balance_scale').applyOptions({ autoScale: true, visible: true, borderColor: '#fbbf24' });
       chartRef.current.priceScale('drawdown_scale').applyOptions({ autoScale: true, visible: true, borderColor: '#ef4444' });
+
       if (balanceChartData.length > 0) {
         balanceSeriesRef.current.setData(balanceChartData);
         drawdownSeriesRef.current.setData(drawdownChartData);
-        const markers = ascFilteredDeals.filter((d) => d.entry === 1 || d.entry === 2 || d.entry === 3).map((d) => {
-          const p = d.profit + (d.commission || 0) + (d.swap || 0);
-          return {
-            time: d._adjustedTime || d.time,
-            position: 'aboveBar',
-            color: p >= 0 ? '#10b981' : '#ef4444',
-            shape: p >= 0 ? 'arrowUp' : 'arrowDown',
-            size: 0.4,
-            text: (p >= 0 ? '+' : '') + p.toFixed(2)
-          };
-        });
+        
+        // Marcadores de ganancias/pérdidas (sólo para operaciones de trading cerradas)
+        const markers = ascFilteredDeals
+          .filter((d) => isClosingTradingDeal(d))
+          .map((d) => {
+            const p = (d.profit || 0) + getDealCommission(d) + (d.swap || 0);
+            return {
+              time: d._adjustedTime || d.time,
+              position: 'aboveBar',
+              color: p >= 0 ? '#10b981' : '#ef4444',
+              shape: p >= 0 ? 'arrowUp' : 'arrowDown',
+              size: 0.4,
+              text: (p >= 0 ? '+' : '') + p.toFixed(2)
+            };
+          });
         balanceSeriesRef.current.setMarkers(markers);
         chartRef.current.timeScale().fitContent();
       }
@@ -255,23 +344,29 @@ const HistoryPanel = ({ activeSymbol }) => {
     )
     ),
     React.createElement("tbody", { className: "divide-y divide-white/5" },
-    deals.filter((d) => d.entry === 1 || d.entry === 2 || d.entry === 3).map((d) => {
-      let comm = d.commission || 0;
-      if (comm >= 0) {
-        comm = -calculateRoundTripCommission(d.symbol, d.volume || 1);
+    deals.filter((d) => isClosingOrBalanceDeal(d)).map((d) => {
+      const isBal = isBalanceTransaction(d);
+      let comm = 0;
+      let netP = 0;
+      if (isBal) {
+        netP = d.profit || 0;
+      } else {
+        comm = getDealCommission(d);
+        netP = (d.profit || 0) + comm + (d.swap || 0);
       }
-      const netP = d.profit + comm + (d.swap || 0);
       return (
         React.createElement("tr", { key: d.ticket, className: "hover:bg-white/5 transition-colors group" },
         React.createElement("td", { className: "px-3 py-1.5 text-white/40 group-hover:text-white/70" }, formatDate(d.time)),
         React.createElement("td", { className: "px-1 py-1.5 text-center" },
-        React.createElement("span", { className: `px-1.5 py-0.5 rounded-xs font-black ${d.type === 0 ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}` },
-        d.type === 0 ? 'BUY' : 'SELL'
-        )
+        isBal ? 
+          React.createElement("span", { className: "px-1.5 py-0.5 rounded-xs font-black bg-blue-500/10 text-blue-400 text-[8px]" }, "BALANCE") :
+          React.createElement("span", { className: `px-1.5 py-0.5 rounded-xs font-black ${d.type === 0 ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}` },
+          d.type === 0 ? 'BUY' : 'SELL'
+          )
         ),
-        React.createElement("td", { className: "px-2 py-1.5 text-white/80 font-bold" }, d.symbol),
+        React.createElement("td", { className: `px-2 py-1.5 font-bold ${isBal ? 'text-white/30 font-normal italic' : 'text-white/80'}` }, isBal ? 'Balance' : d.symbol),
         React.createElement("td", { className: "px-2 py-1.5 text-right text-white/30 font-mono" }, d.ticket),
-        React.createElement("td", { className: "px-2 py-1.5 text-right text-white/30 font-mono" }, comm.toFixed(2)),
+        React.createElement("td", { className: "px-2 py-1.5 text-right text-white/30 font-mono" }, isBal ? '—' : comm.toFixed(2)),
         React.createElement("td", { className: `px-3 py-1.5 text-right font-black ${netP >= 0 ? 'text-success' : 'text-danger'}` },
         netP >= 0 ? '+' : '', netP.toFixed(2)
         )

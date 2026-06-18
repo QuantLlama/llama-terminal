@@ -6,7 +6,13 @@ const fs = require('fs');
 const jscPath = path.join(__dirname, 'preload.jsc');
 
 if (fs.existsSync(jscPath)) {
-  require(jscPath);
+  try {
+    require('v8').setFlagsFromString('--no-lazy');
+    require(jscPath);
+  } catch (e) {
+    console.error('Failed to load preload.jsc, falling back to source', e);
+    require('./preload.js');
+  }
 } else {
   // Fallback for development if this loader is somehow called
   require('./preload.js');

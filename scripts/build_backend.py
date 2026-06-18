@@ -13,7 +13,18 @@ def get_venv_python():
     is_win = sys.platform == "win32"
     executable = "python.exe" if is_win else "python"
     subfolder = "Scripts" if is_win else "bin"
-    return os.path.join(ROOT, 'venv', subfolder, executable)
+    if not is_win:
+        # Comprobar si hay una ruta alternativa guardada
+        path_file = os.path.join(ROOT, '.venv_linux_path')
+        if os.path.exists(path_file):
+            with open(path_file, 'r', encoding='utf-8') as f:
+                alt_path = f.read().strip()
+                if alt_path and os.path.exists(alt_path):
+                    return os.path.join(alt_path, subfolder, executable)
+        venv_name = "venv_linux"
+    else:
+        venv_name = "venv"
+    return os.path.join(ROOT, venv_name, subfolder, executable)
 
 VENV_PYTHON = get_venv_python()
 OBF_DIR = os.path.join(ROOT, 'build', 'obf_src')
@@ -135,12 +146,13 @@ def build_target(script_name, exe_name, hide_console=False,
     finally:
         sys.argv = old_argv
 
-    exe_path = os.path.join(ROOT, 'build', 'pyinstaller_dist', f'{exe_name}.exe')
+    ext = '.exe' if sys.platform == 'win32' else ''
+    exe_path = os.path.join(ROOT, 'build', 'pyinstaller_dist', f'{exe_name}{ext}')
     if os.path.exists(exe_path):
         size_mb = os.path.getsize(exe_path) / (1024 * 1024)
-        print(f"[OK] {exe_name}.exe created - Size: {size_mb:.1f} MB")
+        print(f"[OK] {exe_name}{ext} created - Size: {size_mb:.1f} MB")
     else:
-        print(f"\nERROR: PyInstaller failed for {exe_name}")
+        print(f"\nERROR: PyInstaller failed for {exe_name}{ext}")
         sys.exit(1)
 
 def generate_all_icons():

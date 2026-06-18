@@ -152,11 +152,63 @@ const FootprintRenderer = (() => {
       this._resizeObs = new ResizeObserver(() => this._syncSize());
       this._resizeObs.observe(container);
       this._isRunning = true;
-      this._tick();
+      
+      let _isDrawing = false;
+      let _needsRedraw = false;
+      this.scheduleRender = () => {
+        if (!this._isRunning) return;
+        if (_isDrawing) {
+            _needsRedraw = true;
+            return;
+        }
+        _isDrawing = true;
+        try { this._renderFrame(); } catch (e) { console.error('[FP v4.0]', e); }
+        requestAnimationFrame(() => {
+            _isDrawing = false;
+            if (_needsRedraw) {
+                _needsRedraw = false;
+                this.scheduleRender();
+            }
+        });
+      };
+      
+      this._monitorRaf = null;
+      let _lastPriceCoord = null;
+      let _lastTimeCoord = null;
+      const monitorScale = () => {
+        if (!this._isRunning) return;
+        if (this.series) {
+            try {
+                const pc = this.series.priceToCoordinate(0) || this.series.priceToCoordinate(100);
+                const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
+                const tc = logicalRange ? logicalRange.from : null;
+                if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                    _lastPriceCoord = pc;
+                    _lastTimeCoord = tc;
+                    this.scheduleRender();
+                }
+            } catch(e) {}
+        }
+        this._monitorRaf = requestAnimationFrame(monitorScale);
+      };
+      this._monitorRaf = requestAnimationFrame(monitorScale);
+      
+      if (this.chart) {
+        this.chart.timeScale().subscribeVisibleLogicalRangeChange(this.scheduleRender);
+        this.chart.timeScale().subscribeVisibleTimeRangeChange(this.scheduleRender);
+        this.chart.subscribeCrosshairMove(this.scheduleRender);
+      }
+      this.scheduleRender();
     }
     destroy() {
       this._isRunning = false;
-      if (this._rafId) cancelAnimationFrame(this._rafId);
+      if (this._monitorRaf) cancelAnimationFrame(this._monitorRaf);
+      if (this.chart && this.scheduleRender) {
+        this.chart.timeScale().unsubscribeVisibleLogicalRangeChange(this.scheduleRender);
+        this.chart.timeScale().unsubscribeVisibleTimeRangeChange(this.scheduleRender);
+        this.chart.unsubscribeCrosshairMove(this.scheduleRender);
+      }
+      if (this._rafId !== null) cancelAnimationFrame(this._rafId);
       if (this._resizeObs) this._resizeObs.disconnect();
       if (this.canvas?.parentNode) this.canvas.parentNode.removeChild(this.canvas);
       this.canvas = null; this.ctx = null;
@@ -239,6 +291,7 @@ const FootprintRenderer = (() => {
     }
     setLivePrice(price) {
       this.lastPrice = price;
+      if (this.scheduleRender) this.scheduleRender();
     }
     setPriceLineConfig(cfg) {
       if (!cfg) return;
@@ -269,10 +322,13 @@ const FootprintRenderer = (() => {
     setEnabled(v) {
       this.enabled = v;
       if (this.canvas) this.canvas.style.display = v ? 'block' : 'none';
-      if (v) this._invalidateBg();
+      if (v) { this._invalidateBg(); }
     }
     _draw() { this._invalidateBg(); }
-    _invalidateBg() { this._bgKey = ''; }
+    _invalidateBg() { 
+      this._bgKey = ''; 
+      if (this.scheduleRender) this.scheduleRender();
+    }
     _syncSize() {
       if (!this.canvas) return;
       const dpr = window.devicePixelRatio || 1;
@@ -290,9 +346,8 @@ const FootprintRenderer = (() => {
       this._invalidateBg();
     }
     _tick() {
-      if (!this._isRunning) return;
-      try { this._renderFrame(); } catch (e) { console.error('[FP v4.0]', e); }
-      this._rafId = requestAnimationFrame(() => this._tick());
+      // Retained for backward compatibility if called manually
+      if (this.scheduleRender) this.scheduleRender();
     }
     _buildTransform(H) {
       const s = this.mainSeries;

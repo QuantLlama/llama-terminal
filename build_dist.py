@@ -87,7 +87,12 @@ def cleanup_dev_files(target_dir):
 def run_nuitka():
     print("--- Running Nuitka Compilation (Obfuscation + Standalone) ---")
     
-    python_exe = os.path.join("venv", "Scripts", "python.exe")
+    is_win = sys.platform == "win32"
+    if is_win:
+        python_exe = os.path.join("venv", "Scripts", "python.exe")
+    else:
+        python_exe = os.path.join("venv_linux", "bin", "python")
+        
     if not os.path.exists(python_exe):
         python_exe = sys.executable
 
@@ -95,8 +100,6 @@ def run_nuitka():
         python_exe, "-m", "nuitka",
         "--standalone",
         "--onefile",
-        "--windows-disable-console",
-        f"--windows-icon-from-ico=images/QuantumLLama.ico" if os.path.exists("images/QuantumLLama.ico") else "",
         "--plugin-enable=tk-inter",
         "--plugin-enable=numpy",
         "--include-package=fastapi",
@@ -104,9 +107,20 @@ def run_nuitka():
         "--include-package=supabase",
         "--output-dir=" + DIST_DIR,
         "--output-filename=" + APP_NAME,
-        f"--onefile-tempdir-spec={{TEMP}}/nuitka_{APP_NAME}",
         MAIN_SCRIPT
     ]
+
+    if is_win:
+        cmd.extend([
+            "--windows-disable-console",
+            f"--windows-icon-from-ico=images/QuantumLLama.ico" if os.path.exists("images/QuantumLLama.ico") else "",
+            f"--onefile-tempdir-spec={{TEMP}}/nuitka_{APP_NAME}"
+        ])
+    else:
+        cmd.extend([
+            f"--linux-icon=images/QuantumLLama.png" if os.path.exists("images/QuantumLLama.png") else "",
+            f"--onefile-tempdir-spec=/tmp/nuitka_{APP_NAME}"
+        ])
     
     # Remove empty arguments
     cmd = [c for c in cmd if c]
