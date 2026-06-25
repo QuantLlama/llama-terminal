@@ -1,3 +1,30 @@
+const _normalizeBigTradeTime = (trade) => {
+  if (!trade) return null;
+
+  const normalizeNumber = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
+    return numeric > 1e11 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+  };
+
+  const timestamp = normalizeNumber(trade.timestamp);
+  if (timestamp !== null) return timestamp;
+
+  const rawTime = trade.time;
+  if (typeof rawTime === 'number') {
+    return normalizeNumber(rawTime);
+  }
+
+  if (typeof rawTime === 'string') {
+    const trimmed = rawTime.trim();
+    if (/^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/.test(trimmed)) return null;
+    const parsed = new Date(trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T')).getTime();
+    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed / 1000);
+  }
+
+  return null;
+};
+
 const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSeconds = 0 }) => {
   const { useEffect, useRef } = React;
   const canvasRef = useRef(null);
@@ -20,14 +47,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
     tfSecondsRef.current = tfSeconds;
     if (trades) {
       sortedTradesRef.current = [...trades].map(t => {
-        let vTime = t.time;
-        if (typeof vTime === 'string') {
-          if (/^\d{2}:\d{2}:\d{2}$/.test(vTime)) return { ...t, _parsedTime: null };
-          let timeStr = vTime.replace(" ", "T");
-          if (!timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
-          vTime = new Date(timeStr).getTime() / 1000;
-        }
-        return { ...t, _parsedTime: vTime };
+        return { ...t, _parsedTime: _normalizeBigTradeTime(t) };
       }).sort((a, b) => {
         const aType = a.bt_type === 'cumulative' || a.bt_type === 'agg' ? 1 : 0;
         const bType = b.bt_type === 'cumulative' || b.bt_type === 'agg' ? 1 : 0;
@@ -77,14 +97,14 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
       sortedTrades.forEach((t) => {
         if (t._parsedTime === null) return;
         let vTime = t._parsedTime;
-        
+
         // Alinear al centro de la vela usando el timeframe activo
         if (tfSecs > 0) {
           vTime = Math.floor(vTime / tfSecs) * tfSecs;
         }
 
         if (vTime < minTime || vTime > maxTime) return;
-        
+
         const x = timeScale.timeToCoordinate(vTime);
         if (x === null || x < -100 || x > rect.width + 100) return;
         const y = currentSeries.priceToCoordinate(t.price);
@@ -105,7 +125,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
           const baseR = Math.max(6, Math.log10(vol + 1) * 8);
           const r = baseR * scale;
           const isAbs = t.isAbsorption;
-          
+
           ctx.beginPath();
           if (isAbs) {
             ctx.moveTo(x, y - r * 1.3);
@@ -116,11 +136,11 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
           } else {
             ctx.arc(x, y, r, 0, 2 * Math.PI);
           }
-          
+
           ctx.fillStyle = color;
           ctx.globalAlpha = isAbs ? Math.min(1.0, opacity + 0.3) : opacity;
           ctx.fill();
-          
+
           if (isAbs) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.lineWidth = 3;
@@ -160,7 +180,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
     };
 
     // Renderizar solo cuando ocurre un evento real (sin loop continuo)
-    
+
         let _isDrawing = false;
         let _needsRedraw = false;
         const scheduleRender = () => {
@@ -178,7 +198,17 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
                 }
             });
         };
-        
+
+        const triggerRender = () => scheduleRender();
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== 'undefined' && canvas.parentElement) {
+            resizeObserver = new ResizeObserver(triggerRender);
+            resizeObserver.observe(canvas.parentElement);
+        }
+        window.addEventListener('resize', triggerRender);
+        window.addEventListener('focus', triggerRender);
+        document.addEventListener('visibilitychange', triggerRender);
+
         let _lastPriceCoord = null;
         let _lastTimeCoord = null;
         let _monitorRaf = null;
@@ -199,7 +229,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
         };
         _monitorRaf = requestAnimationFrame(monitorScale);
 
-    
+
     scheduleRenderRef.current = scheduleRender;
 
     // Renderizado inicial
@@ -214,6 +244,10 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
 
     return () => {
             if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', triggerRender);
+      window.removeEventListener('focus', triggerRender);
+      document.removeEventListener('visibilitychange', triggerRender);
       if (chartRef.current) {
         chartRef.current.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleRender);
         chartRef.current.timeScale().unsubscribeVisibleTimeRangeChange(scheduleRender);
