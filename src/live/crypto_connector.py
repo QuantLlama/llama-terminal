@@ -48,6 +48,8 @@ class CryptoConnector:
             return
         self.account_id = account_id
         self.exchange_id = exchange_id.lower()
+        if self.exchange_id == "bitmex":
+            raise ValueError("BitMEX support has been removed")
         self.test_mode = test_mode
         self.connected = False
         self._last_connect_time = 0
@@ -101,6 +103,11 @@ class CryptoConnector:
             # BingX-specific: use the correct API version for perpetuals
             config['options']['fetchMarkets'] = ['spot', 'swap']
             logger.info(f"[CRYPTO] Initializing BingX Perpetuals (PERPETUALS ONLY) for {account_id}")
+        elif self.exchange_id == 'bitmex':
+            # BitMEX: Inverse perpetual swaps (BTC/USD:BTC, ETH/USD:ETH, etc.)
+            # BitMEX does NOT have USDT-margined products; all are inverse/quanto
+            config['options']['defaultType'] = 'swap'
+            logger.info(f"[CRYPTO] Initializing BitMEX Perpetuals (INVERSE SWAPS) for {account_id}")
 
         try:
             exchange_class = getattr(ccxt, self.exchange_id)
@@ -894,14 +901,27 @@ class CryptoConnector:
         self.connected = False
 
     def get_current_price(self, symbol: str) -> float:
+        now = time.time()
+        cache_key = f"current_price_{symbol}"
+
+        # BitMEX is especially sensitive to request bursts; reuse the same
+        # short market cache window we already apply to tick data.
+        if cache_key in self._cache and (now - self._cache[cache_key]['ts'] < self._market_ttl):
+            return float(self._cache[cache_key]['data'])
+
         try:
             # We use fetch_ticker as it's the fastest way to get current price in CCXT
             fetch_sym = self._resolve_sym(symbol)
+            if not fetch_sym:
+                return 0.0
             ticker = self.exchange.fetch_ticker(fetch_sym)
-            return float(ticker.get('last') or ticker.get('close') or ticker.get('markPrice') or 0)
+            price = float(ticker.get('last') or ticker.get('close') or ticker.get('markPrice') or 0)
+            self._cache[cache_key] = {'data': price, 'ts': now}
+            self._sticky_market_data[cache_key] = price
+            return price
         except Exception as e:
             logger.error(f"[{self.exchange_id}] Error fetching current price for {symbol}: {e}")
-            return 0.0
+            return float(self._sticky_market_data.get(cache_key, 0.0))
     def get_positions(self, symbol: str = None, force_fetch: bool = False) -> List[Dict]:
         """Fetch all open positions (long and short) from the exchange."""
         now = datetime.now().timestamp()
@@ -982,6 +1002,17 @@ class CryptoConnector:
                     # Unified format: BASEQUOTE
                     f"{base}{quote}",
                 ]
+
+                if self.exchange_id == 'bitmex':
+                    # BitMEX perpetuals are usually inverse swaps such as XBTUSD.
+                    # Prefer direct inverse variants before the generic crypto ones.
+                    bitmex_base = 'XBT' if base == 'XBT' else base
+                    perpetual_variants = [
+                        f"{bitmex_base}USD",
+                        f"{bitmex_base}/USD",
+                        f"{bitmex_base}/USD:BTC",
+                        f"{bitmex_base}USD:USD",
+                    ] + perpetual_variants
                 
                 for v in perpetual_variants:
                     # Check exact match first
@@ -1071,16 +1102,6 @@ class CryptoConnector:
             self._handle_api_error(e)
             logger.error(f"Error fetching tick for {symbol} on {self.exchange_id}: {e}")
             return self._sticky_market_data.get(cache_key, {"symbol": symbol, "bid": 0.0, "ask": 0.0, "last": 0.0, "time": now})
-            # Log every 50th tick for debugging
-            if not hasattr(self, '_tick_count'):
-                self._tick_count = 0
-            self._tick_count += 1
-            if self._tick_count % 50 == 1:
-                logger.info(f"[{self.exchange_id}] Tick for {fetch_sym}: last={result['last']} bid={result['bid']} ask={result['ask']}")
-            return result
-        except Exception as e:
-            logger.error(f"Error fetching tick for {symbol} on {self.exchange_id}: {e}")
-            return {}
     def get_ohlcv(self, symbol: str, timeframe: str = '1m', limit: int = 100) -> List[List]:
         """
         Fetch historical bars with pagination support for large requests.
@@ -1105,70 +1126,68 @@ class CryptoConnector:
                     return self._cache[cache_key]['data']
 
                 fetch_sym = self._resolve_sym(symbol)
-                if not fetch_sym: return []
-                
+                if not fetch_sym:
+                    return []
+
                 all_ohlcv = []
-            remaining = limit
-            
-            # Standard exchange limit per request is usually 500-1000
-            batch_limit = min(remaining, 1000)
-            
-            # Safety: Max iterations to prevent infinite loops
-            max_iterations = 10
-            iterations = 0
-            
-            # Since parameter (timestamp in ms)
-            current_since = None
-            
-            while remaining > 0 and iterations < max_iterations:
-                iterations += 1
-                try:
-                    # Fetch batch. If current_since is None, most exchanges return recent candles.
-                    # Note: We work backwards if we have a previous batch.
-                    # CCXT fetch_ohlcv(symbol, timeframe, since, limit)
-                    ohlcv = self.exchange.fetch_ohlcv(fetch_sym, timeframe, since=current_since, limit=batch_limit)
-                    
-                    if not ohlcv:
+                remaining = limit
+
+                # Standard exchange limit per request is usually 500-1000
+                batch_limit = min(remaining, 1000)
+
+                # Safety: Max iterations to prevent infinite loops
+                max_iterations = 10
+                iterations = 0
+
+                # Since parameter (timestamp in ms)
+                current_since = None
+
+                while remaining > 0 and iterations < max_iterations:
+                    iterations += 1
+                    try:
+                        # Fetch batch. If current_since is None, most exchanges return recent candles.
+                        # Note: We work backwards if we have a previous batch.
+                        # CCXT fetch_ohlcv(symbol, timeframe, since, limit)
+                        ohlcv = self.exchange.fetch_ohlcv(fetch_sym, timeframe, since=current_since, limit=batch_limit)
+
+                        if not ohlcv:
+                            break
+
+                        # If this is the first batch and we didn't provide 'since', it's the MOST RECENT
+                        # To get older data, we need to calculate 'since' for the next batch
+                        if current_since is None:
+                            all_ohlcv = ohlcv + all_ohlcv
+                            # Calculate 'since' for the previous batch based on the first candle of this batch
+                            tf_ms = self.exchange.parse_timeframe(timeframe) * 1000
+                            current_since = ohlcv[0][0] - (batch_limit * tf_ms)
+                        else:
+                            # Prepend historical bars (ensure no overlaps if the exchange is weird)
+                            existing_timestamps = {bar[0] for bar in all_ohlcv}
+                            new_bars = [bar for bar in ohlcv if bar[0] not in existing_timestamps]
+                            all_ohlcv = new_bars + all_ohlcv
+
+                            # Move 'since' further back
+                            tf_ms = self.exchange.parse_timeframe(timeframe) * 1000
+                            current_since = ohlcv[0][0] - (batch_limit * tf_ms)
+
+                        remaining -= len(ohlcv)
+                        batch_limit = min(remaining, 1000)
+
+                        # If the exchange returned fewer than requested, we might be at the end of available history
+                        if len(ohlcv) < 10:
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"[{self.exchange_id}] Batch fetch failed at iteration {iterations}: {e}")
                         break
-                        
-                    # If this is the first batch and we didn't provide 'since', it's the MOST RECENT
-                    # To get older data, we need to calculate 'since' for the next batch
-                    if current_since is None:
-                        all_ohlcv = ohlcv + all_ohlcv
-                        # Calculate 'since' for the previous batch based on the first candle of this batch
-                        # Approximate interval in ms
-                        tf_ms = self.exchange.parse_timeframe(timeframe) * 1000
-                        # Try to get data starting before the current first bar
-                        current_since = ohlcv[0][0] - (batch_limit * tf_ms)
-                    else:
-                        # Prepend historical bars (ensure no overlaps if the exchange is weird)
-                        # Filter out bars we already have
-                        existing_timestamps = {bar[0] for bar in all_ohlcv}
-                        new_bars = [bar for bar in ohlcv if bar[0] not in existing_timestamps]
-                        all_ohlcv = new_bars + all_ohlcv
-                        
-                        # Move 'since' further back
-                        tf_ms = self.exchange.parse_timeframe(timeframe) * 1000
-                        current_since = ohlcv[0][0] - (batch_limit * tf_ms)
-                    
-                    remaining -= len(ohlcv)
-                    batch_limit = min(remaining, 1000)
-                    
-                    # If the exchange returned fewer than requested, we might be at the end of available history
-                    if len(ohlcv) < 10: # Small buffer
-                        break
-                        
-                except Exception as e:
-                    logger.warning(f"[{self.exchange_id}] Batch fetch failed at iteration {iterations}: {e}")
-                    break
-            
-            # Sort by timestamp and return the last 'limit' items
-            all_ohlcv.sort(key=lambda x: x[0])
-            
-            self._cache[cache_key] = {'data': all_ohlcv, 'ts': now}
-            self._sticky_market_data[cache_key] = all_ohlcv
-            
-            return all_ohlcv[-limit:] if all_ohlcv else []
+
+                # Sort by timestamp and return the last 'limit' items
+                all_ohlcv.sort(key=lambda x: x[0])
+
+                self._cache[cache_key] = {'data': all_ohlcv, 'ts': now}
+                self._sticky_market_data[cache_key] = all_ohlcv
+
+                return all_ohlcv[-limit:] if all_ohlcv else []
             
         except Exception as e:
             logger.error(f"Error fetching OHLCV for {symbol} on {self.exchange_id}: {e}")
@@ -1221,7 +1240,7 @@ class CryptoConnector:
             self._mkt_lock.release()
     def get_book_snapshot(self, symbol: str, limit: int = 20) -> Dict:
         now = time.time()
-        cache_key = f"book_{symbol}"
+        cache_key = f"book_{symbol}_{limit}"
         
         # Check throttle
         if self._check_throttle():
@@ -1236,8 +1255,9 @@ class CryptoConnector:
             
         try:
             fetch_sym = self._resolve_sym(symbol)
-            # Binance strictly rejects arbitrary limits, only accepts preset values. 
-            # 1000 causes -1130 on some swap symbols, capping to 500 to be perfectly safe.
+            # Binance strictly rejects arbitrary limits, only accepts preset values.
+            # We also keep the limit in the cache key so different depth requests
+            # don't incorrectly reuse each other's snapshots.
             valid_limits = [5, 10, 20, 50, 100, 500, 1000]
             binance_limit = 1000
             for lim in valid_limits:
@@ -1266,7 +1286,23 @@ class CryptoConnector:
             if not self.connected:
                 self.connect()
             fetch_sym = self._resolve_sym(symbol)
-            market = self.exchange.market(fetch_sym)
+            if not fetch_sym:
+                fetch_sym = symbol
+            if self.exchange_id == 'bitmex' and fetch_sym and fetch_sym not in getattr(self.exchange, 'markets', {}):
+                # Hard fallback for compact UI tickers that BitMEX never exposes directly.
+                sym_up = (symbol or fetch_sym or "").upper().replace('/', '').replace(':', '').replace('-', '')
+                if 'BTC' in sym_up:
+                    sym_up = sym_up.replace('BTC', 'XBT')
+                if sym_up.endswith('USDT') or sym_up.endswith('USD'):
+                    fetch_sym = 'XBTUSD'
+                elif sym_up.endswith('ETH'):
+                    fetch_sym = 'ETHUSD'
+            if not fetch_sym:
+                return None
+            try:
+                market = self.exchange.market(fetch_sym)
+            except Exception:
+                market = getattr(self.exchange, 'markets', {}).get(fetch_sym)
             if not market:
                 return None
             precision = market.get('precision', {})
@@ -1282,19 +1318,20 @@ class CryptoConnector:
             price = market.get('price', 0)
             if price == 0:
                 try:
-                    ticker = self.exchange.fetch_ticker(symbol)
+                    ticker = self.exchange.fetch_ticker(fetch_sym)
                     price = ticker.get('last', 0)
                 except:
                     pass
             major_coins = ["BTC", "ETH", "SOL", "BNB", "XRP", "LTC", "ADA", "DOT"]
             if digits > 2:
-                is_major = any(c in symbol.upper() for c in major_coins)
-                is_usd_pair = any(u in symbol.upper() for u in ["USDT", "USDC", "USD", "EUR", "BUSD"])
+                sym_up = (symbol or fetch_sym or "").upper()
+                is_major = any(c in sym_up for c in major_coins)
+                is_usd_pair = any(u in sym_up for u in ["USDT", "USDC", "USD", "EUR", "BUSD"])
                 if is_major or is_usd_pair or price > 100:
                     digits = 2
                     tick_size = 0.01
             return {
-                "symbol": symbol,
+                "symbol": symbol or fetch_sym,
                 "digits": digits,
                 "tick_size": tick_size,
                 "point": 10 ** -int(amount_precision) if isinstance(amount_precision, (int, float)) else 0.00000001,
@@ -1357,10 +1394,50 @@ class CryptoConnector:
         if self._check_throttle():
             logger.warning(f"[{self.exchange_id}] Blocking order placement due to active throttle.")
             return None
-        symbol = self._resolve_sym(symbol)
+
+        resolved_symbol = self._resolve_sym(symbol)
+        if self.exchange_id == 'bitmex':
+            # BitMEX can receive compact/foreign formats from the UI. Force an
+            # inverse perpetual symbol when the resolved value is missing or not
+            # a native BitMEX market.
+            if not resolved_symbol or resolved_symbol not in getattr(self.exchange, 'markets', {}):
+                up = symbol.upper().replace('/', '').replace(':', '').replace('-', '')
+                if 'BTC' in up:
+                    up = up.replace('BTC', 'XBT')
+                if up.startswith('ETH'):
+                    resolved_symbol = 'ETHUSD'
+                elif up.startswith('XBT') or up.startswith('BTC'):
+                    resolved_symbol = 'XBTUSD'
+                else:
+                    resolved_symbol = 'XBTUSD'
+        symbol = resolved_symbol
         try:
             type = 'market' if mode.upper() in ["MKT", "MARKET"] else 'limit'
             params = {}
+
+            # Normalize BitMEX amount to a valid contract quantity.
+            if self.exchange_id == 'bitmex':
+                try:
+                    market = self.exchange.market(symbol)
+                except Exception:
+                    market = getattr(self.exchange, 'markets', {}).get(symbol, {})
+                min_amount = 1.0
+                try:
+                    min_amount = float((market or {}).get('limits', {}).get('amount', {}).get('min') or 1.0)
+                except Exception:
+                    min_amount = 1.0
+                contract_size = float((market or {}).get('contractSize', 1.0) or 1.0)
+                safe_amount = float(amount or 0)
+                if safe_amount <= 0:
+                    raise ValueError("BitMEX order amount must be greater than 0")
+                # If the user sent a small fractional size, interpret it as
+                # underlying units and scale to contracts using contractSize.
+                if safe_amount < min_amount:
+                    if contract_size > 0:
+                        safe_amount = safe_amount / contract_size
+                    if safe_amount < min_amount:
+                        safe_amount = min_amount
+                amount = safe_amount
             
             # Extract SL/TP for post-fill placement (Binance doesn't support inline SL/TP)
             sl = kwargs.get('sl')
@@ -1409,6 +1486,43 @@ class CryptoConnector:
             import traceback
             _dbg(traceback.format_exc())
             return None
+
+    def get_order_size_rules(self, symbol: str) -> Dict[str, float]:
+        """
+        Return exchange-specific order sizing rules for the resolved market.
+
+        The platform is multi-exchange, so a single generic min_order_size is not
+        enough. We prefer the native market metadata when available.
+        """
+        fetch_sym = self._resolve_sym(symbol)
+        market = None
+        if fetch_sym:
+            try:
+                market = self.exchange.market(fetch_sym)
+            except Exception:
+                market = getattr(self.exchange, 'markets', {}).get(fetch_sym, {})
+
+        market = market or {}
+        limits = market.get('limits', {}) or {}
+        amount_limits = limits.get('amount', {}) or {}
+        precision = market.get('precision', {}) or {}
+        contract_size = float(market.get('contractSize', 1.0) or 1.0)
+
+        min_amount = amount_limits.get('min')
+        max_amount = amount_limits.get('max')
+        step = amount_limits.get('step')
+        if step is None:
+            amt_prec = precision.get('amount')
+            if isinstance(amt_prec, int) and amt_prec >= 0:
+                step = 10 ** (-amt_prec)
+
+        return {
+            "min_amount": float(min_amount) if min_amount is not None else 0.0,
+            "max_amount": float(max_amount) if max_amount is not None else 0.0,
+            "step": float(step) if step is not None else 0.0,
+            "contract_size": contract_size,
+            "resolved_symbol": fetch_sym or symbol,
+        }
 
     def modify_position(self, ticket: Any, sl: float = None, tp: float = None, symbol: str = None) -> bool:
         """
@@ -1743,6 +1857,16 @@ class CryptoConnector:
     def set_leverage(self, symbol: str, leverage: int) -> Dict:
         try:
             fetch_sym = self._resolve_sym(symbol)
+            if self.exchange_id == 'bitmex' and (not fetch_sym or fetch_sym not in getattr(self.exchange, 'markets', {})):
+                up = symbol.upper().replace('/', '').replace(':', '').replace('-', '')
+                if 'BTC' in up:
+                    up = up.replace('BTC', 'XBT')
+                if up.startswith('ETH'):
+                    fetch_sym = 'ETHUSD'
+                elif up.startswith('XBT') or up.startswith('BTC'):
+                    fetch_sym = 'XBTUSD'
+                else:
+                    fetch_sym = 'XBTUSD'
             logger.info(f"Setting leverage for {symbol} (resolved: {fetch_sym}) to {leverage} on {self.exchange_id}")
             
             # Blofin and others often require marginMode (cross/isolated)
@@ -1781,6 +1905,9 @@ def get_connector(account_id: str) -> Optional[CryptoConnector]:
         return None
     
     logger.info(f"[GET_CONN] Using credentials for {acc['broker']}: key={api_key[:10]}..., secret={api_secret[:10]}...")
+    if (acc.get("broker") or "").lower() == "bitmex":
+        logger.warning(f"[GET_CONN] BitMEX account blocked: {account_id}")
+        return None
     
     if account_id in GLOBAL_CONNECTORS:
         return GLOBAL_CONNECTORS[account_id]

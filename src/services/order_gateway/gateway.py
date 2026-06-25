@@ -158,6 +158,26 @@ class OrderGateway:
             connector = self._get_connector(order.platform, order.account_id)
             if connector and connector.connect():
                 current_price = connector.get_current_price(order.symbol)
+                if order.platform.lower() == "crypto" and hasattr(connector, "get_order_size_rules"):
+                    rules = connector.get_order_size_rules(order.symbol)
+                    min_amount = float(rules.get("min_amount") or 0.0)
+                    step = float(rules.get("step") or 0.0)
+                    contract_size = float(rules.get("contract_size") or 1.0)
+                    qty = float(order.quantity)
+
+                    # Normalize user-entered size against the exchange's own rules.
+                    # If the user enters a small fractional size, treat it as
+                    # underlying units and translate to contracts when needed.
+                    if qty > 0 and contract_size > 0 and min_amount > 0 and qty < min_amount:
+                        qty = qty / contract_size
+
+                    if step > 0:
+                        qty = round(qty / step) * step
+
+                    if min_amount > 0 and qty < min_amount:
+                        qty = min_amount
+
+                    order.quantity = qty
         except Exception as e:
             logger.warning(f"No se pudo obtener precio actual: {e}")
         validation_start = time.time()

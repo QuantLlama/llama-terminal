@@ -302,6 +302,7 @@ async def get_brokers(type: str = Query("mt5")):
             # Priority/Verified exchanges that we have custom logic for
             verified = ["binance", "bybit", "okx", "bitget", "bingx", "blofin"]
             all_exchanges = set(ccxt.exchanges)
+            all_exchanges.discard("bitmex")
             
             # Combine verified (at top) with the rest of ccxt
             remaining = sorted(list(all_exchanges - set(verified)))
@@ -325,6 +326,8 @@ async def set_leverage_account(account_id: str, symbol: str = Body(...), leverag
         connector = get_connector(account_id)
         if not connector:
             raise HTTPException(status_code=503, detail="Connector not available")
+        if not connector.connect():
+            raise HTTPException(status_code=503, detail="Could not initialize crypto exchange markets")
         res = connector.set_leverage(symbol, leverage)
         if res.get("success"):
             return res

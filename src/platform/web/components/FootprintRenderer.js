@@ -173,25 +173,30 @@ const FootprintRenderer = (() => {
       };
       
       this._monitorRaf = null;
+      this._priceScale = null;
       let _lastPriceCoord = null;
       let _lastTimeCoord = null;
       const monitorScale = () => {
         if (!this._isRunning) return;
-        if (this.series) {
-            try {
-                const pc = this.series.priceToCoordinate(0) || this.series.priceToCoordinate(100);
-                const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
-                const tc = logicalRange ? logicalRange.from : null;
-                if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
-                    _lastPriceCoord = pc;
-                    _lastTimeCoord = tc;
-                    this.scheduleRender();
-                }
-            } catch(e) {}
+        if (this.mainSeries) {
+          try {
+            const pc = this.mainSeries.priceToCoordinate(0) || this.mainSeries.priceToCoordinate(100);
+            const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
+            const tc = logicalRange ? logicalRange.from : null;
+            if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+              _lastPriceCoord = pc;
+              _lastTimeCoord = tc;
+              this.scheduleRender();
+            }
+          } catch (e) {}
         }
         this._monitorRaf = requestAnimationFrame(monitorScale);
       };
       this._monitorRaf = requestAnimationFrame(monitorScale);
+      try {
+        this._priceScale = this.mainSeries?.priceScale?.() || null;
+        this._priceScale?.subscribeVisiblePriceRangeChange?.(this.scheduleRender);
+      } catch (e) {}
       
       if (this.chart) {
         this.chart.timeScale().subscribeVisibleLogicalRangeChange(this.scheduleRender);
@@ -203,6 +208,9 @@ const FootprintRenderer = (() => {
     destroy() {
       this._isRunning = false;
       if (this._monitorRaf) cancelAnimationFrame(this._monitorRaf);
+      try {
+        this._priceScale?.unsubscribeVisiblePriceRangeChange?.(this.scheduleRender);
+      } catch (e) {}
       if (this.chart && this.scheduleRender) {
         this.chart.timeScale().unsubscribeVisibleLogicalRangeChange(this.scheduleRender);
         this.chart.timeScale().unsubscribeVisibleTimeRangeChange(this.scheduleRender);
@@ -226,6 +234,15 @@ const FootprintRenderer = (() => {
       const newLen = d.candles?.length || 0;
       const lastOld = oldLen > 0 ? this.footprintData.candles[oldLen - 1].time : 0;
       const lastNew = newLen > 0 ? d.candles[newLen - 1].time : 0;
+      const oldLast = oldLen > 0 ? this.footprintData.candles[oldLen - 1] : null;
+      const newLast = newLen > 0 ? d.candles[newLen - 1] : null;
+      const oldLastLevels = oldLast?.levels?.length || 0;
+      const newLastLevels = newLast?.levels?.length || 0;
+      const lastContentChanged =
+        oldLast?.fidelity !== newLast?.fidelity ||
+        oldLast?.poc !== newLast?.poc ||
+        oldLast?.delta !== newLast?.delta ||
+        oldLastLevels !== newLastLevels;
       this.footprintData = d;
       this.tickSize = d.tick_size || 0.25;
       this.digits = d.digits || 0;
@@ -233,7 +250,7 @@ const FootprintRenderer = (() => {
         const lastC = d.candles[d.candles.length - 1];
         if (lastC.time >= this._liveState.time) this._liveState = null;
       }
-      if (oldLen !== newLen || lastOld !== lastNew) this._invalidateBg();
+      if (oldLen !== newLen || lastOld !== lastNew || lastContentChanged) this._invalidateBg();
     }
     updateLiveState(time, price, volume, side) {
       if (!this.footprintData?.candles?.length) return;

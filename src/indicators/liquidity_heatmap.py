@@ -49,8 +49,9 @@ class LiquidityHeatmapIndicator:
         # If the average candle range is massive relative to tick_size, scale tick_size up
         # This prevents generating millions of bins for assets like BTC if tick_size=0.25
         avg_range = (df['High'] - df['Low']).mean()
-        if avg_range > 0 and (avg_range / self.tick_size) > 80:
-            self.tick_size = max(self.tick_size, avg_range / 80.0)
+        effective_tick_size = self.tick_size
+        if avg_range > 0 and (avg_range / effective_tick_size) > 80:
+            effective_tick_size = max(effective_tick_size, avg_range / 80.0)
 
         for i in range(len(df)):
             row = df.iloc[i]
@@ -85,13 +86,16 @@ class LiquidityHeatmapIndicator:
             else:
                 # Approximation based on OHLCV
                 high, low, vol = row['High'], row['Low'], row['Volume']
-                range_points = max(1, int((high - low) / self.tick_size))
+                range_points = max(1, int((high - low) / effective_tick_size))
                 vol_per_tick = vol / range_points if range_points > 0 else vol
-                
+
                 # Distribute volume across the candle range
                 current_p = low
-                while current_p <= high:
-                    bin_price = round(current_p / self.tick_size) * self.tick_size
+                step = effective_tick_size
+                sampled_bins = 0
+                max_bins_per_candle = 120
+                while current_p <= high and sampled_bins < max_bins_per_candle:
+                    bin_price = round(current_p / step) * step
                     # Weight middle of the candle slightly more for a bell-curve effect
                     mid_p = (high + low) / 2
                     distance = abs(bin_price - mid_p)
@@ -99,7 +103,8 @@ class LiquidityHeatmapIndicator:
                     
                     added_vol = vol_per_tick * weight
                     liquidity_map[bin_price] = liquidity_map.get(bin_price, 0) + added_vol
-                    current_p += self.tick_size
+                    current_p += step
+                    sampled_bins += 1
 
             # Extract the current active map for this timestamp
             candle_heatmap_raw = []
@@ -130,7 +135,7 @@ class LiquidityHeatmapIndicator:
         return {
             'data': result_data,
             'metadata': {
-                'tick_size': self.tick_size,
+                'tick_size': effective_tick_size,
                 'decay_factor': self.decay_factor,
                 'indicator': 'LiquidityHeatmap'
             }
