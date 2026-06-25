@@ -108,6 +108,11 @@ const OrderEntry_Professional = (props) => {
   window.getSymbolPrecision ?
   window.getSymbolPrecision(symbol, currentPlatform).tick_size :
   currentPlatform === "mt5" || currentPlatform === "tradovate" ? 0.01 : 0.00001;
+  const orderSizeRules = symbolMetadata?.order_size_rules || {};
+  const minOrderSize = Number(orderSizeRules.min_amount || 0);
+  const maxOrderSize = Number(orderSizeRules.max_amount || 0);
+  const sizeStep = Number(orderSizeRules.step || qtyStep || 0);
+  const contractSize = Number(orderSizeRules.contract_size || 1);
   const [atmEnabled, setAtmEnabled] = window.useConfig(
     "atm_enabled",
     false,
@@ -934,6 +939,26 @@ const OrderEntry_Professional = (props) => {
     )
     )
     )
+    ),
+    React.createElement("div", { className: "mt-1 px-1 text-[9px] text-muted/80 leading-tight" },
+      minOrderSize > 0
+        ? React.createElement(React.Fragment, null,
+          React.createElement("span", { className: "font-bold text-white/70 uppercase tracking-wider" }, "Min size: "),
+          React.createElement("span", { className: "font-mono" }, `${minOrderSize}`),
+          sizeStep > 0 ? React.createElement(React.Fragment, null, " • ",
+            React.createElement("span", { className: "font-bold text-white/70 uppercase tracking-wider" }, "Step: "),
+            React.createElement("span", { className: "font-mono" }, `${sizeStep}`)
+          ) : null,
+          contractSize !== 1 ? React.createElement(React.Fragment, null, " • ",
+            React.createElement("span", { className: "font-bold text-white/70 uppercase tracking-wider" }, "Contract: "),
+            React.createElement("span", { className: "font-mono" }, `${contractSize}`)
+          ) : null,
+          maxOrderSize > 0 ? React.createElement(React.Fragment, null, " • ",
+            React.createElement("span", { className: "font-bold text-white/70 uppercase tracking-wider" }, "Max: "),
+            React.createElement("span", { className: "font-mono" }, `${maxOrderSize}`)
+          ) : null
+        )
+        : React.createElement("span", null, "Size rules loaded from exchange when available.")
     ),
     React.createElement("div", { className: "grid grid-cols-2 gap-2 mt-1" },
     NumInput &&

@@ -735,6 +735,49 @@ class MarketDataEngine:
                 except: continue
         if not connector: return
         try:
+            # Always refresh a quote once per second so the chart can keep moving
+            # even if no new public trades were emitted in this polling window.
+            last_ticker_poll = self._last_crypto_ticker_poll.get(s_upper, 0)
+            if now - last_ticker_poll >= 1.0:
+                self._last_crypto_ticker_poll[s_upper] = now
+                try:
+                    ticker_data = connector.get_tick(broker_symbol)
+                    if ticker_data and ticker_data.get('last') and ticker_data['last'] > 0:
+                        live_price = float(ticker_data['last'])
+                        tick_bar_ts = int(now // 60) * 60
+                        current_bar_ts = self._crypto_delta_bar_ts.get(s_upper, 0)
+                        if current_bar_ts > 0 and tick_bar_ts > current_bar_ts:
+                            self._crypto_delta_acc[s_upper], self._crypto_volume_acc[s_upper], self._crypto_delta_bar_ts[s_upper], self._crypto_live_candle[s_upper] = 0.0, 0.0, tick_bar_ts, {'open': live_price, 'high': live_price, 'low': live_price, 'close': live_price}
+                        else:
+                            lc = self._crypto_live_candle.get(s_upper)
+                            if lc is None:
+                                self._crypto_live_candle[s_upper] = {'open': live_price, 'high': live_price, 'low': live_price, 'close': live_price}
+                            else:
+                                lc['high'], lc['low'], lc['close'] = max(lc['high'], live_price), min(lc['low'], live_price), live_price
+                        acc_v, acc_d = self._crypto_volume_acc.get(s_upper, 0.0), self._crypto_delta_acc.get(s_upper, 0.0)
+                        norm_vol_c = self._normalize_crypto_val(symbol, acc_v, live_price, broker_symbol)
+                        norm_delta_c = self._normalize_crypto_val(symbol, acc_d, live_price, broker_symbol)
+                        lc_data = self._crypto_live_candle.get(s_upper, {})
+                        bid_p, ask_p = float(ticker_data.get('bid') or 0), float(ticker_data.get('ask') or 0)
+                        quote_event = MarketDataEvent(
+                            symbol=symbol, timestamp=now, event_type="QUOTE",
+                            last=live_price, bid=bid_p, ask=ask_p,
+                            open=lc_data.get('open', live_price),
+                            high=lc_data.get('high', live_price),
+                            low=lc_data.get('low', live_price),
+                            close=live_price, last_size=0,
+                            volume=norm_vol_c, delta=norm_delta_c,
+                            side="BUY" if acc_d >= 0 else "SELL",
+                            source="CRYPTO"
+                        )
+                        if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED):
+                            self._event_buffer.push(quote_event)
+                            self._symbol_buffer.update(quote_event)
+                            self._metrics.messages_received += 1
+                            self._metrics.last_message_time = time.time()
+                except Exception:
+                    pass
+
             last_trade_poll = self._last_crypto_trade_poll.get(s_upper, 0)
             if now - last_trade_poll >= 2.0:
                 self._last_crypto_trade_poll[s_upper] = now
@@ -786,28 +829,6 @@ class MarketDataEngine:
                     lc = self._crypto_live_candle.get(s_upper, {})
                     event = MarketDataEvent(symbol=symbol, timestamp=latest_ts, event_type="TICK", last=latest_price, bid=bid_price, ask=ask_price, open=lc.get('open', latest_price), high=lc.get('high', latest_price), low=lc.get('low', latest_price), close=latest_price, last_size=norm_last_size, volume=norm_vol, delta=norm_delta, side="BUY" if acc_d >= 0 else "SELL", source="CRYPTO")
                     if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(event); self._symbol_buffer.update(event); self._metrics.messages_received += 1; self._metrics.last_message_time = time.time()
-            else:
-                last_ticker_poll = self._last_crypto_ticker_poll.get(s_upper, 0)
-                if now - last_ticker_poll >= 1.0:
-                    self._last_crypto_ticker_poll[s_upper] = now
-                    try:
-                        ticker_data = connector.get_tick(broker_symbol)
-                        if ticker_data and ticker_data.get('last') and ticker_data['last'] > 0:
-                            live_price = float(ticker_data['last'])
-                            tick_bar_ts = int(now // 60) * 60
-                            current_bar_ts = self._crypto_delta_bar_ts.get(s_upper, 0)
-                            if current_bar_ts > 0 and tick_bar_ts > current_bar_ts:
-                                self._crypto_delta_acc[s_upper], self._crypto_volume_acc[s_upper], self._crypto_delta_bar_ts[s_upper], self._crypto_live_candle[s_upper] = 0.0, 0.0, tick_bar_ts, {'open': live_price, 'high': live_price, 'low': live_price, 'close': live_price}
-                            else:
-                                lc = self._crypto_live_candle.get(s_upper)
-                                if lc is None: self._crypto_live_candle[s_upper] = {'open': live_price, 'high': live_price, 'low': live_price, 'close': live_price}
-                                else: lc['high'], lc['low'], lc['close'] = max(lc['high'], live_price), min(lc['low'], live_price), live_price
-                            acc_v, acc_d = self._crypto_volume_acc.get(s_upper, 0.0), self._crypto_delta_acc.get(s_upper, 0.0)
-                            norm_vol_c, norm_delta_c = self._normalize_crypto_val(symbol, acc_v, live_price, broker_symbol), self._normalize_crypto_val(symbol, acc_d, live_price, broker_symbol)
-                            lc_data, bid_p, ask_p = self._crypto_live_candle.get(s_upper, {}), float(ticker_data.get('bid') or 0), float(ticker_data.get('ask') or 0)
-                            event = MarketDataEvent(symbol=symbol, timestamp=now, event_type="TICK", last=live_price, bid=bid_p, ask=ask_p, open=lc_data.get('open', live_price), high=lc_data.get('high', live_price), low=lc_data.get('low', live_price), close=live_price, last_size=0, volume=norm_vol_c, delta=norm_delta_c, side="BUY" if acc_d >= 0 else "SELL", source="CRYPTO")
-                            if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(event); self._symbol_buffer.update(event); self._metrics.messages_received += 1; self._metrics.last_message_time = time.time()
-                    except: pass
             last_candle_poll = self._last_crypto_candle_poll.get(s_upper, 0)
             if now - last_candle_poll >= 5.0:
                 self._last_crypto_candle_poll[s_upper] = now
@@ -931,17 +952,61 @@ class MarketDataEngine:
     @property
     def metrics(self) -> FeedMetrics: return self._metrics
     def get_status(self) -> Dict[str, Any]: return {"status": self._status.value, "is_running": self._running, "metrics": self._metrics.to_dict(), "buffer_metrics": self._event_buffer.get_metrics(), "subscribed_symbols": list(self._symbols)}
-    def get_latest_quote(self, symbol: str) -> Optional[Dict[str, Any]]: event = self._symbol_buffer.get_latest(symbol); return event.to_dict() if event else None
+    def _symbol_aliases(self, symbol: str) -> List[str]:
+        if not symbol:
+            return []
+        aliases = [symbol.upper()]
+        try:
+            resolved = resolve_symbol(symbol)
+            if resolved:
+                aliases.append(resolved.upper())
+        except Exception:
+            pass
+        compact = symbol.upper().replace("/", "").replace(":", "").replace("-", "")
+        if compact not in aliases:
+            aliases.append(compact)
+        if compact.endswith("USDT") and f"{compact[:-4]}/USDT:USDT" not in aliases:
+            aliases.append(f"{compact[:-4]}/USDT:USDT")
+        return list(dict.fromkeys(aliases))
+
+    def _get_latest_event_by_alias(self, symbol: str) -> Optional[MarketDataEvent]:
+        for alias in self._symbol_aliases(symbol):
+            event = self._symbol_buffer.get_latest(alias)
+            if event:
+                return event
+        return None
+
+    def _get_book_by_alias(self, symbol: str) -> Optional[OrderBookSnapshot]:
+        for alias in self._symbol_aliases(symbol):
+            book = self._symbol_buffer.get_book(alias)
+            if book:
+                return book
+        return None
+
+    def get_latest_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
+        event = self._get_latest_event_by_alias(symbol)
+        return event.to_dict() if event else None
     def get_book_snapshot(self, symbol: str, limit: int = 100) -> Optional[Dict[str, Any]]:
         symbol = symbol.upper()
         with self._pb_lock:
-            if symbol in self._persistent_books:
-                pb = self._persistent_books[symbol]; sb, sa = sorted(pb["bids"].items(), reverse=True), sorted(pb["asks"].items())
-                mid = (sb[0][0] + sa[0][0]) / 2 if sb and sa else 0
-                return {"symbol": symbol, "timestamp": pb.get("last_update", time.time()), "midpoint": mid, "bids": [{"price": p, "size": v, "count": 1} for p, v in sb[:limit]], "asks": [{"price": p, "size": v, "count": 1} for p, v in sa[:limit]]}
-        book = self._symbol_buffer.get_book(symbol); return book.to_dict() if book else None
-    def get_recent_trades(self, symbol: str, n: int = 100) -> List[Dict[str, Any]]: return [t.to_dict() for t in self._trade_buffer.get_by_symbol(symbol, n)]
-    def get_candles(self, symbol: str, n: int = 100) -> List[Dict[str, Any]]: return [e.to_dict() for e in self._symbol_buffer.get_history(symbol, n) if e.event_type in ("OHLCV", "BAR")]
+            for alias in self._symbol_aliases(symbol):
+                if alias in self._persistent_books:
+                    pb = self._persistent_books[alias]; sb, sa = sorted(pb["bids"].items(), reverse=True), sorted(pb["asks"].items())
+                    mid = (sb[0][0] + sa[0][0]) / 2 if sb and sa else 0
+                    return {"symbol": alias, "timestamp": pb.get("last_update", time.time()), "midpoint": mid, "bids": [{"price": p, "size": v, "count": 1} for p, v in sb[:limit]], "asks": [{"price": p, "size": v, "count": 1} for p, v in sa[:limit]]}
+        book = self._get_book_by_alias(symbol); return book.to_dict() if book else None
+    def get_recent_trades(self, symbol: str, n: int = 100) -> List[Dict[str, Any]]:
+        for alias in self._symbol_aliases(symbol):
+            trades = self._trade_buffer.get_by_symbol(alias, n)
+            if trades:
+                return [t.to_dict() for t in trades]
+        return []
+    def get_candles(self, symbol: str, n: int = 100) -> List[Dict[str, Any]]:
+        for alias in self._symbol_aliases(symbol):
+            candles = [e.to_dict() for e in self._symbol_buffer.get_history(alias, n) if e.event_type in ("OHLCV", "BAR")]
+            if candles:
+                return candles
+        return []
     def request_depth(self, symbol: str, levels: int) -> None:
         symbol, safe = symbol.upper(), min(50000, max(20, levels))
         if safe != self._symbol_depths.get(symbol, 0): self._symbol_depths[symbol] = safe; logger.info(f"Depth request for {symbol} updated to {safe} levels")

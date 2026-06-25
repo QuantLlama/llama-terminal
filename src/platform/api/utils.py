@@ -25,6 +25,23 @@ def sanitize_float_list(data_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                     item[k] = None
     return data_list
 def resolve_symbol(symbol: str) -> str:
+    if not symbol:
+        return symbol
+
+    s = symbol.upper().strip()
+
+    # Crypto symbols are often entered in compact form (BTCUSDT) while the
+    # crypto data layer works with exchange-specific perpetual symbols.
+    if "USDT" in s or "USDC" in s or "BUSD" in s or "TUSD" in s or "DAI" in s:
+        # Prefer the standard perpetual format used across the crypto stack.
+        if "/" not in s and ":" not in s and "-" not in s:
+            if s.endswith("USDT"):
+                return f"{s[:-4]}/USDT:USDT"
+            if s.endswith("USDC"):
+                return f"{s[:-4]}/USDC:USDC"
+            if s.endswith("USD"):
+                return f"{s[:-3]}/USD:USD"
+
     platform = "mt5"
     if os.path.exists(CONFIG_FILE):
         pass

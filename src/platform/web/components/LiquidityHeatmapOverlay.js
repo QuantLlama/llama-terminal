@@ -1,5 +1,32 @@
 const { useEffect, useRef } = React;
 
+const HEAT_COLOR_STOPS = [
+    [0.00, 8, 28, 84],
+    [0.28, 0, 152, 220],
+    [0.52, 42, 226, 157],
+    [0.74, 255, 207, 64],
+    [0.90, 255, 82, 38],
+    [1.00, 255, 244, 196]
+];
+
+const getHeatColor = (intensity) => {
+    for (let i = 1; i < HEAT_COLOR_STOPS.length; i++) {
+        const prev = HEAT_COLOR_STOPS[i - 1];
+        const next = HEAT_COLOR_STOPS[i];
+        if (intensity <= next[0]) {
+            const span = next[0] - prev[0] || 1;
+            const t = (intensity - prev[0]) / span;
+            return {
+                r: Math.round(prev[1] + (next[1] - prev[1]) * t),
+                g: Math.round(prev[2] + (next[2] - prev[2]) * t),
+                b: Math.round(prev[3] + (next[3] - prev[3]) * t)
+            };
+        }
+    }
+
+    return { r: 255, g: 244, b: 196 };
+};
+
 const LiquidityHeatmapOverlay = ({
     chart,
     series,
@@ -29,18 +56,8 @@ const LiquidityHeatmapOverlay = ({
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         const dpr = window.devicePixelRatio || 1;
-        
-        let maxDepth = 1;
-        const initialData = _dataRef.current;
-        for (const item of initialData) {
-            for (const h of (item.heatmap || [])) {
-                if (h.depth > maxDepth) maxDepth = h.depth;
-            }
-        }
 
         const _tickSize = tickSize;
-        const _opacity = opacity;
-
         const draw = () => {
             const parent = canvas.parentElement;
             if (!parent) return;
@@ -77,9 +94,18 @@ const LiquidityHeatmapOverlay = ({
 
             ctx.globalCompositeOperation = 'source-over';
 
-            // Prepare 20 buckets for batched rendering
-            const BUCKET_COUNT = 20;
+            // Prepare fixed buckets for batched rendering
+            const BUCKET_COUNT = 16;
             const buckets = Array.from({ length: BUCKET_COUNT }, () => []);
+            const visibleHeat = [];
+            const hotRects = [];
+            const priceCoordCache = new Map();
+            const getPriceY = (price) => {
+                if (priceCoordCache.has(price)) return priceCoordCache.get(price);
+                const y = series.priceToCoordinate(price);
+                priceCoordCache.set(price, y);
+                return y;
+            };
 
             const currentData = _dataRef.current;
             
@@ -90,13 +116,17 @@ const LiquidityHeatmapOverlay = ({
             let maxTime = timeScale.coordinateToTime(w + 200);
             if (maxTime !== null && typeof maxTime === 'object') maxTime = maxTime.timestamp || Infinity;
             if (maxTime === null) maxTime = Infinity;
+            let startIdx = 0;
+            while (startIdx < currentData.length && currentData[startIdx].time < minTime) {
+                startIdx++;
+            }
+            let endIdx = currentData.length - 1;
+            while (endIdx >= startIdx && currentData[endIdx].time > maxTime) {
+                endIdx--;
+            }
 
-
-
-            for (let i = currentData.length - 1; i >= 0; i--) {
+            for (let i = endIdx; i >= startIdx; i--) {
                 const item = currentData[i];
-                if (item.time > maxTime) continue;
-                if (item.time < minTime) break;
                 
                 if (!item.heatmap || item.heatmap.length === 0) continue;
 
@@ -104,21 +134,58 @@ const LiquidityHeatmapOverlay = ({
                 if (x === null) continue;
                 
                 const drawX = Math.floor(x - barSpacing / 2);
+                let barPeak = null;
 
                 for (const hItem of item.heatmap) {
                     const price = hItem.price;
-                    const depth = hItem.depth;
-                    const y = series.priceToCoordinate(price);
+                    const depth = Number(hItem.depth) || 0;
+                    if (depth <= 0) continue;
+
+                    const y = getPriceY(price);
                     
                     if (y === null || y < -50 || y > h + 50) continue;
 
                     const drawY = Math.floor(y - rectH / 2);
+                    const point = { x: drawX, y: drawY, depth, isBarPeak: false };
+                    visibleHeat.push(point);
 
-                    // Calculate color intensity (0.0 to 1.0)
-                    const intensity = Math.pow(Math.min(1, depth / maxDepth), 0.6);
-                    const bucketIndex = Math.min(BUCKET_COUNT - 1, Math.floor(intensity * BUCKET_COUNT));
-                    
-                    buckets[bucketIndex].push({ x: drawX, y: drawY });
+                    if (!barPeak || depth > barPeak.depth) {
+                        barPeak = point;
+                    }
+                }
+
+                if (barPeak) {
+                    barPeak.isBarPeak = true;
+                }
+            }
+
+            let localMaxDepth = 1;
+            for (const point of visibleHeat) {
+                if (point.depth > localMaxDepth) localMaxDepth = point.depth;
+            }
+
+            const logMaxDepth = Math.log1p(localMaxDepth);
+            const HOTSPOT_INTENSITY = 0.84;
+            const MAX_HOTSPOT_RECTS = 600;
+
+            for (const point of visibleHeat) {
+                const logIntensity = Math.log1p(point.depth) / logMaxDepth;
+                if (logIntensity < 0.16 && point.depth < localMaxDepth * 0.02) continue;
+
+                const intensity = Math.pow(Math.min(1, logIntensity), 0.9);
+                const bucketIndex = Math.min(
+                    BUCKET_COUNT - 1,
+                    Math.floor(intensity * (BUCKET_COUNT - 1))
+                );
+
+                buckets[bucketIndex].push(point);
+
+                if (
+                    point.isBarPeak &&
+                    intensity >= HOTSPOT_INTENSITY &&
+                    hotRects.length < MAX_HOTSPOT_RECTS
+                ) {
+                    hotRects.push(point);
                 }
             }
 
@@ -127,66 +194,56 @@ const LiquidityHeatmapOverlay = ({
                 if (buckets[i].length === 0) continue;
                 
                 const intensity = (i + 0.5) / BUCKET_COUNT;
-                let r, g, b;
-                if (intensity < 0.2) {
-                    r = 0; g = 0; b = Math.floor(intensity * 5 * 255);
-                } else if (intensity < 0.4) {
-                    r = 0; g = Math.floor((intensity - 0.2) * 5 * 255); b = 255;
-                } else if (intensity < 0.6) {
-                    r = Math.floor((intensity - 0.4) * 5 * 255); g = 255; b = 255 - Math.floor((intensity - 0.4) * 5 * 255);
-                } else if (intensity < 0.8) {
-                    r = 255; g = 255 - Math.floor((intensity - 0.6) * 5 * 255); b = 0;
-                } else {
-                    r = 255; g = Math.floor((intensity - 0.8) * 5 * 255); b = Math.floor((intensity - 0.8) * 5 * 255);
-                }
+                const { r, g, b } = getHeatColor(intensity);
+                const alpha = Math.min(0.72, 0.06 + Math.pow(intensity, 1.35) * 0.66);
                 
-                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.1 + intensity * 0.35})`;
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
                 ctx.beginPath();
                 for (const rect of buckets[i]) {
                     ctx.rect(rect.x, rect.y, rectW, finalRectH);
                 }
                 ctx.fill();
             }
+
+            if (hotRects.length > 0) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.shadowBlur = 7;
+                ctx.shadowColor = 'rgba(255, 170, 44, 0.38)';
+                ctx.fillStyle = 'rgba(255, 205, 64, 0.22)';
+                ctx.beginPath();
+                for (const rect of hotRects) {
+                    ctx.rect(rect.x - 1, rect.y - 1, rectW + 2, finalRectH + 2);
+                }
+                ctx.fill();
+
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = 'rgba(255, 255, 210, 0.48)';
+                ctx.beginPath();
+                for (const rect of hotRects) {
+                    ctx.rect(rect.x, rect.y, Math.max(1, rectW - 1), Math.max(1, finalRectH - 1));
+                }
+                ctx.fill();
+                ctx.restore();
+            }
         };
 
-        
-        let _isDrawing = false;
-        let _needsRedraw = false;
-        const onEventDraw = () => {
-            if (_isDrawing) {
-                _needsRedraw = true;
-                return;
-            }
-            _isDrawing = true;
-            try { draw(); } catch(e) {}
-            requestAnimationFrame(() => {
-                _isDrawing = false;
-                if (_needsRedraw) {
-                    _needsRedraw = false;
-                    onEventDraw();
-                }
+        let _drawQueued = false;
+        const scheduleDraw = () => {
+            if (_drawQueued) return;
+            _drawQueued = true;
+            animationFrameRef.current = requestAnimationFrame(() => {
+                _drawQueued = false;
+                try { draw(); } catch(e) {}
             });
         };
-        
-        let _lastPriceCoord = null;
-        let _lastTimeCoord = null;
-        let _monitorRaf = null;
-        const monitorScale = () => {
-            if (series) {
-                try {
-                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
-                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
-                    const tc = logicalRange ? logicalRange.from : null;
-                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
-                        _lastPriceCoord = pc;
-                        _lastTimeCoord = tc;
-                        onEventDraw();
-                    }
-                } catch(e) {}
-            }
-            _monitorRaf = requestAnimationFrame(monitorScale);
-        };
-        _monitorRaf = requestAnimationFrame(monitorScale);
+
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => scheduleDraw())
+            : null;
+        if (resizeObserver && canvas.parentElement) {
+            resizeObserver.observe(canvas.parentElement);
+        }
 
 
 
@@ -210,24 +267,22 @@ const LiquidityHeatmapOverlay = ({
                     _dataRef.current.push({ time, heatmap });
                 }
                 if (_dataRef.current.length > 5000) _dataRef.current = _dataRef.current.slice(-5000);
-                onEventDraw();
+                scheduleDraw();
             }
         };
 
         // Initial draw
-        onEventDraw();
+        scheduleDraw();
 
         window.addEventListener('market_dom', onMarketDom);
-        chart.timeScale().subscribeVisibleLogicalRangeChange(onEventDraw);
-        chart.timeScale().subscribeVisibleTimeRangeChange(onEventDraw);
-        chart.subscribeCrosshairMove(onEventDraw);
+        chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleDraw);
+        chart.timeScale().subscribeVisibleTimeRangeChange(scheduleDraw);
 
         return () => {
-            if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
+            if (resizeObserver) resizeObserver.disconnect();
             window.removeEventListener('market_dom', onMarketDom);
-            chart.timeScale().unsubscribeVisibleLogicalRangeChange(onEventDraw);
-            chart.timeScale().unsubscribeVisibleTimeRangeChange(onEventDraw);
-            chart.unsubscribeCrosshairMove(onEventDraw);
+            chart.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleDraw);
+            chart.timeScale().unsubscribeVisibleTimeRangeChange(scheduleDraw);
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         };
 

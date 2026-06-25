@@ -22,6 +22,9 @@ class CryptoAccountManager:
                 logger.error(f"Error loading crypto accounts: {e}")
                 return {}
         return {}
+    @staticmethod
+    def _is_supported_broker(broker: str) -> bool:
+        return (broker or "").lower() != "bitmex"
     def _save_accounts(self):
         os.makedirs(os.path.dirname(self.accounts_file), exist_ok=True)
         with open(self.accounts_file, 'w') as f:
@@ -29,6 +32,8 @@ class CryptoAccountManager:
     def add_account(self, name: str, broker: str, api_key: str, 
                    api_secret: str, passphrase: Optional[str] = None,
                    account_type: str = "demo") -> Dict:
+        if not self._is_supported_broker(broker):
+            raise ValueError("BitMEX support has been removed")
         account_id = hashlib.md5(f"{broker}_{api_key[:8]}".encode()).hexdigest()[:8]
         encrypted_secret = self.credential_manager.encrypt(api_secret)
         encrypted_pass = self.credential_manager.encrypt(passphrase) if passphrase else ""
@@ -82,6 +87,8 @@ class CryptoAccountManager:
     def get_accounts(self) -> List[Dict]:
         result = []
         for acc_id, acc in self.accounts.items():
+            if not self._is_supported_broker(acc.get("broker")):
+                continue
             sanitized = self._sanitize_account(acc)
             sanitized['id'] = acc_id  
             result.append(sanitized)

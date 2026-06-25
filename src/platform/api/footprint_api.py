@@ -205,8 +205,79 @@ def _make_fallback_candle(c: pd.Series, tick_size: float, digits: int) -> dict:
         "delta":    delta,
         "fidelity": "fallback",
     }
+
+def _trades_to_footprint_map(
+    trades: List[Dict[str, Any]],
+    tf_seconds: int,
+    tick_size: float,
+    digits: int,
+) -> dict:
+    if not trades:
+        return {}
+
+    rows = []
+    for t in trades:
+        try:
+            ts = float(t.get("timestamp") or 0)
+            if ts <= 0:
+                continue
+            if ts > 1e10:
+                ts /= 1000.0
+            price = float(t.get("price") or 0)
+            amount = float(t.get("amount") or t.get("size") or t.get("last_size") or 0)
+            if price <= 0 or amount <= 0:
+                continue
+            side = str(t.get("side") or "").lower()
+            rows.append({
+                "time": int(ts),
+                "last": price,
+                "v": amount,
+                "side": side,
+            })
+        except Exception:
+            continue
+
+    if not rows:
+        return {}
+
+    df = pd.DataFrame(rows)
+    df["candle_time"] = ((df["time"] // tf_seconds) * tf_seconds).astype(int)
+    df["is_buy"] = df["side"].isin(["buy", "long"])
+    df["is_sell"] = df["side"].isin(["sell", "short"])
+    ambiguous = ~(df["is_buy"] | df["is_sell"])
+    if ambiguous.any():
+        prev_last = df["last"].shift(1).fillna(df["last"])
+        df.loc[ambiguous, "is_buy"] = df.loc[ambiguous, "last"] >= prev_last.loc[ambiguous]
+        df.loc[ambiguous, "is_sell"] = ~df.loc[ambiguous, "is_buy"]
+    result = {}
+    for ts, group in df.groupby("candle_time"):
+        levels, poc, delta, total = _aggregate_levels(
+            group.rename(columns={"v": "v", "last": "last"}),
+            tick_size,
+            digits,
+        )
+        if not levels:
+            continue
+        # Rebuild from grouped raw trades since _aggregate_levels expects v/last/is_buy/is_sell.
+        # The group already has those columns.
+        result[int(ts)] = {
+            "levels": levels,
+            "poc": poc,
+            "delta": delta,
+            "fidelity": "high",
+            "volume": total,
+        }
+    return result
 _footprint_cache: dict = {}
+_crypto_trade_footprint_cache: dict = {}
 _backfill_tasks: set = set()
+
+def _get_crypto_footprint_ohlcv_limit(exchange_id: str, requested_limit: int) -> int:
+    exchange_id = (exchange_id or "").lower()
+    if exchange_id == "binance":
+        return min(requested_limit, 1000)
+    return min(requested_limit, 600)
+
 async def get_mt5_footprint(symbol: str, timeframe: str, limit: int) -> list:
     import MetaTrader5 as mt5
     connector = get_mt5_connector()
@@ -302,25 +373,68 @@ async def get_crypto_footprint(symbol: str, timeframe: str, limit: int) -> list:
     connector = await asyncio.to_thread(get_connector, master["id"])
     if not connector:
         return []
-    info = connector.get_symbol_info(symbol)
+    resolved_symbol = None
+    try:
+        resolved_symbol = connector._resolve_sym(symbol)
+    except Exception:
+        resolved_symbol = None
+    if not resolved_symbol:
+        sym_up = (symbol or "").upper().replace("/", "").replace(":", "").replace("-", "")
+        if 'BTC' in sym_up:
+            sym_up = sym_up.replace('BTC', 'XBT')
+        if sym_up.endswith("USDT") or sym_up.endswith("USD"):
+            resolved_symbol = "XBTUSD"
+        elif sym_up.endswith("ETH"):
+            resolved_symbol = "ETHUSD"
+        else:
+            resolved_symbol = symbol
+
+    info = connector.get_symbol_info(resolved_symbol)
     tick_size = info.get('tick_size', 0.01) if info else 0.01
     digits = info.get('digits', 2) if info else 2
-    ohlcv = await asyncio.to_thread(connector.get_ohlcv, symbol, timeframe, limit=limit)
+    tf_seconds = _timeframe_to_seconds(timeframe)
+    trade_map = {}
+    trade_cache_key = f"{master['id']}:{resolved_symbol}:{timeframe}"
+    now_ts = time.time()
+    cached_trades = _crypto_trade_footprint_cache.get(trade_cache_key)
+    if cached_trades and now_ts - cached_trades.get("ts", 0) < 5.0:
+        trade_map = cached_trades.get("map", {})
+    else:
+        # Do not call the exchange trades endpoint from footprint. The live tape
+        # already owns that polling path and stores recent trades in the market
+        # data engine. Reusing the local buffer avoids duplicate polling.
+        engine = get_market_data_engine()
+        trades = engine.get_recent_trades(symbol, 250) or engine.get_recent_trades(resolved_symbol, 250)
+        trade_map = _trades_to_footprint_map(trades, tf_seconds, tick_size, digits)
+        _crypto_trade_footprint_cache[trade_cache_key] = {"ts": now_ts, "map": trade_map}
+
+    ohlcv_limit = _get_crypto_footprint_ohlcv_limit(getattr(connector, "exchange_id", ""), limit)
+    ohlcv = await asyncio.to_thread(connector.get_ohlcv, resolved_symbol, timeframe, limit=ohlcv_limit)
     if not ohlcv:
         return []
     result = []
     for bar in ohlcv:
         try:
             ts_ms, o, h, l, c, v = bar
+            ts = int(ts_ms / 1000)
+            trade_fp = trade_map.get(ts)
             s_bar = pd.Series({
-                "time": ts_ms / 1000,
+                "time": ts,
                 "open": float(o),
                 "high": float(h),
                 "low": float(l),
                 "close": float(c),
                 "real_volume": float(v)
             })
-            candle = _make_fallback_candle(s_bar, tick_size, digits)
+            candle = trade_fp if trade_fp else _make_fallback_candle(s_bar, tick_size, digits)
+            candle.update({
+                "time": ts,
+                "open": float(o),
+                "high": float(h),
+                "low": float(l),
+                "close": float(c),
+                "volume": float(v),
+            })
             result.append(candle)
         except Exception:
             continue
@@ -330,14 +444,17 @@ async def get_footprint(
     symbol:    str = Query(...,   description="Symbol to fetch footprint for"),
     timeframe: str = Query("1m", description="Candle timeframe"),
     limit:     int = Query(100,  description="Number of candles", ge=1, le=2000),
+    platform:  Optional[str] = Query(None, description="Target platform"),
 ):
     try:
-        target_platform = "mt5"
+        target_platform = (platform or "").lower().strip() or "mt5"
         s_upper = symbol.upper()
-        crypto_bases = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT", "LINK", "AVAX"]
-        if any(base in s_upper for base in crypto_bases) and "USDT" in s_upper:
-            target_platform = "crypto"
+        crypto_bases = ["BTC", "XBT", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT", "LINK", "AVAX"]
+        if target_platform not in ("crypto", "mt5"):
+            if any(base in s_upper for base in crypto_bases) and ("USDT" in s_upper or "USD" in s_upper or "/" in s_upper or ":" in s_upper):
+                target_platform = "crypto"
         if target_platform == "crypto":
+            target_platform = "crypto"
             c_tick_size = 0.01
             c_digits = 2
             candles = await get_crypto_footprint(symbol, timeframe, limit)

@@ -697,21 +697,40 @@ async def get_symbol_info(symbol: str = Query(..., description="Symbol ticker"))
                 if crypto_conn:
                     info = crypto_conn.get_symbol_info(symbol)
                     if info:
+                        try:
+                            info["order_size_rules"] = crypto_conn.get_order_size_rules(symbol)
+                        except Exception:
+                            info["order_size_rules"] = {}
                         return info
             return {
                 "point": 0.01, 
                 "digits": 2, 
                 "tick_size": 0.01, 
                 "stops_level": 0,
-                "broker_type": "crypto"
+                "broker_type": "crypto",
+                "order_size_rules": {}
             }
         def fetch_details():
             return GLOBAL_MT5_CONNECTOR.get_symbol_details(symbol)
         details = await asyncio.to_thread(fetch_details)
+        if details is not None:
+            try:
+                import MetaTrader5 as mt5
+                info = mt5.symbol_info(resolve_symbol(symbol))
+                if info:
+                    details["order_size_rules"] = {
+                        "min_amount": float(getattr(info, "volume_min", 0.0) or 0.0),
+                        "max_amount": float(getattr(info, "volume_max", 0.0) or 0.0),
+                        "step": float(getattr(info, "volume_step", 0.0) or 0.0),
+                        "contract_size": float(getattr(info, "trade_contract_size", 1.0) or 1.0),
+                        "resolved_symbol": resolve_symbol(symbol),
+                    }
+            except Exception:
+                details["order_size_rules"] = details.get("order_size_rules", {})
         return details
     except Exception as e:
         logger.error(f"Error fetching details for {symbol}: {e}")
-        return {"point": 0.0001, "digits": 5, "tick_size": 0.0001, "stops_level": 0}
+        return {"point": 0.0001, "digits": 5, "tick_size": 0.0001, "stops_level": 0, "order_size_rules": {}}
 @app.get("/api/algorithms")
 async def get_algorithms():
     try:
@@ -2976,8 +2995,10 @@ async def place_order(order: OrderRequest):
             connector = get_crypto_connector(account_id)
             if not connector:
                 raise HTTPException(status_code=503, detail="Could not connect to crypto exchange")
+            if not connector.connect():
+                raise HTTPException(status_code=503, detail="Could not initialize crypto exchange markets")
             # Re-resolve symbol using the crypto connector's market knowledge
-            actual_symbol = connector._resolve_sym(order.symbol)
+            actual_symbol = connector._resolve_sym(order.symbol) or actual_symbol
             logger.info(f"[ORDER] Crypto symbol resolved: {order.symbol} -> {actual_symbol}")
         else:
             from src.live.connector import get_mt5_connector

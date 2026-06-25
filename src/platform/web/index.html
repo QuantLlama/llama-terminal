@@ -6263,7 +6263,12 @@
         const feedUrl = `${protocol}//${host}/api/v2/ws/feed`;
         let ws = null;
         let reconnectTimer = null;
+        // App.jsx already owns the primary feed socket. This legacy path is
+        // kept only as a fallback when the app-level socket is unavailable.
         const connect = () => {
+          if (window.__appFeedActive) {
+            return;
+          }
           ws = new WebSocket(feedUrl);
           ws.onopen = () => {
             // console.log("[WS_FEED] Connected to", feedUrl);
@@ -6381,6 +6386,7 @@
             }
           };
           ws.onclose = () => {
+            if (window.__appFeedActive) return;
             reconnectTimer = setTimeout(connect, 3000);
           };
           ws.onerror = (err) => {

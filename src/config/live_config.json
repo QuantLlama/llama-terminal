@@ -8,7 +8,7 @@
     "start_hour": "00:00",
     "end_hour": "23:59",
     "workspace": {
-        "layout": "single",
+        "layout": "2h",
         "charts": [
             {
                 "id": "popout-main",
@@ -56,7 +56,7 @@
                         "liquidity_heatmap": {
                             "enabled": true,
                             "tickSize": 0.25,
-                            "opacity": 0.55
+                            "opacity": 0.4
                         },
                         "imbalance": {
                             "enabled": false,
@@ -84,7 +84,7 @@
                                 "profileMode": "volume",
                                 "bucketCount": 300,
                                 "vaPercent": 70,
-                                "histogramWidth": 51,
+                                "histogramWidth": 31,
                                 "histogramSide": "left",
                                 "colorUp": "rgba(38, 166, 154, 0.7)",
                                 "colorDown": "rgba(239, 83, 80, 0.7)",
@@ -104,7 +104,7 @@
                                 "showLabels": true,
                                 "showHistogram": true,
                                 "noiseThreshold": 0,
-                                "opacity": 0.41
+                                "opacity": 0.25
                             }
                         },
                         "bigTrades": {
@@ -113,24 +113,24 @@
                             "displayLimit": 100,
                             "real": {
                                 "enabled": true,
-                                "threshold": 5700,
+                                "threshold": 28000,
                                 "buyColor": "#10b981",
                                 "sellColor": "#ef4444",
                                 "bubbleScale": 0.5,
                                 "textSize": 0.5,
-                                "opacity": 0.45,
+                                "opacity": 0.2,
                                 "showValue": true,
                                 "displayLimit": 3
                             },
                             "cumulative": {
                                 "enabled": true,
-                                "threshold": 37000,
+                                "threshold": 44000,
                                 "window": 1000,
                                 "buyColor": "#3e860e",
                                 "sellColor": "#b12028",
                                 "bubbleScale": 0.7,
                                 "textSize": 0.5,
-                                "opacity": 0.55,
+                                "opacity": 0.3,
                                 "showValue": true
                             },
                             "bigLlama": true
@@ -249,6 +249,251 @@
                     },
                     "footprint": {
                         "enabled": false,
+                        "mode": "bidask",
+                        "showWicks": true,
+                        "wickThickness": 1,
+                        "showPOC": true,
+                        "pocColor": "#fbbf24",
+                        "buyColor": "#10b981",
+                        "sellColor": "#ef4444",
+                        "fontSize": 10,
+                        "syncWithChartColors": true,
+                        "bodyBullColor": "#00dc6e",
+                        "bodyBearColor": "#e6284b",
+                        "bodyBullOpacity": 55,
+                        "bodyBearOpacity": 55
+                    },
+                    "stats": {
+                        "enabled": true,
+                        "type": "percent",
+                        "position": "top-right",
+                        "fontSize": 10,
+                        "opacity": 0.9,
+                        "showLabel": true
+                    },
+                    "chartType": "candle"
+                }
+            },
+            {
+                "id": 1782394930081.2263,
+                "symbol": "MESU26",
+                "tf": "1h",
+                "settings": {
+                    "indicators": {
+                        "cazastop": {
+                            "enabled": false,
+                            "params": {
+                                "sensitivity": 5,
+                                "swing_bars": 5,
+                                "lookback": 10,
+                                "dist_ticks": 60,
+                                "buffer_ticks": 10,
+                                "vida_max": 30,
+                                "lookback_tp": 100,
+                                "ticks_tp": 6,
+                                "mostrar_tp": true,
+                                "analisis_vol": true,
+                                "dibujar_safe": true
+                            },
+                            "colorTop": "#ef4444",
+                            "colorBottom": "#ef4444",
+                            "colorPoc": "#3b82f6",
+                            "lineWidth": 3,
+                            "lineStyle": 0,
+                            "showZones": true,
+                            "pocOnly": false
+                        },
+                        "orderflow": {
+                            "enabled": false,
+                            "showVwap": true,
+                            "showVwapBands": false,
+                            "showCumDelta": true,
+                            "vwapColor": "#fbbf24",
+                            "vwapWidth": 2,
+                            "band1Color": "rgba(251, 191, 36, 0.4)",
+                            "band2Color": "rgba(251, 191, 36, 0.2)",
+                            "bandWidth": 1,
+                            "cumDeltaColor": "#3b82f6",
+                            "cumDeltaWidth": 2,
+                            "limit": 5000
+                        },
+                        "liquidity_heatmap": {
+                            "enabled": false,
+                            "tickSize": 0.25,
+                            "opacity": 0.85
+                        },
+                        "imbalance": {
+                            "enabled": false,
+                            "params": {
+                                "delta_threshold": 0.15,
+                                "volume_multiplier": 0.5,
+                                "min_body_ratio": 0.2,
+                                "min_bars_between": 3,
+                                "structure_lookback": 3,
+                                "atr_multiplier": 0.6,
+                                "use_structure": true,
+                                "use_volume_filter": true
+                            },
+                            "buyColor": "#22c55e",
+                            "sellColor": "#ef4444",
+                            "signalSize": 1
+                        },
+                        "volumeProfile": {
+                            "enabled": true,
+                            "params": {
+                                "rangeMode": "monthly",
+                                "sessionType": "24h",
+                                "hourlyBlock": 60,
+                                "profileMode": "volume",
+                                "bucketCount": 300,
+                                "vaPercent": 70,
+                                "histogramWidth": 30,
+                                "histogramSide": "left",
+                                "colorUp": "rgba(38, 166, 154, 0.7)",
+                                "colorDown": "rgba(239, 83, 80, 0.7)",
+                                "colorBid": "rgba(239, 83, 80, 0.7)",
+                                "colorAsk": "rgba(38, 166, 154, 0.7)",
+                                "colorDeltaPos": "rgba(38, 166, 154, 0.7)",
+                                "colorDeltaNeg": "rgba(239, 83, 80, 0.7)",
+                                "colorPoc": "#ffeb3b",
+                                "colorVah": "rgba(255, 255, 255, 0.3)",
+                                "colorVal": "rgba(255, 255, 255, 0.3)",
+                                "colorVaFill": "rgba(255, 255, 255, 0)",
+                                "pocLineWidth": 2,
+                                "vaLineWidth": 1,
+                                "vaLineStyle": 2,
+                                "showPoc": true,
+                                "showVa": true,
+                                "showLabels": true,
+                                "showHistogram": true,
+                                "noiseThreshold": 0,
+                                "opacity": 0.25
+                            }
+                        },
+                        "bigTrades": {
+                            "enabled": false,
+                            "mode": "both",
+                            "displayLimit": 100,
+                            "real": {
+                                "enabled": true,
+                                "threshold": 100,
+                                "buyColor": "#10b981",
+                                "sellColor": "#ef4444",
+                                "bubbleScale": 1,
+                                "textSize": 1.2,
+                                "opacity": 0.4,
+                                "showValue": true
+                            },
+                            "cumulative": {
+                                "enabled": true,
+                                "threshold": 500,
+                                "window": 1000,
+                                "buyColor": "#3b82f6",
+                                "sellColor": "#f59e0b",
+                                "bubbleScale": 1.2,
+                                "textSize": 1.2,
+                                "opacity": 0.6,
+                                "showValue": true
+                            }
+                        },
+                        "tpo": {
+                            "sessionPeriod": "1d",
+                            "blockPeriod": 30,
+                            "rowSize": 0,
+                            "colorVA": "rgba(59, 130, 246, 0.5)",
+                            "colorTPO": "rgba(107, 114, 128, 0.3)",
+                            "colorPOC": "#ef4444",
+                            "colorIB": "rgba(234, 179, 8, 0.8)",
+                            "showIB": true,
+                            "showPOC": true,
+                            "showSinglePrints": true
+                        }
+                    },
+                    "overlays": {
+                        "showVolume": false,
+                        "showDelta": false,
+                        "showBigTrades": true,
+                        "showPositions": true,
+                        "showDrawings": true,
+                        "showOrderFlow": false,
+                        "showDomHistogram": false,
+                        "showBookmap": false
+                    },
+                    "bookmap": {
+                        "levels": 1000,
+                        "opacity": 1,
+                        "updateInterval": 250,
+                        "colorTheme": "classic",
+                        "minVolumeFilter": 0,
+                        "maxIntensityFactor": 1,
+                        "historySize": 600
+                    },
+                    "filters": {
+                        "minVol": 100,
+                        "volumeColor": "#10b981",
+                        "deltaColor": "#3b82f6",
+                        "volumeOpacity": 0.8,
+                        "deltaOpacity": 0.8,
+                        "deltaDisplayMode": "histogram",
+                        "deltaPositiveColor": "#26a69a",
+                        "deltaNegativeColor": "#ef5350",
+                        "deltaCumPositiveColor": "#26a69a",
+                        "deltaCumNegativeColor": "#ef5350",
+                        "deltaCumLineColor": "#3b82f6",
+                        "deltaCumLineWidth": 2
+                    },
+                    "layout": {
+                        "showOrderEntry": false,
+                        "showTape": false,
+                        "showDom": false,
+                        "orderEntryWidth": 320,
+                        "tapeWidth": 220,
+                        "domWidth": 250,
+                        "volumeHeight": 15,
+                        "deltaHeight": 15,
+                        "showGrid": false,
+                        "showWatermark": true,
+                        "muteSaveNotifications": false,
+                        "muteTradingNotifications": false
+                    },
+                    "appearance": {
+                        "backgroundColor": "#050505",
+                        "upColor": "#26a69a",
+                        "downColor": "#ef5350",
+                        "borderUpColor": "#4b5563",
+                        "borderDownColor": "#4b5563",
+                        "borderVisible": true,
+                        "priceLine": {
+                            "enabled": true,
+                            "color": "#ffffff",
+                            "lineWidth": 1,
+                            "lineStyle": 0,
+                            "fullWidth": false
+                        }
+                    },
+                    "dom": {
+                        "levels": 1000,
+                        "updateInterval": 100,
+                        "scaleMode": "linear",
+                        "cumulative": false,
+                        "compact": false,
+                        "showVolumes": true,
+                        "showLabels": true,
+                        "maxWidth": 400,
+                        "renderStyle": "heatmap",
+                        "opacity": 0.85,
+                        "bidColor": "#10b981",
+                        "askColor": "#ef5350"
+                    },
+                    "timer": {
+                        "enabled": true,
+                        "position": "bottom",
+                        "size": "medium",
+                        "color": "#fbbf24",
+                        "showProgress": true
+                    },
+                    "footprint": {
+                        "enabled": false,
                         "mode": "off",
                         "showWicks": true,
                         "wickThickness": 1,
@@ -277,55 +522,34 @@
         ],
         "activeChartId": "popout-main",
         "showTape": false,
-        "showOrderEntry": false,
+        "showOrderEntry": true,
         "showDom": false,
-        "drawings": [],
-        "indicators": {
-            "imbalance_impulse": {
-                "name": "Imbalance Impulse",
-                "description": "Detecta impulsos de mercado basados en imbalance de order flow",
-                "category": "Order Flow",
-                "enabled": false,
-                "config": {}
-            },
-            "caza_stop": {
-                "name": "CazaStop PRO",
-                "description": "Identifica zonas de stop-hunting y puntos de entrada seguros",
-                "category": "Smart Money",
-                "enabled": false,
-                "config": {}
-            },
-            "order_flow": {
-                "name": "Order Flow Suite",
-                "description": "Advanced Volume Analysis (Delta, VWAP, Imbalances)",
-                "category": "Order Flow",
-                "enabled": true,
-                "config": {}
+        "drawings": [
+            {
+                "id": "1778164515072z5r8t",
+                "type": "cursor",
+                "points": [
+                    {
+                        "time": 1778181000,
+                        "price": 28903.432815776592,
+                        "logical": 5056
+                    },
+                    {
+                        "time": 1778181000,
+                        "price": 28896.29944694264,
+                        "logical": 5056
+                    }
+                ],
+                "props": {
+                    "color": "#fbbf24"
+                },
+                "symbol": "MNQM26",
+                "chartId": "popout-main",
+                "syncDrawings": true
             }
-        },
-        "indicator_settings": {
-            "imbalance_impulse": {
-                "name": "Imbalance Impulse",
-                "description": "Detecta impulsos de mercado basados en imbalance de order flow",
-                "category": "Order Flow",
-                "enabled": false,
-                "config": {}
-            },
-            "caza_stop": {
-                "name": "CazaStop PRO",
-                "description": "Identifica zonas de stop-hunting y puntos de entrada seguros",
-                "category": "Smart Money",
-                "enabled": false,
-                "config": {}
-            },
-            "order_flow": {
-                "name": "Order Flow Suite",
-                "description": "Advanced Volume Analysis (Delta, VWAP, Imbalances)",
-                "category": "Order Flow",
-                "enabled": true,
-                "config": {}
-            }
-        },
+        ],
+        "indicators": {},
+        "indicator_settings": {},
         "theme": "dark",
         "app_theme": "dark",
         "platform": "mt5",
@@ -353,6 +577,7 @@
             "show_volume_WBTC/USDT": "true",
             "show_volume_BTC/USDT:USDT-260925": "false",
             "show_volume_MESU26": "false",
+            "show_volume_ADA/BTC:BTC-260925": "false",
             "show_delta_MESH26": "false",
             "show_volume_$BAR_OLD/USDT": "true",
             "show_delta_AUDUSD": "true",
@@ -408,6 +633,7 @@
             "show_volume_SIEK26": "true",
             "show_volume_MGCG26": "true",
             "show_delta_XLK": "false",
+            "show_delta_ADA/BTC:BTC-260925": "false",
             "show_delta_MCLEJ26": "false",
             "show_volume_0G/USDT": "true",
             "show_volume_MNQ0326": "true",
@@ -419,6 +645,7 @@
             "show_delta_MNQMAR26": "false",
             "show_volume_1000CHEEMS/USDC": "true",
             "show_volume_MSFH26": "true",
+            "show_delta_QQQ/USDT:USDT": "false",
             "show_delta_1000000BOBUSDT": "false",
             "show_delta_MNQH26": "false",
             "show_volume_LINK/ETH": "true",
@@ -444,8 +671,8 @@
             "show_delta_XRP/USDT:USDT": "false",
             "show_volume_BTC/USDC": "true",
             "show_volume_1000000BOB/USDT:USDT": "true",
-            "show_volume_ETHW/USDT:USDT": "true",
             "show_delta_WBTC/USDT": "false",
+            "show_volume_ETHW/USDT:USDT": "true",
             "show_delta_AAVE/USD:AAVE": "false",
             "show_volume_0GUSDT": "true",
             "show_volume_A/USDT:USDT": "false",
@@ -462,6 +689,7 @@
             "show_volume_EURCHF": "true",
             "show_delta_0G/FDUSD": "false",
             "show_volume_CLEH26": "true",
+            "show_delta_XAUT/USDT:USDT": "false",
             "show_delta_ENQM26": "false",
             "show_delta_BETH/USDT": "false",
             "show_volume_ZIL/USDT": "true",
@@ -552,7 +780,7 @@
             "show_delta_BTC/USDT": "false",
             "show_volume_DUSK/USDT": "true",
             "show_volume_ADA/USD:ADA": "true",
-            "show_volume_BTC/USDT:USDT-260626": "true",
+            "show_volume_BTC/USDT:USDT-260626": "false",
             "show_delta_EURCAD": "false",
             "show_volume_BTC/USDT:USDT": "false",
             "show_volume_1000000MOG/USDT:USDT": "true",
@@ -599,6 +827,7 @@
             "show_delta_BTC/USDT:USDT": "false",
             "show_delta_BTC/USDT:USDT-250627": "false",
             "show_volume_BTCDOM/USDT:USDT": "true",
+            "show_volume_QQQ/USDT:USDT": "false",
             "show_delta_VCIT": "false",
             "show_volume_EURAUD": "true",
             "show_volume_MNQU26": "false",
@@ -642,7 +871,7 @@
             "show_volume_BNB/USDC:USDC": "true",
             "show_volume_AERO/USDT:USDT": "true",
             "show_delta_MNQ0326": "false",
-            "show_volume_BTCUSDT": "true",
+            "show_volume_BTCUSDT": "false",
             "show_delta_WBTC/ETH": "false",
             "show_volume_MNQH26": "true",
             "show_delta_ENQH26": "false",
@@ -687,6 +916,7 @@
             "show_volume_BNB/USDT:USDT": "true",
             "show_volume_VCIT": "true",
             "show_delta_A/USDT:USDT": "false",
+            "show_delta_AAPL/USDT:USDT": "false",
             "show_volume_CLEJ26": "true",
             "show_delta_@ENQ": "false",
             "show_volume_ENJ/USDT": "true",
@@ -699,6 +929,7 @@
             "show_delta_TLT": "true",
             "show_volume_BREV/USDT:USDT": "true",
             "show_delta_BNB/USDT": "false",
+            "show_volume_AAPL/USDT:USDT": "false",
             "show_delta_BNB/BTC": "true",
             "show_delta_ESBM26": "false",
             "show_volume_MNKH26": "true",
@@ -718,6 +949,7 @@
             "show_volume_VTI": "true",
             "show_delta_XAUEUR": "false",
             "show_delta_MHGH26": "false",
+            "show_volume_XAUT/USDT:USDT": "false",
             "show_volume_1000WHY/USDT:USDT": "true",
             "show_volume_BTC/UST": "true",
             "show_delta_ETH/USDT:USDT": "false",
@@ -741,14 +973,14 @@
         "panel_sizes": {
             "tapeWidth": 296,
             "orderEntryWidth": 285,
-            "tape1Height": 600,
-            "tape2Height": 298,
+            "tape1Height": 560,
+            "tape2Height": 330,
             "domWidth": 280
         },
         "tapeWidth": 296,
         "orderEntryWidth": 285,
-        "tape1Height": 600,
-        "tape2Height": 298,
+        "tape1Height": 560,
+        "tape2Height": 330,
         "domWidth": 280,
         "bigTradeConfig": {
             "real": {
@@ -771,7 +1003,7 @@
                 "textSize": 1
             }
         },
-        "updated_at": "2026-06-18T22:16:50.517Z"
+        "updated_at": "2026-06-25T16:54:07.948Z"
     },
     "workspaces": {
         "session_futures": {

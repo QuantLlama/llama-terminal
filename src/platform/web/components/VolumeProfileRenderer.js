@@ -28,6 +28,7 @@ class VolumeProfileRenderer {
     this._lastPriceCoord = null;
     this._lastTimeCoord = null;
     this._monitorRaf = null;
+    this._priceScale = null;
     const monitorScale = () => {
         if (this._destroyed) return;
         if (this.chart && this._latestSeries) {
@@ -47,6 +48,16 @@ class VolumeProfileRenderer {
     this._monitorRaf = requestAnimationFrame(monitorScale);
   }
   render(profiles, params, series) {
+    if (this._latestSeries !== series) {
+      try {
+        this._priceScale?.unsubscribeVisiblePriceRangeChange?.(this.scheduleRender);
+      } catch (e) {}
+      this._priceScale = null;
+      try {
+        this._priceScale = series?.priceScale?.() || null;
+        this._priceScale?.subscribeVisiblePriceRangeChange?.(this.scheduleRender);
+      } catch (e) {}
+    }
     this._latestProfiles = profiles;
     this._latestParams = params;
     this._latestSeries = series;
@@ -54,22 +65,22 @@ class VolumeProfileRenderer {
   }
   scheduleRender() {
     if (this._destroyed) return;
-    if (this._isDrawing) {
-        this._needsRedraw = true;
-        return;
+    if (this._rafId) {
+      this._needsRedraw = true;
+      return;
     }
-    this._isDrawing = true;
-    try { this._drawScheduled(); } catch(e) {}
-    requestAnimationFrame(() => {
-        this._isDrawing = false;
-        if (this._needsRedraw) {
-            this._needsRedraw = false;
-            this.scheduleRender();
-        }
+    this._rafId = requestAnimationFrame(() => {
+      this._rafId = null;
+      this._isDrawing = true;
+      try { this._drawScheduled(); } catch(e) {}
+      this._isDrawing = false;
+      if (this._needsRedraw) {
+        this._needsRedraw = false;
+        this.scheduleRender();
+      }
     });
   }
   _drawScheduled() {
-    this._rafId = null;
     if (this._destroyed) return;
     if (this._latestProfiles && this._latestParams && this._latestSeries) {
       this._drawFrame(this._latestProfiles, this._latestParams, this._latestSeries);
@@ -238,12 +249,16 @@ class VolumeProfileRenderer {
   }
   destroy() {
     this._destroyed = true;
+    try {
+      this._priceScale?.unsubscribeVisiblePriceRangeChange?.(this.scheduleRender);
+    } catch (e) {}
     if (this.chart) {
       this.chart.timeScale().unsubscribeVisibleLogicalRangeChange(this.scheduleRender);
       this.chart.timeScale().unsubscribeVisibleTimeRangeChange(this.scheduleRender);
       this.chart.unsubscribeCrosshairMove(this.scheduleRender);
     }
     if (this._rafId) cancelAnimationFrame(this._rafId);
+    if (this._monitorRaf) cancelAnimationFrame(this._monitorRaf);
     if (this.canvas && this.canvas.parentNode) {
       this.canvas.parentNode.removeChild(this.canvas);
     }
