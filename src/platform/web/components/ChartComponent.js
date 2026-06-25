@@ -45,6 +45,12 @@ const _getPlatformScales = (symbol) => {
   };
 };
 
+const _normalizeBigTradeTimestamp = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return numeric > 1e11 ? numeric / 1000 : numeric;
+};
+
 // Helper: compute cumulative delta OHLC (candles) and line data from bars
 const _computeCumulativeDelta = (bars, dScale) => {
   let cumDelta = 0;
@@ -146,7 +152,7 @@ const ChartComponent = React.memo(({
     // 1. Timeframe-specific key (Legacy & Exact)
     const tfKey = `chart_range_${chartId}_${activeSymbol}_${activeTimeframe}`;
     localStorage.setItem(tfKey, JSON.stringify(data));
-    
+
     // 2. Global Symbol-specific key (For new timeframes or sessions)
     const globalKey = `chart_range_global_${chartId}_${activeSymbol}`;
     localStorage.setItem(globalKey, JSON.stringify(data));
@@ -157,10 +163,10 @@ const ChartComponent = React.memo(({
     if (!chartId) return;
     const tfKey = `chart_range_${chartId}_${activeSymbol}_${activeTimeframe}`;
     const globalKey = `chart_range_global_${chartId}_${activeSymbol}`;
-    
+
     const savedTf = localStorage.getItem(tfKey);
     const savedGlobal = localStorage.getItem(globalKey);
-    
+
     if (savedTf) {
       try { restoredRangeRef.current = JSON.parse(savedTf); } catch (e) { restoredRangeRef.current = null; }
     } else if (savedGlobal) {
@@ -173,14 +179,14 @@ const ChartComponent = React.memo(({
   // Helper to adjust restored range based on "Stick-to-Right" logic
   const getAdjustedRange = useCallback((savedRange, newTotalBars) => {
     if (!savedRange || isNaN(newTotalBars) || newTotalBars <= 0) return null;
-    
+
     // Prefer TimeRange if available for cross-timeframe consistency
     // Note: Applying setVisibleRange(timeRange) is handled in the effect after logical range fails or as preference
-    
+
     const savedTotal = savedRange.totalBars || 0;
     // If the user was at the "Right Edge", stay at the right edge
     const isAtRightEdge = savedTotal > 10 && savedRange.to >= (savedTotal - 5);
-    
+
     if (isAtRightEdge) {
       const zoomLevel = savedRange.to - savedRange.from;
       return {
@@ -214,7 +220,7 @@ const ChartComponent = React.memo(({
           settings.bodyBullColor !== undefined || settings.bodyBullOpacity !== undefined ||
           settings.bodyBearColor !== undefined || settings.bodyBearOpacity !== undefined ||
           settings.syncWithChartColors !== undefined) {
-          
+
           const buildBodyColor = (hex, opacityPct) => {
             const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
             if (!m) return hex;
@@ -224,7 +230,7 @@ const ChartComponent = React.memo(({
 
           const fp = chartSettings?.footprint || {};
           const isSync = settings.syncWithChartColors !== undefined ? settings.syncWithChartColors : (fp.syncWithChartColors ?? true);
-          
+
           fpRendererRef.current.setColors({
             buy: settings.buyColor || fp.buyColor || "#10b981",
             sell: settings.sellColor || fp.sellColor || "#ef4444",
@@ -579,7 +585,7 @@ const ChartComponent = React.memo(({
           const tfLimit = storedLimits[activeTimeframe] || 3000;
           // Respect the tighter of the two: indicator-specific limit or general history limit
           fetchLimit = Math.min(fetchLimit, tfLimit);
-        } catch (e) { 
+        } catch (e) {
           fetchLimit = Math.min(fetchLimit, 3000);
         }
 
@@ -770,7 +776,7 @@ const ChartComponent = React.memo(({
       }, 500);
     };
     window.addEventListener("cazastop_config_changed", handleUpdate);
-    
+
     return () => {
       isMounted = false;
       if (fetchTimeout) clearTimeout(fetchTimeout);
@@ -866,19 +872,19 @@ const ChartComponent = React.memo(({
       cumPrevVolRef.current = vol;
       cumPrevPriceRef.current = px;
       cumPrevTimeRef.current = time;
-      
+
       const baseCumThreshold = settingsRef.current?.indicators?.bigTrades?.cumulative?.threshold || 500;
       const cumThreshold = isBigLlamaActive && llamaParams.big?.minVol ? llamaParams.big.minVol : baseCumThreshold;
       const baseAbsFactor = settingsRef.current?.indicators?.bigTrades?.cumulative?.absorptionFactor || 2.0;
       const absFactor = isBigLlamaActive && llamaParams.big?.absorptionFactor ? llamaParams.big.absorptionFactor : baseAbsFactor;
-      
+
       const acc2 = cumAccumulatorRef.current;
       if (acc2.totalSize >= cumThreshold && !cumEmittedRef.current) {
         cumEmittedRef.current = true;
         const dominantSide = acc2.buys >= acc2.sells ? 'buy' : 'sell';
         const maxDist = acc2.lastPrice * (absFactor / 10000.0);
         const isAbsorption = (acc2.maxPrice - acc2.minPrice) <= maxDist;
-        
+
         const trade = {
           id: acc2.startTime + Math.random(),
           time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -899,7 +905,7 @@ const ChartComponent = React.memo(({
           const dominantSide = a.buys >= a.sells ? 'buy' : 'sell';
           const maxDist2 = a.lastPrice * ((isBigLlamaActive && llamaParams.big?.absorptionFactor ? llamaParams.big.absorptionFactor : (settingsRef.current?.indicators?.bigTrades?.cumulative?.absorptionFactor || 2.0)) / 10000.0);
           const isAbsorption2 = (a.maxPrice - a.minPrice) <= maxDist2;
-          
+
           const trade = {
             id: a.startTime + Math.random(),
             time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -1428,14 +1434,14 @@ const ChartComponent = React.memo(({
           const height = chartContainerRef.current.clientHeight;
           if (width > 0 && height > 0) {
             chartRef.current.resize(width, height);
-            
+
             const widthDiff = Math.abs(width - lastWidth);
             const heightDiff = Math.abs(height - lastHeight);
             if (lastWidth === 0 || lastHeight === 0 || widthDiff > 20 || heightDiff > 20) {
-              // Layout changed (panel toggle), just resize. 
+              // Layout changed (panel toggle), just resize.
               // Removed fitContent() to preserve user's zoom/position.
             }
-            
+
             lastWidth = width;
             lastHeight = height;
           } else {
@@ -1717,6 +1723,7 @@ const ChartComponent = React.memo(({
       }
     }
     if (current) aggregated.push(current);
+
     return aggregated;
   }, [formatCandle]);
 
@@ -1756,7 +1763,7 @@ const ChartComponent = React.memo(({
     // ── 1. HISTORICAL DATA INITIALIZATION ──
     if (!isInitializedRef.current) {
       if (!historicalData || historicalData.length === 0) return;
-      
+
       const uniqueData = aggregateData(historicalData);
       if (uniqueData.length > 0) {
         if (window._refreshChartPrecision) window._refreshChartPrecision(uniqueData[uniqueData.length - 1].close);
@@ -1778,7 +1785,7 @@ const ChartComponent = React.memo(({
           const deltaVal = isFinite(d.delta) ? d.delta * dScale : 0;
           const vHex = _ensureHex(d.close >= d.open ? volumeColor : "#f87171");
           const dHex = _ensureHex(d.delta >= 0 ? deltaColor : "#f59e0b");
-          
+
           if (isFinite(volVal)) {
             volumeData.push({ time: d.time, value: volVal, color: _getRgba(vHex, volumeOpacity) });
           }
@@ -1786,7 +1793,7 @@ const ChartComponent = React.memo(({
             deltaData.push({ time: d.time, value: deltaVal, color: _getRgba(dHex, deltaOpacity) });
           }
         }
-        
+
         if (volumeSeriesRef.current) {
           try {
             volumeSeriesRef.current.setData(showVolume ? volumeData : []);
@@ -1845,7 +1852,7 @@ const ChartComponent = React.memo(({
           if (lastSyncTimeoutRef.current) clearTimeout(lastSyncTimeoutRef.current);
           lastSyncTimeoutRef.current = setTimeout(() => {
             if (!chartRef.current) return;
-            
+
             if (restoredRangeRef.current) {
               const adjusted = getAdjustedRange(restoredRangeRef.current, uniqueData.length);
               const savedTotal = restoredRangeRef.current.totalBars || 0;
@@ -1882,11 +1889,11 @@ const ChartComponent = React.memo(({
         lastFinalVolRef.current = (lastCandle.volume || 0) * vScale;
         lastFinalDeltaRef.current = (lastCandle.delta || 0) * dScale;
         prevFirstTimeRef.current = uniqueData[0].time;
-        
+
         // FIX: Reset visual refs for smooth transition when loading new timeframe data
         visualCloseRef.current = lastCandle.close;
         visualTimeRef.current = lastCandle.time;
-        
+
         let lastTime = lastCandle.time;
         if (typeof lastTime === "string") {
           const parsed = new Date(lastTime).getTime();
@@ -1926,7 +1933,7 @@ const ChartComponent = React.memo(({
 
   useEffect(() => {
     if (!isInitializedRef.current) return;
-    
+
     // ── 2. SUBSEQUENT LIVEDATA OHLC OVERWRITE PROTECTION ──
     if (liveData && Object.keys(liveData).length > 0) {
       const liveCandle = formatCandle(liveData);
@@ -1945,9 +1952,9 @@ const ChartComponent = React.memo(({
         try {
           const lastIdx = allBarsRef.current.length - 1;
           const existingBar = lastIdx >= 0 ? allBarsRef.current[lastIdx] : null;
-          
+
           let finalCandle = { ...liveCandle };
-          
+
           if (existingBar && existingBar.time === finalCandle.time) {
             finalCandle.open = existingBar.open;
             finalCandle.high = Math.max(existingBar.high, finalCandle.high);
@@ -1968,7 +1975,7 @@ const ChartComponent = React.memo(({
           if (existingBar && finalCandle.time < existingBar.time) {
             return;
           }
-          
+
           candleSeriesRef.current.update(finalCandle);
           if (areaSeriesRef.current) areaSeriesRef.current.update({ time: finalCandle.time, value: finalCandle.close });
           if (lineSeriesRef.current) lineSeriesRef.current.update({ time: finalCandle.time, value: finalCandle.close });
@@ -1992,7 +1999,7 @@ const ChartComponent = React.memo(({
     if (!candleSeriesRef.current || !isInitializedRef.current) return;
     const tickBuffer = [];
     let animationId = null;
-    
+
     // FIX: Helper to validate tick timestamp is reasonable
     const isValidTickTimestamp = (ts) => {
       if (ts === undefined || ts === null || isNaN(ts)) return false;
@@ -2000,7 +2007,7 @@ const ChartComponent = React.memo(({
       // Allow up to 60s in the future (clock skew) and up to 1h in the past
       return ts > (nowSec - 3600) && ts < (nowSec + 60);
     };
-    
+
     const isValidCandle = (d) => {
       if (!d) return false;
       if (typeof d.time !== 'number' || isNaN(d.time) || !isFinite(d.time) || d.time <= 0) return false;
@@ -2020,7 +2027,7 @@ const ChartComponent = React.memo(({
         currentCandle = lastBar ? { ...lastBar } : null;
         let lastTick = null;
         const tfSeconds = getTimeframeSeconds(activeTimeframe);
-        
+
         // Move scale lookup out of loop
         const { vScale, dScale } = _getPlatformScales(activeSymbol);
 
@@ -2029,7 +2036,7 @@ const ChartComponent = React.memo(({
 
           const tickPrice = tick.price || tick.last || tick.bid || tick.ask;
           if (!tickPrice || isNaN(tickPrice)) continue;
-        
+
           // FIX: Use server timestamp ALWAYS, fallback to reasonable local time only if invalid
           let tickTimeSec = Number(tick.timestamp);
           if (tick.timestamp === undefined || tick.timestamp === null || isNaN(tickTimeSec) || tickTimeSec <= 0) {
@@ -2039,7 +2046,7 @@ const ChartComponent = React.memo(({
             // Convert ms to s if needed
             if (tickTimeSec > 10000000000) tickTimeSec = tickTimeSec / 1000;
             tickTimeSec = Math.floor(tickTimeSec);
-            
+
             // Validate timestamp is reasonable (not too far from now)
             const nowSec = Math.floor(Date.now() / 1000);
             if (tickTimeSec < (nowSec - 3600) || tickTimeSec > (nowSec + 60)) {
@@ -2047,7 +2054,7 @@ const ChartComponent = React.memo(({
               tickTimeSec = nowSec;
             }
           }
-        
+
         const tickBarTime = Math.floor(tickTimeSec / tfSeconds) * tfSeconds;
         if (currentCandle && tickTimeSec < currentCandle.time) continue;
 
@@ -2113,20 +2120,20 @@ const ChartComponent = React.memo(({
           if (!isFinite(tickPrice) || tickPrice <= 0) {
             continue;
           }
-          
+
           // FIX: Prevent huge gaps! Always visually connect new candles to previous close
-          // BUT ONLY if the time gap is small (e.g. <= 3 periods). If there's a huge time gap 
+          // BUT ONLY if the time gap is small (e.g. <= 3 periods). If there's a huge time gap
           // (like days of no trades on illiquid pairs), connecting them creates a massive artificial candle!
           let validOpen = tickPrice;
           const timeDiff = currentCandle ? (tickBarTime - currentCandle.time) : 0;
-          
+
           // Relaxed connection logic: connect if gap is within 10 periods to reduce visual "jumping"
           if (currentCandle && isFinite(currentCandle.close) && currentCandle.close > 0 && timeDiff <= tfSeconds * 10) {
             validOpen = currentCandle.close; // Use previous close to connect the gap smoothly
           } else if (tick.open && isFinite(tick.open) && tick.open > 0) {
             validOpen = tick.open;
           }
-          
+
           const validHigh = (tick.high && isFinite(tick.high) && tick.high > validOpen) ? tick.high : Math.max(validOpen, tickPrice);
           const validLow = (tick.low && isFinite(tick.low) && tick.low > 0 && tick.low < validOpen) ? tick.low : Math.min(validOpen, tickPrice);
           const validClose = isFinite(tickPrice) && tickPrice > 0 ? tickPrice : validOpen;
@@ -2170,7 +2177,7 @@ const ChartComponent = React.memo(({
           if (tickSize === 0 && !isCryptoTick) {
             tickSize = Number(tick.volume) || 0;
           }
-          
+
           if (tickSize > 0) {
             currentCandle.volume = (currentCandle.volume || 0) + tickSize;
           }
@@ -2265,7 +2272,7 @@ const ChartComponent = React.memo(({
       }
       isUpdatingDataRef.current = false;
       } // Closes if (tickBuffer.length > 0)
-      
+
       // If we didn't have ticks, we still need to reference the last candle for lerping
       if (!currentCandle && allBarsRef.current.length > 0) {
         currentCandle = allBarsRef.current[allBarsRef.current.length - 1];
@@ -2291,7 +2298,7 @@ const ChartComponent = React.memo(({
             // For other markets, keep smoother lerp (25%)
             const lerpFactor = isCrypto ? 0.5 : 0.25;
             visualCloseRef.current += diff * lerpFactor;
-            
+
             // FIX: Smaller threshold for crypto (0.01 for crypto, 0.001 for others)
             const threshold = isCrypto ? 0.01 : 0.001;
             if (Math.abs(currentCandle.close - visualCloseRef.current) <= threshold) {
@@ -2327,7 +2334,7 @@ const ChartComponent = React.memo(({
           }
         } finally {}
       }
-      
+
       // Keep animation alive if new ticks arrived OR we are still lerping
       if (tickBuffer.length > 0 || isAnimating) {
         animationId = requestAnimationFrame(flushTicks);
@@ -2593,22 +2600,48 @@ const ChartComponent = React.memo(({
       cumulative: { ...defaults.cumulative, ...(currentBT.cumulative || {}) }
     };
     let newDetectedTrades = [];
+    const tfSeconds = Math.max(1, getTimeframeSeconds(activeTimeframe) || 1);
+    const alignTradeTime = (trade) => {
+      const normalizedTimestamp = _normalizeBigTradeTimestamp(trade.timestamp);
+      if (normalizedTimestamp === null) return null;
+      return Math.floor(normalizedTimestamp / tfSeconds) * tfSeconds;
+    };
     if (liveRealTrades.length > 0) {
       const baseThreshold = config.real?.threshold || 100;
       const threshold = isBigLlamaActive && llamaParams.big?.minVol ? llamaParams.big.minVol : baseThreshold;
-      const tfSeconds = getTimeframeSeconds(activeTimeframe);
       const detected = liveRealTrades
         .filter((t) => t.size >= threshold)
-        .map((t) => ({ ...t, time: Math.floor(t.timestamp / tfSeconds) * tfSeconds, id: t.id + "_real", bt_type: "real" }));
+        .map((t) => {
+          const alignedTime = alignTradeTime(t);
+          if (alignedTime === null) return null;
+          return {
+            ...t,
+            timestamp: _normalizeBigTradeTimestamp(t.timestamp) ?? t.timestamp,
+            time: alignedTime,
+            id: t.id + "_real",
+            bt_type: "real"
+          };
+        })
+        .filter(Boolean);
       newDetectedTrades = [...newDetectedTrades, ...detected];
     }
     if (liveAggregatedTrades.length > 0) {
       const baseThreshold = config.cumulative?.threshold || 500;
       const threshold = isBigLlamaActive && llamaParams.big?.minVol ? llamaParams.big.minVol : baseThreshold;
-      const tfSeconds = getTimeframeSeconds(activeTimeframe);
       const detected = liveAggregatedTrades
         .filter((t) => t.size >= threshold)
-        .map((t) => ({ ...t, time: Math.floor(t.timestamp / tfSeconds) * tfSeconds, id: t.id + "_cum", bt_type: "cumulative" }));
+        .map((t) => {
+          const alignedTime = alignTradeTime(t);
+          if (alignedTime === null) return null;
+          return {
+            ...t,
+            timestamp: _normalizeBigTradeTimestamp(t.timestamp) ?? t.timestamp,
+            time: alignedTime,
+            id: t.id + "_cum",
+            bt_type: "cumulative"
+          };
+        })
+        .filter(Boolean);
       newDetectedTrades = [...newDetectedTrades, ...detected];
     }
     if (newDetectedTrades.length === 0) return;
@@ -2631,24 +2664,25 @@ const ChartComponent = React.memo(({
     const handleBackendBigTrade = (e) => {
       const bt = e.detail;
       if (!bt || !activeSymbol) return;
-      
+
       // Comparación robusta de símbolos (ignora mayúsculas/minúsculas y normaliza)
       const normActive = activeSymbol.split(':')[0].toUpperCase();
       const normIncoming = bt.symbol.split(':')[0].toUpperCase();
       if (normActive !== normIncoming) return;
 
       setBigTrades((prev) => {
-        const id = bt.id || bt.timestamp + Math.random();
+        const tfSeconds = Math.max(1, getTimeframeSeconds(activeTimeframe) || 1);
+        const normTs = _normalizeBigTradeTimestamp(bt.timestamp);
+        if (normTs === null) return prev;
+        const id = bt.id || normTs + Math.random();
         if (prev.some((t) => t.id === id)) return prev;
-        const tfSeconds = getTimeframeSeconds(activeTimeframe);
-        const normTs = bt.timestamp > 1e11 ? bt.timestamp / 1000 : bt.timestamp;
         const newTrade = { ...bt, id, time: Math.floor(normTs / tfSeconds) * tfSeconds, bt_type: bt.bt_type || 'real' };
         const updated = [...prev, newTrade].sort((a, b) => a.time - b.time);
-        
+
         // Read safely from ref to avoid dependency array thrashing
         const currentBTSettings = settingsRef.current?.indicators?.bigTrades;
         const limit = currentBTSettings?.[newTrade.bt_type]?.displayLimit || 100;
-        
+
         const filtered = updated.filter((t) => t.bt_type === newTrade.bt_type).slice(-limit);
         const other = updated.filter((t) => t.bt_type !== newTrade.bt_type);
         const final = [...filtered, ...other].sort((a, b) => a.time - b.time);
@@ -2809,13 +2843,13 @@ const ChartComponent = React.memo(({
         const a = ((opacityPct ?? 55) / 100).toFixed(2);
         return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
       };
-      
+
       const fp = chartSettings?.footprint || {};
       const isSync = fp.syncWithChartColors ?? true;
 
-      fpRendererRef.current.setColors({ 
-        buy: fp.buyColor || savedBuyColor, 
-        sell: fp.sellColor || savedSellColor, 
+      fpRendererRef.current.setColors({
+        buy: fp.buyColor || savedBuyColor,
+        sell: fp.sellColor || savedSellColor,
         poc: fp.pocColor || savedPocColor,
         bodyBull: buildBodyColor(
           isSync ? globalAppearance.upColor : (fp.bodyBullColor || '#00dc6e'),
@@ -2851,15 +2885,15 @@ const ChartComponent = React.memo(({
       if (areaSeriesRef.current) areaSeriesRef.current.applyOptions({ visible: false });
       if (lineSeriesRef.current) lineSeriesRef.current.applyOptions({ visible: false });
       if (barSeriesRef.current) barSeriesRef.current.applyOptions({ visible: false });
-    } else if (hideCandles) {
-      // Caso para TPO u otros modos que ocultan velas
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.applyOptions({
-          visible: true,
-          upColor: 'rgba(0,0,0,0)',
-          downColor: 'rgba(0,0,0,0)',
-          borderVisible: false,
-          wickVisible: false,
+      } else if (hideCandles) {
+        // Caso para TPO u otros modos que ocultan velas
+        if (candleSeriesRef.current) {
+          candleSeriesRef.current.applyOptions({
+            visible: true,
+            upColor: 'rgba(0,0,0,0)',
+            downColor: 'rgba(0,0,0,0)',
+            borderVisible: false,
+            wickVisible: false,
           priceLineVisible: false,
           lastValueLabelVisible: false
         });
@@ -2929,8 +2963,9 @@ const ChartComponent = React.memo(({
         }
       };
       if (isInitial) {
-        await performFetch(200);
-        if (!cancelled) setTimeout(() => performFetch(1000), 500);
+        const platformType = typeof detectPlatformType === "function" ? detectPlatformType() : window.detectPlatformType ? window.detectPlatformType() : "futures";
+        await performFetch(platformType === "crypto" ? 1000 : 200);
+        if (!cancelled && platformType !== "crypto") setTimeout(() => performFetch(1000), 500);
       } else {
         await performFetch(100);
       }
@@ -2955,21 +2990,23 @@ const ChartComponent = React.memo(({
         footprintByTime.set(Number(candle.time), candle);
       }
 
+      const merged = baseCandles.map((base) => {
+        const fp = footprintByTime.get(Number(base.time));
+        return {
+          ...base,
+          volume: fp?.volume ?? base.volume ?? base.tick_volume ?? 0,
+          levels: fp?.levels || [],
+          poc: fp?.poc,
+          delta: fp?.delta ?? base.delta ?? 0,
+          fidelity: fp?.fidelity || 'chart'
+        };
+      });
+
       return {
         ...(footprintData || {}),
         symbol: activeSymbol,
         timeframe: activeTimeframe,
-        candles: baseCandles.map((base) => {
-          const fp = footprintByTime.get(Number(base.time));
-          return {
-            ...base,
-            volume: fp?.volume ?? base.volume ?? base.tick_volume ?? 0,
-            levels: fp?.levels || [],
-            poc: fp?.poc,
-            delta: fp?.delta ?? base.delta ?? 0,
-            fidelity: fp?.fidelity || 'chart'
-          };
-        })
+        candles: merged
       };
     }
 
@@ -3032,14 +3069,16 @@ const ChartComponent = React.memo(({
     };
 
     timeScale.subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
-    
+    timeScale.subscribeVisibleTimeRangeChange(handleVisibleRangeChange);
+
     // Initial draw
     handleVisibleRangeChange();
 
     window[`updateVP_${chartId}`] = updateVP;
-    
+
     return () => {
       timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+      timeScale.unsubscribeVisibleTimeRangeChange(handleVisibleRangeChange);
       if (rafId) cancelAnimationFrame(rafId);
       delete window[`updateVP_${chartId}`];
     };
