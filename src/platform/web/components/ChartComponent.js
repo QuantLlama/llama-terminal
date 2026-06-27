@@ -3228,6 +3228,8 @@ const ChartComponent = React.memo(({
                 chart: chartRef.current,
                 series: candleSeriesRef.current,
                 data: liquidityHeatmapData,
+                symbol: activeSymbol,
+                activeTimeframe: activeTimeframe,
                 visible: showAllOverlays && (chartSettings?.indicators?.liquidity_heatmap?.enabled ?? false),
                 tickSize: chartSettings?.indicators?.liquidity_heatmap?.tickSize || 0.25,
                 opacity: chartSettings?.indicators?.liquidity_heatmap?.opacity || 0.85

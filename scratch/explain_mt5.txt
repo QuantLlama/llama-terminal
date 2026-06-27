@@ -1,0 +1,4 @@
+Explain to user in Spanish:
+1. The MT5 server's "new day" (midnight) doesn't happen at your local midnight. It happens at the broker's midnight. For a broker in GMT+3 and a user in UTC-3, the broker's midnight happens at 18:00 (6 PM) local time!
+So any trade made yesterday after 6 PM is officially considered a "Today" trade by MT5. That's why the history shows 139.35 for today.
+2. The PNL of 402.75 is the sum of the realized PNL (139.35) PLUS the floating profit of currently open positions (263.40). The dashboard PNL includes open trades!

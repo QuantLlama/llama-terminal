@@ -1,0 +1,60 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python (FastAPI, PyTorch, Pandas, PyInstaller), Node.js (Electron, JS)
+  Architecture: Hybrid Python Backend + Electron JS Frontend
+  Testing: pytest detected via requirements.txt
+  Style: N/A (standard conventions)
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns
+    tdd: true           # Set to true to enable RED-GREEN-REFACTOR
+    test_command: "pytest"
+  verify:
+    test_command: "pytest"
+    build_command: "npm run dist"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+
+testing:
+  strict_tdd: true
+  detected: "2026-06-25T14:24:00-03:00"
+  test_runner:
+    command: "pytest"
+    framework: "pytest"
+  test_layers:
+    unit:
+      available: true
+      tool: "pytest"
+    integration:
+      available: false
+      tool: null
+    e2e:
+      available: false
+      tool: null
+  coverage:
+    available: false
+    command: null
+  quality_tools:
+    linter:
+      available: false
+      command: null
+    type_checker:
+      available: false
+      command: null
+    formatter:
+      available: false
+      command: null

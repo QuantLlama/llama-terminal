@@ -1,0 +1,2 @@
+Tell the user that the "Today" tab in the history modal also had a hidden New York Time cutoff inherited from the Futures platform.
+Since I changed it to use the exact Local Midnight for MT5, they just need to press F5 one more time and the history will show 0 deals.

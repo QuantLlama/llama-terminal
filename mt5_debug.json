@@ -1,0 +1,409 @@
+{
+  "deals": [
+    {
+      "ticket": 260147320,
+      "time": 1782322222,
+      "type": 2,
+      "profit": 1912.0,
+      "commission": 0.0,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260148690,
+      "time": 1782323820,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260148992,
+      "time": 1782324111,
+      "type": 1,
+      "profit": 1.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260149904,
+      "time": 1782325218,
+      "type": 1,
+      "profit": 48.75,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260164265,
+      "time": 1782355247,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260169802,
+      "time": 1782371180,
+      "type": 0,
+      "profit": -122.5,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260184038,
+      "time": 1782395582,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260184730,
+      "time": 1782395801,
+      "type": 0,
+      "profit": 62.5,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260185697,
+      "time": 1782396215,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260186414,
+      "time": 1782396619,
+      "type": 0,
+      "profit": -115.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260186712,
+      "time": 1782396815,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260186950,
+      "time": 1782396979,
+      "type": 0,
+      "profit": 35.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260186954,
+      "time": 1782396984,
+      "type": 0,
+      "profit": 38.75,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260187118,
+      "time": 1782397089,
+      "type": 0,
+      "profit": -10.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260187264,
+      "time": 1782397186,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260187438,
+      "time": 1782397239,
+      "type": 1,
+      "profit": 61.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260189661,
+      "time": 1782398834,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260189733,
+      "time": 1782398892,
+      "type": 1,
+      "profit": 55.83,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260191360,
+      "time": 1782399570,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260192585,
+      "time": 1782400356,
+      "type": 1,
+      "profit": -195.83,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260192724,
+      "time": 1782400414,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260192935,
+      "time": 1782400535,
+      "type": 0,
+      "profit": 146.25,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193164,
+      "time": 1782400719,
+      "type": 0,
+      "profit": -36.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193312,
+      "time": 1782400808,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193374,
+      "time": 1782400845,
+      "type": 0,
+      "profit": 40.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193511,
+      "time": 1782400932,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193734,
+      "time": 1782401173,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193757,
+      "time": 1782401190,
+      "type": 0,
+      "profit": 31.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260193775,
+      "time": 1782401208,
+      "type": 0,
+      "profit": -2.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260194309,
+      "time": 1782401677,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260194986,
+      "time": 1782402367,
+      "type": 0,
+      "profit": -67.5,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260195533,
+      "time": 1782402719,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260195812,
+      "time": 1782403095,
+      "type": 0,
+      "profit": -3.75,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260195840,
+      "time": 1782403137,
+      "type": 0,
+      "profit": 6.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260197320,
+      "time": 1782404749,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260197962,
+      "time": 1782405432,
+      "type": 0,
+      "profit": 97.5,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260198744,
+      "time": 1782406188,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260198803,
+      "time": 1782406250,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260198854,
+      "time": 1782406331,
+      "type": 0,
+      "profit": 132.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260199796,
+      "time": 1782407477,
+      "type": 0,
+      "profit": -33.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260200112,
+      "time": 1782407833,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260200213,
+      "time": 1782407944,
+      "type": 0,
+      "profit": 86.25,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260200360,
+      "time": 1782408030,
+      "type": 0,
+      "profit": 48.75,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260231803,
+      "time": 1782482565,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260233313,
+      "time": 1782483255,
+      "type": 1,
+      "profit": 90.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260233486,
+      "time": 1782483394,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260233804,
+      "time": 1782483612,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260233835,
+      "time": 1782483621,
+      "type": 0,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260233906,
+      "time": 1782483642,
+      "type": 1,
+      "profit": 129.17,
+      "commission": -3.0,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260234136,
+      "time": 1782483819,
+      "type": 1,
+      "profit": 19.58,
+      "commission": -0.6,
+      "swap": 0.0
+    }
+  ],
+  "account": {
+    "balance": 2399.35,
+    "equity": 2399.35,
+    "profit": 0.0
+  }
+}
