@@ -1803,7 +1803,22 @@ class CryptoConnector:
                             raise fe
 
                     result = []
+                    # Check for orphan orders if position is already closed
+                    pos_symbols = {p['symbol'] for p in self.get_positions()}
                     for o in orders:
+                        o_sym = o.get('symbol', '')
+                        o_type = o.get('type', '').upper()
+                        info = o.get('info', {})
+                        is_reduce_only = o.get('reduceOnly') is True or str(info.get('reduceOnly', '')).lower() == 'true' or str(info.get('closePosition', '')).lower() == 'true'
+                        
+                        if (is_reduce_only or o_type in ['STOP_MARKET', 'TAKE_PROFIT_MARKET', 'STOP', 'TAKE_PROFIT']) and o_sym and o_sym not in pos_symbols:
+                            try:
+                                logger.info(f"[{self.exchange_id}] Cancelling orphan order {o.get('id')} for {o_sym}")
+                                self.exchange.cancel_order(o.get('id'), o_sym)
+                                continue
+                            except Exception as oe:
+                                logger.error(f"[{self.exchange_id}] Failed to cancel orphan order {o.get('id')}: {oe}")
+
                         result.append({
                             "ticket": o.get('id', ''),
                             "symbol": o.get('symbol', ''),
@@ -1849,6 +1864,21 @@ class CryptoConnector:
             params = {'reduceOnly': True}
             logger.info(f"[{self.exchange_id}] Closing position: {target_pos['symbol']} side={side} amount={amount}")
             self.exchange.create_order(target_pos['symbol'], 'market', side, amount, params=params)
+            
+            # --- Cleanup conditional orders ---
+            try:
+                open_orders = self.exchange.fetch_open_orders(target_pos['symbol'])
+                for o in open_orders:
+                    o_type = o.get('type', '').upper()
+                    info = o.get('info', {})
+                    is_reduce_only = o.get('reduceOnly') is True or str(info.get('reduceOnly', '')).lower() == 'true' or str(info.get('closePosition', '')).lower() == 'true'
+                    if is_reduce_only or o_type in ['STOP_MARKET', 'TAKE_PROFIT_MARKET', 'STOP', 'TAKE_PROFIT']:
+                        self.exchange.cancel_order(o.get('id'), target_pos['symbol'])
+                        logger.info(f"[{self.exchange_id}] Cancelled conditional order {o.get('id')} for {target_pos['symbol']} after closing position")
+            except Exception as oe:
+                logger.error(f"[{self.exchange_id}] Failed to cleanup conditional orders for {target_pos['symbol']}: {oe}")
+                
+            self._clear_acc_cache()
             return True
         except Exception as e:
             logger.error(f"Error closing position {ticket} on {self.exchange_id}: {e}")

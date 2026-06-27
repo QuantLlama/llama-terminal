@@ -125,15 +125,25 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
           const baseR = Math.max(6, Math.log10(vol + 1) * 8);
           const r = baseR * scale;
           const isAbs = t.isAbsorption;
+          const isReal = mode === 'real';
 
           ctx.beginPath();
           if (isAbs) {
+            // Absorption: larger diamond with glow
             ctx.moveTo(x, y - r * 1.3);
             ctx.lineTo(x + r * 1.3, y);
             ctx.lineTo(x, y + r * 1.3);
             ctx.lineTo(x - r * 1.3, y);
             ctx.closePath();
+          } else if (isReal) {
+            // Real-tick: standard diamond (rombo)
+            ctx.moveTo(x, y - r);
+            ctx.lineTo(x + r, y);
+            ctx.lineTo(x, y + r);
+            ctx.lineTo(x - r, y);
+            ctx.closePath();
           } else {
+            // Cumulative: circle
             ctx.arc(x, y, r, 0, 2 * Math.PI);
           }
 
@@ -153,8 +163,9 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
             ctx.setLineDash([2, 1]);
             ctx.shadowBlur = 0;
           } else {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.lineWidth = 1;
+            // Real-tick diamond stroke
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 1.5;
             ctx.setLineDash([]);
             ctx.shadowBlur = 0;
           }
@@ -211,8 +222,16 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
 
         let _lastPriceCoord = null;
         let _lastTimeCoord = null;
+        let _lastTradeCount = 0;
         let _monitorRaf = null;
         const monitorScale = () => {
+            const currentTradeCount = sortedTradesRef.current ? sortedTradesRef.current.length : 0;
+            let needsRender = false;
+            // Detect new trades arriving
+            if (currentTradeCount !== _lastTradeCount) {
+                _lastTradeCount = currentTradeCount;
+                needsRender = true;
+            }
             if (series) {
                 try {
                     const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
@@ -221,10 +240,11 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
                     if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
                         _lastPriceCoord = pc;
                         _lastTimeCoord = tc;
-                        scheduleRender();
+                        needsRender = true;
                     }
                 } catch(e) {}
             }
+            if (needsRender) scheduleRender();
             _monitorRaf = requestAnimationFrame(monitorScale);
         };
         _monitorRaf = requestAnimationFrame(monitorScale);

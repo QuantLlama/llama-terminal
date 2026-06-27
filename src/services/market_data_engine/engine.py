@@ -62,6 +62,7 @@ class MarketDataEngine:
         # ── Thread pool / feed thread ─────────────────────────────────────────
         self._executor    = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mde_worker")
         self._feed_thread: Optional[threading.Thread] = None
+        self._crypto_feed_thread: Optional[threading.Thread] = None
         self._status_callbacks: List[Callable[[FeedStatus], None]] = []
 
         # ── MT5 tick-level state ──────────────────────────────────────────────
@@ -253,6 +254,16 @@ class MarketDataEngine:
                 daemon=True
             )
             self._feed_thread.start()
+
+            # Separate crypto feed thread to prevent MT5/Wine latency
+            # from blocking crypto polling
+            self._crypto_feed_thread = threading.Thread(
+                target=self._crypto_feed_loop,
+                name="MDE_CryptoFeedLoop",
+                daemon=True
+            )
+            self._crypto_feed_thread.start()
+
             elapsed = (time.time() - start_time) * 1000
             logger.info(f"MarketDataEngine iniciado en {elapsed:.0f}ms")
             return True
@@ -271,6 +282,8 @@ class MarketDataEngine:
         self._running = False
         if self._feed_thread and self._feed_thread.is_alive():
             self._feed_thread.join(timeout=5.0)
+        if self._crypto_feed_thread and self._crypto_feed_thread.is_alive():
+            self._crypto_feed_thread.join(timeout=5.0)
         with self._connector_lock:
             for p, conn in self._connectors.items():
                 try:
@@ -409,6 +422,7 @@ class MarketDataEngine:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _feed_loop(self) -> None:
+        """Feed loop for MT5/Tradovate symbols only. Crypto runs in its own thread."""
         reconnect_attempts   = 0
         last_reconnect_attempt = 0
         while not self._should_stop.is_set():
@@ -434,8 +448,10 @@ class MarketDataEngine:
                 with self._symbols_lock:
                     current_symbols = list(self._symbols)
 
+                # Only poll non-crypto symbols in this thread
                 for symbol in current_symbols:
-                    self._poll_symbol(symbol)
+                    if self._detect_platform(symbol) != "crypto":
+                        self._poll_symbol(symbol)
 
                 poll_duration = (time.time() - poll_start) * 1000
                 sleep_time    = max(0, (self._poll_interval_ms - poll_duration) / 1000)
@@ -447,6 +463,30 @@ class MarketDataEngine:
                 self._metrics.errors_count += 1
                 if self._status == FeedStatus.ONLINE:
                     self._update_status(FeedStatus.DEGRADED)
+                time.sleep(1)
+
+    def _crypto_feed_loop(self) -> None:
+        """Independent feed loop for crypto symbols. Runs at its own cadence
+        without being blocked by MT5/Wine latency."""
+        crypto_poll_ms = 80  # Slightly slower than main loop, respects exchange rate limits
+        while not self._should_stop.is_set():
+            try:
+                poll_start = time.time()
+                with self._symbols_lock:
+                    current_symbols = list(self._symbols)
+
+                for symbol in current_symbols:
+                    if self._detect_platform(symbol) == "crypto":
+                        self._poll_symbol(symbol)
+
+                poll_duration = (time.time() - poll_start) * 1000
+                sleep_time = max(0, (crypto_poll_ms - poll_duration) / 1000)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+            except Exception as e:
+                logger.error(f"Error en crypto feed loop: {e}")
+                self._metrics.errors_count += 1
                 time.sleep(1)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -856,7 +896,8 @@ class MarketDataEngine:
                         if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(live_ev)
                 except: pass
             if should_poll_book: self._poll_crypto_book(symbol, s_upper, broker_symbol, connector, now)
-        except: pass
+        except Exception as e:
+            logger.debug(f"Error in crypto poll for {symbol}: {e}")
 
     def _normalize_crypto_val(self, symbol: str, val: float, price: float, broker: str = "") -> float:
         if val is None or val == 0 or price is None or price <= 0: return val or 0.0

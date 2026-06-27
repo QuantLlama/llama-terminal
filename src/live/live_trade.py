@@ -194,6 +194,20 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
             config["automation_enabled"] = auto_str == "true" or auto_str == "1"
             
             acc_info = connector.get_account_info()
+            if acc_info is None:
+                console.print(f"[bold red][CONNECTOR] Error: No se pudo obtener la información de la cuenta de {platform.upper()}. Intentando reconectar...[/bold red]")
+                try:
+                    if connector.connect():
+                        console.print(f"[green][CONNECTOR] Reconexión exitosa con {platform.upper()}[/green]")
+                        acc_info = connector.get_account_info()
+                except Exception as ex:
+                    console.print(f"[red][CONNECTOR] Error durante el intento de reconexión: {ex}[/red]")
+                
+                if acc_info is None:
+                    console.print("[yellow][CONNECTOR] Reintento de conexión fallido. Durmiendo 5 segundos...[/yellow]")
+                    time.sleep(5)
+                    continue
+
             current_balance = acc_info.get('balance', 0.0)
             current_equity = acc_info.get('equity', 0.0)
             realized_today = acc_info.get('daily_pnl', 0.0)
@@ -222,6 +236,11 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                 df = pd.DataFrame([0]) 
             else:
                 df = connector.get_latest_candles(platform_symbol, timeframe=trade_timeframe, n=seq_length + 100)
+            if df is None or df.empty:
+                console.print(f"[yellow]Advertencia: No se pudieron obtener velas para {platform_symbol}. Reintentando en 5 segundos...[/yellow]")
+                time.sleep(5)
+                continue
+            
             if df is not None and not df.empty:
                 df = market_filter.calculate_indicators(df)
                 df = df.dropna()
