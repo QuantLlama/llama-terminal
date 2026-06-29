@@ -190,6 +190,13 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
     };
   }, [chart, series, refBar, tfSec]);
   const performHitTest = useCallback((clickX, clickY) => {
+    if (!chart || !series) return null;
+    const chartWidth = chart.timeScale().width();
+    const rect = overlayRef.current?.getBoundingClientRect();
+    const isOverPriceScale = clickX > chartWidth;
+    const isOverTimeScale = rect && clickY > rect.height - 28;
+    if (isOverPriceScale || isOverTimeScale) return null;
+
     const mapper = getMapper();
     if (!mapper) return null;
     const activeDrawings = [...drawings].reverse().filter((d) => (!d.symbol || d.symbol === activeSymbol) && (syncDrawings !== false || d.chartId === chartId));
