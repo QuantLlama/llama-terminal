@@ -235,13 +235,21 @@ const LiquidityHeatmapOverlay = ({
             if (visibleHeat.length === 0) return;
 
             // ----------------------------------------------------------------
-            // Normalización doble:
-            //   1. Percentil 90 como techo → evita que un outlier aplaste todo
-            //   2. Sqrt sobre la intensidad → eleva el rango medio (cian/verde
-            //      se ven bien, no todo azul oscuro)
+            // Normalización doble optimizada:
+            //   1. Estimación O(N) del techo para evitar sort() costoso.
+            //   2. Sqrt sobre la intensidad → eleva el rango medio
             // ----------------------------------------------------------------
-            const sortedDepths = visibleHeat.map(p => p.depth).sort((a, b) => a - b);
-            const p90depth     = sortedDepths[Math.floor(sortedDepths.length * 0.90)] || 1;
+            let maxDepth = 0;
+            let sumDepth = 0;
+            const len = visibleHeat.length;
+            for (let i = 0; i < len; i++) {
+                const d = visibleHeat[i].depth;
+                if (d > maxDepth) maxDepth = d;
+                sumDepth += d;
+            }
+            const avgDepth = sumDepth / (len || 1);
+            const p90depth = Math.max(1, avgDepth + (maxDepth - avgDepth) * 0.6);
+
             const logMax       = Math.log1p(p90depth);
             const noiseFloor   = p90depth * 0.015; // filtro de ruido: 1.5% del p90
 
@@ -299,9 +307,8 @@ const LiquidityHeatmapOverlay = ({
             if (hotRects.length > 0) {
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter';
-                ctx.shadowBlur  = 8;
-                ctx.shadowColor = 'rgba(255,140,20,0.45)';
-                ctx.fillStyle   = 'rgba(255,160,30,0.20)';
+                // Removed shadowBlur to fix severe panning/zooming lag
+                ctx.fillStyle   = 'rgba(255,160,30,0.40)';
                 ctx.beginPath();
                 for (const pt of hotRects) {
                     ctx.rect(pt.x - 1, pt.y - 1, rectW + 2, finalRectH + 2);
@@ -315,12 +322,10 @@ const LiquidityHeatmapOverlay = ({
             // Estas son las "órdenes institucionales" — deben verse de inmediato
             // ----------------------------------------------------------------
             if (extremeRects.length > 0) {
-                // Capa 1: glow exterior amplio
+                // Capa 1: glow exterior amplio simulado sin shadowBlur
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter';
-                ctx.shadowBlur  = 14;
-                ctx.shadowColor = 'rgba(255,220,50,0.60)';
-                ctx.fillStyle   = 'rgba(255,200,40,0.28)';
+                ctx.fillStyle   = 'rgba(255,200,40,0.50)';
                 ctx.beginPath();
                 for (const pt of extremeRects) {
                     ctx.rect(pt.x - 2, pt.y - 2, rectW + 4, finalRectH + 4);
