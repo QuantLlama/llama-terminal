@@ -443,7 +443,7 @@
                         "showWatermark": true,
                         "muteSaveNotifications": false,
                         "muteTradingNotifications": false,
-                        "syncDrawings": false
+                        "syncDrawings": true
                     },
                     "appearance": {
                         "backgroundColor": "#050505",
@@ -509,7 +509,7 @@
                 }
             }
         ],
-        "activeChartId": 1782748971406.4421,
+        "activeChartId": "popout-main",
         "showTape": true,
         "showOrderEntry": false,
         "showDom": false,
@@ -607,20 +607,19 @@
                 "type": "rect",
                 "points": [
                     {
-                        "time": 1782302400,
-                        "price": 60617.162906860365,
-                        "logical": 968,
-                        "tfSec": 14400
+                        "time": 1782280800,
+                        "price": 60519.632793423625,
+                        "logical": 3425
                     },
                     {
-                        "time": 1783368000,
-                        "price": 59095.40856877875,
-                        "logical": 1042,
-                        "tfSec": 14400
+                        "time": 1783346400,
+                        "price": 58997.87845534201,
+                        "logical": 3499
                     }
                 ],
                 "props": {
-                    "color": "#fbbf24"
+                    "color": "#fbbf24",
+                    "locked": true
                 },
                 "symbol": "BTCUSDT",
                 "chartId": 1782748971406.4421,
@@ -1090,7 +1089,7 @@
                 "textSize": 1
             }
         },
-        "updated_at": "2026-06-29T17:12:49.235Z"
+        "updated_at": "2026-06-29T17:22:43.088Z"
     },
     "workspaces": {
         "session_futures": {
