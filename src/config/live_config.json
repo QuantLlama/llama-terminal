@@ -56,7 +56,7 @@
                         "liquidity_heatmap": {
                             "enabled": true,
                             "tickSize": 1,
-                            "opacity": 0.4
+                            "opacity": 0.55
                         },
                         "imbalance": {
                             "enabled": false,
@@ -72,8 +72,7 @@
                             },
                             "buyColor": "#22c55e",
                             "sellColor": "#ef4444",
-                            "signalSize": 1,
-                            "llama": true
+                            "signalSize": 1
                         },
                         "volumeProfile": {
                             "enabled": true,
@@ -84,7 +83,7 @@
                                 "profileMode": "volume",
                                 "bucketCount": 300,
                                 "vaPercent": 70,
-                                "histogramWidth": 51,
+                                "histogramWidth": 22,
                                 "histogramSide": "left",
                                 "colorUp": "rgba(38, 166, 154, 0.7)",
                                 "colorDown": "rgba(239, 83, 80, 0.7)",
@@ -113,24 +112,24 @@
                             "displayLimit": 100,
                             "real": {
                                 "enabled": true,
-                                "threshold": 3800,
-                                "buyColor": "#10b981",
+                                "threshold": 50,
+                                "buyColor": "#237406",
                                 "sellColor": "#ef4444",
-                                "bubbleScale": 0.5,
+                                "bubbleScale": 1.4,
                                 "textSize": 0.5,
-                                "opacity": 0.3,
+                                "opacity": 0.5,
                                 "showValue": true,
-                                "displayLimit": 3
+                                "displayLimit": 4
                             },
                             "cumulative": {
                                 "enabled": true,
-                                "threshold": 6200,
+                                "threshold": 70,
                                 "window": 1000,
-                                "buyColor": "#3e860e",
-                                "sellColor": "#b12028",
-                                "bubbleScale": 1,
+                                "buyColor": "#0a7031",
+                                "sellColor": "#8a1416",
+                                "bubbleScale": 1.4,
                                 "textSize": 0.5,
-                                "opacity": 0.3,
+                                "opacity": 0.6,
                                 "showValue": true
                             },
                             "bigLlama": true
@@ -146,21 +145,6 @@
                             "showIB": true,
                             "showPOC": true,
                             "showSinglePrints": true
-                        },
-                        "gann": {
-                            "enabled": true,
-                            "params": {
-                                "ga_sensitivity": 30,
-                                "ga_scale_mode": "range",
-                                "ga_fixed_scale": 1,
-                                "ga_show_1x1": true,
-                                "ga_show_1x2": true,
-                                "ga_show_2x1": true,
-                                "ga_show_1x4": true,
-                                "ga_show_4x1": true,
-                                "ga_show_1x8": true,
-                                "ga_show_8x1": true
-                            }
                         }
                     },
                     "overlays": {
@@ -171,8 +155,7 @@
                         "showDrawings": true,
                         "showOrderFlow": false,
                         "showDomHistogram": false,
-                        "showBookmap": false,
-                        "showAll": true
+                        "showBookmap": false
                     },
                     "bookmap": {
                         "levels": 1000,
@@ -185,6 +168,7 @@
                     },
                     "filters": {
                         "minVol": 100,
+                        "volDivider": 100,
                         "volumeColor": "#10b981",
                         "deltaColor": "#3b82f6",
                         "volumeOpacity": 0.8,
@@ -210,7 +194,7 @@
                         "showWatermark": true,
                         "muteSaveNotifications": false,
                         "muteTradingNotifications": false,
-                        "theme": "dark"
+                        "syncDrawings": true
                     },
                     "appearance": {
                         "backgroundColor": "#050505",
@@ -221,7 +205,7 @@
                         "borderVisible": true,
                         "priceLine": {
                             "enabled": true,
-                            "color": "#b19920",
+                            "color": "#ffffff",
                             "lineWidth": 1,
                             "lineStyle": 0,
                             "fullWidth": false
@@ -229,7 +213,7 @@
                     },
                     "dom": {
                         "levels": 1000,
-                        "updateInterval": 500,
+                        "updateInterval": 100,
                         "scaleMode": "linear",
                         "cumulative": false,
                         "compact": false,
@@ -276,7 +260,7 @@
                 }
             },
             {
-                "id": 1782422569929.9514,
+                "id": 1782748971406.4421,
                 "symbol": "BTCUSDT",
                 "tf": "4h",
                 "settings": {
@@ -348,7 +332,7 @@
                                 "profileMode": "volume",
                                 "bucketCount": 300,
                                 "vaPercent": 70,
-                                "histogramWidth": 17,
+                                "histogramWidth": 22,
                                 "histogramSide": "left",
                                 "colorUp": "rgba(38, 166, 154, 0.7)",
                                 "colorDown": "rgba(239, 83, 80, 0.7)",
@@ -368,7 +352,7 @@
                                 "showLabels": true,
                                 "showHistogram": true,
                                 "noiseThreshold": 0,
-                                "opacity": 0.17
+                                "opacity": 0.39
                             }
                         },
                         "bigTrades": {
@@ -377,24 +361,24 @@
                             "displayLimit": 100,
                             "real": {
                                 "enabled": true,
-                                "threshold": 70000,
-                                "buyColor": "#00754e",
+                                "threshold": 370,
+                                "buyColor": "#1f5e08",
                                 "sellColor": "#ef4444",
-                                "bubbleScale": 0.5,
+                                "bubbleScale": 0.8,
                                 "textSize": 0.5,
-                                "opacity": 0.15,
+                                "opacity": 0.4,
                                 "showValue": true,
-                                "displayLimit": 3
+                                "displayLimit": 4
                             },
                             "cumulative": {
                                 "enabled": true,
-                                "threshold": 100000,
+                                "threshold": 960,
                                 "window": 1000,
-                                "buyColor": "#16882d",
-                                "sellColor": "#8f0a4a",
-                                "bubbleScale": 0.7,
-                                "textSize": 0.6,
-                                "opacity": 0.25,
+                                "buyColor": "#0d5304",
+                                "sellColor": "#86094c",
+                                "bubbleScale": 0.9,
+                                "textSize": 0.5,
+                                "opacity": 0.6,
                                 "showValue": true
                             },
                             "bigLlama": true
@@ -433,6 +417,7 @@
                     },
                     "filters": {
                         "minVol": 100,
+                        "volDivider": 100,
                         "volumeColor": "#10b981",
                         "deltaColor": "#3b82f6",
                         "volumeOpacity": 0.8,
@@ -458,7 +443,7 @@
                         "showWatermark": true,
                         "muteSaveNotifications": false,
                         "muteTradingNotifications": false,
-                        "theme": "dark"
+                        "syncDrawings": false
                     },
                     "appearance": {
                         "backgroundColor": "#050505",
@@ -524,7 +509,7 @@
                 }
             }
         ],
-        "activeChartId": "popout-main",
+        "activeChartId": 1782748971406.4421,
         "showTape": true,
         "showOrderEntry": false,
         "showDom": false,
@@ -552,62 +537,18 @@
                 "syncDrawings": true
             },
             {
-                "id": "1782429422560evt22",
+                "id": "1782751530506avjwe",
                 "type": "arrow",
                 "points": [
                     {
-                        "time": 1782437100,
-                        "price": 59779.93137921771,
-                        "logical": 5031
+                        "time": 1782446400,
+                        "price": 58736.66425501735,
+                        "logical": 3986
                     },
                     {
-                        "time": 1782429000,
-                        "price": 59779.93137921771,
-                        "logical": 5004
-                    }
-                ],
-                "props": {
-                    "color": "#fbbf24"
-                },
-                "symbol": "BTCUSDT",
-                "chartId": "popout-main",
-                "syncDrawings": true
-            },
-            {
-                "id": "1782500276763ypqs4",
-                "type": "arrow",
-                "points": [
-                    {
-                        "time": 1782486000,
-                        "price": 59447.70137436848,
-                        "logical": 4983
-                    },
-                    {
-                        "time": 1782515100,
-                        "price": 59440.71473806837,
-                        "logical": 5080
-                    }
-                ],
-                "props": {
-                    "color": "#fbbf24"
-                },
-                "symbol": "BTCUSDT",
-                "chartId": "popout-main",
-                "syncDrawings": true
-            },
-            {
-                "id": "1782500335573t8xik",
-                "type": "arrow",
-                "points": [
-                    {
-                        "time": 1782477600,
-                        "price": 59044.365948650506,
-                        "logical": 4955
-                    },
-                    {
-                        "time": 1782506700,
-                        "price": 59037.37931235039,
-                        "logical": 5052
+                        "time": 1782939600,
+                        "price": 58754.11348640002,
+                        "logical": 5630
                     }
                 ],
                 "props": {
@@ -618,25 +559,71 @@
                 "syncDrawings": true
             },
             {
-                "id": "1782510539977toesl",
+                "id": "1782751552686bswuz",
+                "type": "arrow",
+                "points": [
+                    {
+                        "time": 1782335700,
+                        "price": 61276.17627619898,
+                        "logical": 3617
+                    },
+                    {
+                        "time": 1782954000,
+                        "price": 61303.483791809595,
+                        "logical": 5678
+                    }
+                ],
+                "props": {
+                    "color": "#ef4444"
+                },
+                "symbol": "BTCUSDT",
+                "chartId": "popout-main",
+                "syncDrawings": true
+            },
+            {
+                "id": "1782752789415dvadk",
                 "type": "rect",
                 "points": [
                     {
-                        "time": 1782331200,
-                        "price": 59289.02975469346,
-                        "logical": 987
+                        "time": 1782316800,
+                        "price": 58943.77823345687,
+                        "logical": 969
                     },
                     {
-                        "time": 1782648000,
-                        "price": 60736.13599227822,
-                        "logical": 1009
+                        "time": 1783670400,
+                        "price": 61099.49830888669,
+                        "logical": 1063
+                    }
+                ],
+                "props": {
+                    "color": "#fbbf24"
+                },
+                "symbol": "BTC/USDT:USDT",
+                "chartId": 1782748971406.4421,
+                "syncDrawings": true
+            },
+            {
+                "id": "1782753089494zmmbx",
+                "type": "rect",
+                "points": [
+                    {
+                        "time": 1782302400,
+                        "price": 60617.162906860365,
+                        "logical": 968,
+                        "tfSec": 14400
+                    },
+                    {
+                        "time": 1783368000,
+                        "price": 59095.40856877875,
+                        "logical": 1042,
+                        "tfSec": 14400
                     }
                 ],
                 "props": {
                     "color": "#fbbf24"
                 },
                 "symbol": "BTCUSDT",
-                "chartId": 1782422569929.9514,
+                "chartId": 1782748971406.4421,
                 "syncDrawings": true
             }
         ],
@@ -663,6 +650,7 @@
             "show_volume_SPY/USDT:USDT": "false",
             "show_delta_EURCHF": "false",
             "show_volume_BTC/TRY": "true",
+            "show_volume_BTCST/USDT:USDT": "false",
             "show_delta_US_TECH100": "false",
             "show_delta_LTC/USDT": "false",
             "show_volume_MNQ=F": "false",
@@ -697,9 +685,11 @@
             "show_delta_ANIME/USDT:USDT": "false",
             "show_delta_MNQ=F": "false",
             "show_delta_1000BONK/USDC:USDC": "false",
+            "show_volume_BTC/USDT:USDT-261225": "false",
             "show_delta_ALCH/USDT:USDT": "false",
             "show_delta_FTR/USDT": "true",
             "show_volume_MGCJ26": "false",
+            "show_delta_BTCST/USDT:USDT": "false",
             "show_volume_CL/USDT:USDT": "false",
             "show_volume_MNQ": "false",
             "show_delta_AUDJPY": "false",
@@ -765,8 +755,8 @@
             "show_volume_BTC/USDC": "true",
             "show_volume_1000000BOB/USDT:USDT": "true",
             "show_delta_WBTC/USDT": "false",
-            "show_volume_ETHW/USDT:USDT": "true",
             "show_delta_AAVE/USD:AAVE": "false",
+            "show_volume_ETHW/USDT:USDT": "true",
             "show_volume_0GUSDT": "true",
             "show_volume_A/USDT:USDT": "false",
             "show_volume_USDC/USDT": "true",
@@ -811,8 +801,8 @@
             "show_delta_USDJPY": "false",
             "show_delta_1000WHY/USDT:USDT": "false",
             "show_delta_SILH26": "false",
-            "show_delta_0G/BNB": "false",
             "show_delta_1000CHEEMS/USDT:USDT": "false",
+            "show_delta_0G/BNB": "false",
             "show_delta_A2Z/USDT:USDT": "false",
             "show_volume_2Z/USDT:USDT": "true",
             "show_volume_AVAX/USDC:USDC": "true",
@@ -1035,6 +1025,7 @@
             "show_volume_AAVE/USDT:USDT": "true",
             "show_volume_THETA/USDT": "true",
             "show_volume_BTC/USDC:USDC": "false",
+            "show_delta_BTC/USDT:USDT-261225": "false",
             "show_volume_STEEM/BTC": "true",
             "show_volume_MNQH20": "false",
             "show_delta_BANK/USDT:USDT": "false",
@@ -1069,14 +1060,14 @@
         "panel_sizes": {
             "tapeWidth": 296,
             "orderEntryWidth": 285,
-            "tape1Height": 595,
-            "tape2Height": 301,
+            "tape1Height": 557,
+            "tape2Height": 335,
             "domWidth": 280
         },
         "tapeWidth": 296,
         "orderEntryWidth": 285,
-        "tape1Height": 595,
-        "tape2Height": 301,
+        "tape1Height": 557,
+        "tape2Height": 335,
         "domWidth": 280,
         "bigTradeConfig": {
             "real": {
@@ -1099,7 +1090,7 @@
                 "textSize": 1
             }
         },
-        "updated_at": "2026-06-27T00:24:35.912Z"
+        "updated_at": "2026-06-29T17:12:49.235Z"
     },
     "workspaces": {
         "session_futures": {

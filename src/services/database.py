@@ -103,6 +103,7 @@ def init_db():
                 indicator_settings TEXT DEFAULT '{}',
                 visibility_settings TEXT DEFAULT '{}',
                 show_dom INTEGER DEFAULT 0,
+                chart_settings TEXT DEFAULT '{}',
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, session_name)
             )
@@ -154,6 +155,10 @@ def init_db():
             if "show_dom" not in columns:
                 cursor.execute(
                     "ALTER TABLE workspaces ADD COLUMN show_dom INTEGER DEFAULT 0"
+                )
+            if "chart_settings" not in columns:
+                cursor.execute(
+                    "ALTER TABLE workspaces ADD COLUMN chart_settings TEXT DEFAULT '{}'"
                 )
             conn.commit()
         except:
@@ -347,6 +352,7 @@ def get_workspace(
                 if row["visibility_settings"]
                 else {},
                 "show_dom": bool(row["show_dom"]),
+                "chart_settings": json.loads(row["chart_settings"]) if row.get("chart_settings") else {},
                 "updated_at": row["updated_at"],
                 "tapeWidth": row_panel_sizes.get("tapeWidth"),
                 "orderEntryWidth": row_panel_sizes.get("orderEntryWidth"),
@@ -376,6 +382,7 @@ def save_workspace(
             "indicator_settings": json.dumps(data.get("indicator_settings", {})),
             "visibility_settings": json.dumps(data.get("visibility_settings", {})),
             "show_dom": 1 if data.get("show_dom", False) or data.get("showDom", False) else 0,
+            "chart_settings": json.dumps(data.get("chart_settings", {})),
             "updated_at": datetime.now().isoformat(),
         }
         cursor.execute(
@@ -384,12 +391,12 @@ def save_workspace(
                 user_id, session_name, layout, charts, active_chart_id,
                 symbol, timeframe, show_tape, show_order_entry, drawings,
                 panel_sizes, symbol_settings, indicator_settings,
-                visibility_settings, show_dom, updated_at
+                visibility_settings, show_dom, chart_settings, updated_at
             ) VALUES (
                 :user_id, :session_name, :layout, :charts, :active_chart_id,
                 :symbol, :timeframe, :show_tape, :show_order_entry, :drawings,
                 :panel_sizes, :symbol_settings, :indicator_settings,
-                :visibility_settings, :show_dom, :updated_at
+                :visibility_settings, :show_dom, :chart_settings, :updated_at
             )
             ON CONFLICT(user_id, session_name) DO UPDATE SET
                 layout = excluded.layout,
@@ -405,6 +412,7 @@ def save_workspace(
                 indicator_settings = excluded.indicator_settings,
                 visibility_settings = excluded.visibility_settings,
                 show_dom = excluded.show_dom,
+                chart_settings = excluded.chart_settings,
                 updated_at = excluded.updated_at
         """,
             values,
@@ -457,6 +465,7 @@ def get_all_workspaces(user_id: str = "default_user") -> Dict[str, Dict[str, Any
                 "visibility_settings": json.loads(row["visibility_settings"])
                 if row["visibility_settings"]
                 else {},
+                "chart_settings": json.loads(row["chart_settings"]) if row.get("chart_settings") else {},
                 "updated_at": row["updated_at"],
             }
         return workspaces

@@ -33,7 +33,11 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
   useEffect(() => {
-    localStorage.setItem('user_drawings_v2', JSON.stringify(drawings));
+    const serialized = JSON.stringify(drawings);
+    if (localStorage.getItem('user_drawings_v2') !== serialized) {
+      localStorage.setItem('user_drawings_v2', serialized);
+      window.dispatchEvent(new CustomEvent('local_drawings_sync', { detail: serialized }));
+    }
   }, [drawings]);
 
   useEffect(() => {
@@ -72,11 +76,19 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
         } catch (err) {}
       }
     };
+    const handleLocalSync = (e) => {
+      try {
+        const next = JSON.parse(e.detail);
+        if (Array.isArray(next)) setDrawings(next);
+      } catch (err) {}
+    };
     window.addEventListener('clear_drawings_local', handleClear);
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('local_drawings_sync', handleLocalSync);
     return () => {
       window.removeEventListener('clear_drawings_local', handleClear);
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('local_drawings_sync', handleLocalSync);
     };
   }, []);
   const updateDrawing = (id, updates) => {
@@ -143,19 +155,21 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
     if (!chart || !series || !overlayRef.current) return null;
     const timeScale = chart.timeScale();
     return {
-      toX: (time, logical) => {
-        if (logical !== undefined && logical !== null) {
+      toX: (time, logical, pointTfSec) => {
+        const xByTime = timeScale.timeToCoordinate(time);
+        if (xByTime !== null) return xByTime;
+        
+        if (logical !== undefined && logical !== null && pointTfSec === tfSec) {
           const x = timeScale.logicalToCoordinate(logical);
           if (x !== null) return x;
         }
-        const x = timeScale.timeToCoordinate(time);
-        if (x !== null) return x;
+        
         const spacing = timeScale.options().barSpacing || 6;
         const range = timeScale.getVisibleLogicalRange();
         if (!range) return null;
         const anchorX = timeScale.logicalToCoordinate(range.from);
         if (anchorX === null) return null;
-        const targetLog = logical !== undefined && logical !== null ? logical : refBar.index + (time - refBar.time) / tfSec;
+        const targetLog = refBar.index + (time - refBar.time) / tfSec;
         return anchorX + (targetLog - range.from) * spacing;
       },
       toPoint: (clientX, clientY, rect) => {
@@ -171,7 +185,7 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
         }
         const logical = timeScale.coordinateToLogical(x);
         const futureTime = refBar.time + (logical - refBar.index) * tfSec;
-        return { time: Math.round(futureTime), price, logical };
+        return { time: Math.round(futureTime), price, logical, tfSec };
       }
     };
   }, [chart, series, refBar, tfSec]);
@@ -180,7 +194,7 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
     if (!mapper) return null;
     const activeDrawings = [...drawings].reverse().filter((d) => (!d.symbol || d.symbol === activeSymbol) && (syncDrawings !== false || d.chartId === chartId));
     for (const d of activeDrawings) {
-      const coords = d.points.map((p) => ({ x: mapper.toX(p.time, p.logical), y: series.priceToCoordinate(p.price) }));
+      const coords = d.points.map((p) => ({ x: mapper.toX(p.time, p.logical, p.tfSec), y: series.priceToCoordinate(p.price) }));
       if (coords.some((c) => c.y === null) || coords.every((c) => c.x === null)) continue;
       const isSelected = d.id === selectedId;
       for (let i = 0; i < coords.length; i++) {
@@ -228,7 +242,7 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
     if (!drawing) return;
     const mapper = getMapper();
     if (!mapper) return;
-    const coords = drawing.points.map(p => ({ x: mapper.toX(p.time, p.logical), y: series.priceToCoordinate(p.price) }));
+    const coords = drawing.points.map(p => ({ x: mapper.toX(p.time, p.logical, p.tfSec), y: series.priceToCoordinate(p.price) }));
     if (coords.some(c => c.y === null) || coords.every(c => c.x === null)) return;
     
     const xMin = Math.min(...coords.map(c => c.x));
@@ -307,14 +321,14 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
         const newPoints = dragTarget.initialPoints.map((p, idx) => {
           if (drawing?.type === 'risk' && dragTarget.pointIndex === 0) {
             // Move whole tool when dragging entry point
-            const px = mapper.toX(p.time, p.logical), py = series.priceToCoordinate(p.price);
+            const px = mapper.toX(p.time, p.logical, p.tfSec), py = series.priceToCoordinate(p.price);
             return mapper.toPoint(rect.left + px + dx, rect.top + py + dy, rect) || p;
           }
           if (idx !== dragTarget.pointIndex) {
              if (drawing?.type === 'risk' && (idx === 1 || idx === 2)) {
                // Update X of other risk points to match the dragged point
                const draggedP = dragTarget.initialPoints[dragTarget.pointIndex];
-               const draggedPx = mapper.toX(draggedP.time, draggedP.logical);
+               const draggedPx = mapper.toX(draggedP.time, draggedP.logical, draggedP.tfSec);
                const nextDraggedP = mapper.toPoint(rect.left + draggedPx + dx, rect.top + 0, rect);
                if (nextDraggedP) {
                  const dt = nextDraggedP.time - draggedP.time, dLog = nextDraggedP.logical - (draggedP.logical || 0);
@@ -323,14 +337,14 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
              }
              return p;
           }
-          const px = mapper.toX(p.time, p.logical), py = series.priceToCoordinate(p.price);
+          const px = mapper.toX(p.time, p.logical, p.tfSec), py = series.priceToCoordinate(p.price);
           if (px === null || py === null) return p;
           return mapper.toPoint(rect.left + px + dx, rect.top + py + dy, rect) || p;
         });
         setDrawings((prev) => prev.map((d) => d.id === dragTarget.id ? { ...d, points: newPoints } : d));
       } else {
         const f = dragTarget.initialPoints[0];
-        const sPx = mapper.toX(f.time, f.logical),sPy = series.priceToCoordinate(f.price);
+        const sPx = mapper.toX(f.time, f.logical, f.tfSec),sPy = series.priceToCoordinate(f.price);
         if (sPx === null || sPy === null) return;
         const nextF = mapper.toPoint(rect.left + sPx + dx, rect.top + sPy + dy, rect);
         if (nextF) {
@@ -395,13 +409,30 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
     const mapper = getMapper();
     if (!mapper) return;
     const rect = overlayRef.current.getBoundingClientRect();
-    const pt = mapper.toPoint(e.clientX, e.clientY, rect);
+    let pt = mapper.toPoint(e.clientX, e.clientY, rect);
     if (pt) {
+      if (activeTool === 'arrow' && tempPoints[0]) {
+        const startPt = tempPoints[0];
+        const startX = mapper.toX(startPt.time, startPt.logical, startPt.tfSec);
+        const startY = series.priceToCoordinate(startPt.price);
+        if (startX !== null && startY !== null) {
+          const dx = e.clientX - rect.left - startX;
+          const dy = e.clientY - rect.top - startY;
+          const angle = Math.atan2(dy, dx);
+          const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+          if (Math.abs(angle - snappedAngle) < 15 * Math.PI / 180) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const newX = startX + dist * Math.cos(snappedAngle);
+            const newY = startY + dist * Math.sin(snappedAngle);
+            pt = mapper.toPoint(newX + rect.left, newY + rect.top, rect) || pt;
+          }
+        }
+      }
       if (activeTool === 'pencil') {
         const last = tempPoints[tempPoints.length - 1];
         if (last) {
-          const lx = mapper.toX(last.time, last.logical),ly = series.priceToCoordinate(last.price);
-          const cx = mapper.toX(pt.time, pt.logical),cy = series.priceToCoordinate(pt.price);
+          const lx = mapper.toX(last.time, last.logical, last.tfSec),ly = series.priceToCoordinate(last.price);
+          const cx = mapper.toX(pt.time, pt.logical, pt.tfSec),cy = series.priceToCoordinate(pt.price);
           if (lx !== null && ly !== null && cx !== null && cy !== null && Math.sqrt(Math.pow(cx - lx, 2) + Math.pow(cy - ly, 2)) < 5) return;
         }
         setTempPoints((prev) => [...prev, pt]);
@@ -415,8 +446,26 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
     const mapper = getMapper();
     let fps = [...tempPoints];
     if (mapper && overlayRef.current) {
-      const pt = mapper.toPoint(e.clientX, e.clientY, overlayRef.current.getBoundingClientRect());
+      const rect = overlayRef.current.getBoundingClientRect();
+      let pt = mapper.toPoint(e.clientX, e.clientY, rect);
       if (pt) {
+        if (activeTool === 'arrow' && tempPoints[0]) {
+          const startPt = tempPoints[0];
+          const startX = mapper.toX(startPt.time, startPt.logical, startPt.tfSec);
+          const startY = series.priceToCoordinate(startPt.price);
+          if (startX !== null && startY !== null) {
+            const dx = e.clientX - rect.left - startX;
+            const dy = e.clientY - rect.top - startY;
+            const angle = Math.atan2(dy, dx);
+            const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+            if (Math.abs(angle - snappedAngle) < 15 * Math.PI / 180) {
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const newX = startX + dist * Math.cos(snappedAngle);
+              const newY = startY + dist * Math.sin(snappedAngle);
+              pt = mapper.toPoint(newX + rect.left, newY + rect.top, rect) || pt;
+            }
+          }
+        }
         if (activeTool === 'pencil') fps.push(pt);else
         if (['hline', 'text'].includes(activeTool)) fps = [pt];else
         fps = [fps[0], pt];
@@ -458,11 +507,18 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
       ctx.save();ctx.scale(dpr, dpr);ctx.clearRect(0, 0, rect.width, rect.height);
       const mapper = getMapper();
       if (mapper) {
+        try {
+          const chartWidth = chart.timeScale().width();
+          ctx.beginPath();
+          ctx.rect(0, 0, chartWidth, rect.height);
+          ctx.clip();
+        } catch(e) {}
+        
         const items = drawings.filter((d) => (!d.symbol || d.symbol === activeSymbol) && (syncDrawings !== false || d.chartId === chartId)).
         map((d) => ({ ...d, isSelected: d.id === selectedId }));
         if (tempPoints.length > 0) items.push({ type: activeTool, points: tempPoints, isTemp: true, props: { color: '#fbbf24' } });
         items.forEach((d) => {
-          const coords = d.points.map((p) => ({ x: mapper.toX(p.time, p.logical), y: series.priceToCoordinate(p.price) }));
+          const coords = d.points.map((p) => ({ x: mapper.toX(p.time, p.logical, p.tfSec), y: series.priceToCoordinate(p.price) }));
           if (coords.length === 0 || coords.some((c) => c.y === null) || coords.every((c) => c.x === null)) return;
           const color = d.isSelected ? '#3b82f6' : d.props?.color || '#fbbf24';
           ctx.strokeStyle = color;ctx.fillStyle = `${color}22`;

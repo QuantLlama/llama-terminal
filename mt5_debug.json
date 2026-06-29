@@ -399,11 +399,115 @@
       "profit": 19.58,
       "commission": -0.6,
       "swap": 0.0
+    },
+    {
+      "ticket": 260265294,
+      "time": 1782741618,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.8,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260266452,
+      "time": 1782742059,
+      "type": 0,
+      "profit": 45.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260266455,
+      "time": 1782742065,
+      "type": 0,
+      "profit": 46.25,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260266646,
+      "time": 1782742117,
+      "type": 0,
+      "profit": 62.5,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260267083,
+      "time": 1782742244,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -1.2,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260267340,
+      "time": 1782742334,
+      "type": 0,
+      "profit": 5.0,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260267448,
+      "time": 1782742355,
+      "type": 0,
+      "profit": 8.75,
+      "commission": -0.6,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260268287,
+      "time": 1782742535,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260268450,
+      "time": 1782742578,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260268451,
+      "time": 1782742579,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260268453,
+      "time": 1782742579,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260268455,
+      "time": 1782742579,
+      "type": 1,
+      "profit": 0.0,
+      "commission": -2.4,
+      "swap": 0.0
+    },
+    {
+      "ticket": 260268552,
+      "time": 1782742616,
+      "type": 0,
+      "profit": 305.0,
+      "commission": -12.0,
+      "swap": 0.0
     }
   ],
   "account": {
-    "balance": 2399.35,
-    "equity": 2399.35,
+    "balance": 2841.85,
+    "equity": 2841.85,
     "profit": 0.0
   }
 }

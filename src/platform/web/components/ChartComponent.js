@@ -2535,9 +2535,10 @@ const ChartComponent = React.memo(({
     };
     const realThreshold = config.real?.threshold || 100;
     const cumThreshold = config.cumulative?.threshold || 500;
-    const sessionKey = `${activeSymbol}_${activeTimeframe}_R${realThreshold}_C${cumThreshold}`;
+    const volDivider = chartSettings?.filters?.volDivider || 1;
+    const sessionKey = `${activeSymbol}_${activeTimeframe}_R${realThreshold}_C${cumThreshold}_V${volDivider}`;
     if (hasProcessedHistoricalRef.current[sessionKey]) return;
-    const validData = historicalData.map((d) => ({ ...d, Volume: parseFloat(d.Volume) })).filter((d) => !isNaN(d.Volume));
+    const validData = historicalData.map((d) => ({ ...d, Volume: parseFloat(d.Volume) / volDivider })).filter((d) => !isNaN(d.Volume));
     if (validData.length === 0) return;
     const newMarkers = [];
     {
@@ -2609,13 +2610,15 @@ const ChartComponent = React.memo(({
     if (liveRealTrades.length > 0) {
       const baseThreshold = config.real?.threshold || 100;
       const threshold = isBigLlamaActive && llamaParams.big?.minVol ? llamaParams.big.minVol : baseThreshold;
+      const volDivider = chartSettings?.filters?.volDivider || 1;
       const detected = liveRealTrades
-        .filter((t) => t.size >= threshold)
+        .filter((t) => (t.size / volDivider) >= threshold)
         .map((t) => {
           const alignedTime = alignTradeTime(t);
           if (alignedTime === null) return null;
           return {
             ...t,
+            size: t.size / volDivider,
             timestamp: _normalizeBigTradeTimestamp(t.timestamp) ?? t.timestamp,
             time: alignedTime,
             id: t.id + "_real",
@@ -2628,13 +2631,15 @@ const ChartComponent = React.memo(({
     if (liveAggregatedTrades.length > 0) {
       const baseThreshold = config.cumulative?.threshold || 500;
       const threshold = isBigLlamaActive && llamaParams.big?.minVol ? llamaParams.big.minVol : baseThreshold;
+      const volDivider = chartSettings?.filters?.volDivider || 1;
       const detected = liveAggregatedTrades
-        .filter((t) => t.size >= threshold)
+        .filter((t) => (t.size / volDivider) >= threshold)
         .map((t) => {
           const alignedTime = alignTradeTime(t);
           if (alignedTime === null) return null;
           return {
             ...t,
+            size: t.size / volDivider,
             timestamp: _normalizeBigTradeTimestamp(t.timestamp) ?? t.timestamp,
             time: alignedTime,
             id: t.id + "_cum",

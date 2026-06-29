@@ -844,6 +844,27 @@
             oneClick:
               localStorage.getItem("oneClickTrading") ===
               "true"
+          },
+          chart_settings: {
+            backgroundColor: localStorage.getItem("global_chart_bg_color") || "#050505",
+            upColor: localStorage.getItem("global_candle_up_color") || "#26a69a",
+            downColor: localStorage.getItem("global_candle_down_color") || "#ef5350",
+            borderColor: localStorage.getItem("global_candle_border_color") || "#4b5563",
+            borderVisible: (localStorage.getItem("global_candle_border_visible") ?? "true") !== "false",
+            showGrid: (localStorage.getItem("chart_show_grid") ?? "true") === "true",
+            showWatermark: (localStorage.getItem("chart_show_watermark") ?? "true") === "true",
+            chartType: localStorage.getItem("chart_type") || "candle",
+            footprintFontSize: parseInt(localStorage.getItem("footprint_font_size")) || 11,
+            footprintShowWicks: localStorage.getItem("footprint_show_wicks") !== "false",
+            footprintShowPOC: localStorage.getItem("footprint_show_poc") !== "false",
+            footprintWickThickness: parseInt(localStorage.getItem("footprint_wick_thickness")) || 1,
+            footprintBuyColor: localStorage.getItem("footprint_buy_color") || "#00ff80",
+            footprintSellColor: localStorage.getItem("footprint_sell_color") || "#ff0050",
+            footprintPocColor: localStorage.getItem("footprint_poc_color") || "#ffd700",
+            muteSaveNotifications: localStorage.getItem("muteSaveNotifications") === "true",
+            muteTradingNotifications: localStorage.getItem("muteTradingNotifications") === "true",
+            orderEntrySL: localStorage.getItem("orderEntry_sl") || "20",
+            orderEntryTP: localStorage.getItem("orderEntry_tp") || "40"
           }
         };
       },
@@ -919,6 +940,29 @@
               "oneClickTrading",
               config.settings.oneClick
             );
+          }
+          if (config.chart_settings) {
+            const cs = config.chart_settings;
+            if (cs.backgroundColor !== undefined) localStorage.setItem("global_chart_bg_color", cs.backgroundColor);
+            if (cs.upColor !== undefined) localStorage.setItem("global_candle_up_color", cs.upColor);
+            if (cs.downColor !== undefined) localStorage.setItem("global_candle_down_color", cs.downColor);
+            if (cs.borderColor !== undefined) localStorage.setItem("global_candle_border_color", cs.borderColor);
+            if (cs.borderVisible !== undefined) localStorage.setItem("global_candle_border_visible", cs.borderVisible);
+            if (cs.showGrid !== undefined) localStorage.setItem("chart_show_grid", cs.showGrid);
+            if (cs.showWatermark !== undefined) localStorage.setItem("chart_show_watermark", cs.showWatermark);
+            if (cs.chartType !== undefined) localStorage.setItem("chart_type", cs.chartType);
+            if (cs.footprintFontSize !== undefined) localStorage.setItem("footprint_font_size", cs.footprintFontSize);
+            if (cs.footprintShowWicks !== undefined) localStorage.setItem("footprint_show_wicks", cs.footprintShowWicks);
+            if (cs.footprintShowPOC !== undefined) localStorage.setItem("footprint_show_poc", cs.footprintShowPOC);
+            if (cs.footprintWickThickness !== undefined) localStorage.setItem("footprint_wick_thickness", cs.footprintWickThickness);
+            if (cs.footprintBuyColor !== undefined) localStorage.setItem("footprint_buy_color", cs.footprintBuyColor);
+            if (cs.footprintSellColor !== undefined) localStorage.setItem("footprint_sell_color", cs.footprintSellColor);
+            if (cs.footprintPocColor !== undefined) localStorage.setItem("footprint_poc_color", cs.footprintPocColor);
+            if (cs.muteSaveNotifications !== undefined) localStorage.setItem("muteSaveNotifications", cs.muteSaveNotifications);
+            if (cs.muteTradingNotifications !== undefined) localStorage.setItem("muteTradingNotifications", cs.muteTradingNotifications);
+            if (cs.orderEntrySL !== undefined) localStorage.setItem("orderEntry_sl", cs.orderEntrySL);
+            if (cs.orderEntryTP !== undefined) localStorage.setItem("orderEntry_tp", cs.orderEntryTP);
+            window.dispatchEvent(new CustomEvent("workspace_settings_applied", { detail: cs }));
           }
           return true;
         } catch (e) {

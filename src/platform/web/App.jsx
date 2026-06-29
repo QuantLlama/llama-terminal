@@ -294,6 +294,7 @@ const App = () => {
   }, [sendWebSocketMessage]);
 
   const handleSaveWorkspace = async (name) => {
+    const currentConfig = window.WorkspaceManager.getCurrentConfig();
     const config = {
       layout: layout,
       symbol: activeSymbol,
@@ -302,7 +303,8 @@ const App = () => {
       panelSizes: {
         left: leftPanelWidth,
         right: rightPanelWidth
-      }
+      },
+      chart_settings: currentConfig.chart_settings
     };
     
     window.dispatchEvent(new CustomEvent('save_status', { detail: 'saving' }));
@@ -328,6 +330,9 @@ const App = () => {
     if (data.panelSizes) {
       if (data.panelSizes.left) setLeftPanelWidth(data.panelSizes.left);
       if (data.panelSizes.right) setRightPanelWidth(data.panelSizes.right);
+    }
+    if (data.chart_settings) {
+      window.WorkspaceManager.applyConfig({ chart_settings: data.chart_settings });
     }
     window.dispatchEvent(new CustomEvent('notify', { 
       detail: { type: 'success', title: 'Cargado', message: `Espacio '${name}' aplicado` } 

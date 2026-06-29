@@ -1259,6 +1259,10 @@ const ChartSettingsModal = ({
                   React.createElement("input", { type: "checkbox", checked: localSettings.overlays.showDrawings, onChange: (e) => updateLocal('overlays.showDrawings', e.target.checked), className: "w-4 h-4 accent-accent" })
                 ),
                 React.createElement("div", { className: "flex items-center justify-between p-2 bg-white/5 rounded-lg border border-white/5" },
+                  React.createElement("span", { className: "text-[10px] text-gray-300 uppercase font-bold" }, "Sync Drawings (Cross-TF)"),
+                  React.createElement("input", { type: "checkbox", checked: localSettings.layout.syncDrawings ?? true, onChange: (e) => updateLocal('layout.syncDrawings', e.target.checked), className: "w-4 h-4 accent-accent" })
+                ),
+                React.createElement("div", { className: "flex items-center justify-between p-2 bg-white/5 rounded-lg border border-white/5" },
                   React.createElement("span", { className: "text-[10px] text-gray-300 uppercase font-bold" }, "DOM Histogram"),
                   React.createElement("input", { type: "checkbox", checked: localSettings.overlays.showDomHistogram, onChange: (e) => updateLocal('overlays.showDomHistogram', e.target.checked), className: "w-4 h-4 accent-accent" })
                 )
@@ -1381,6 +1385,9 @@ const ChartSettingsModal = ({
               React.createElement("div", { className: "space-y-3" },
                 React.createElement(ControlRow, { label: "Global Min Vol", info: "Minimum volume for standard candles" },
                   React.createElement("input", { type: "number", value: localSettings.filters.minVol, onChange: (e) => updateLocal('filters.minVol', parseInt(e.target.value)), className: "w-20 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white" })
+                ),
+                React.createElement(ControlRow, { label: "Volume Divider", info: "Divide raw volume by this (e.g. 1000 for MT5 contracts)" },
+                  React.createElement("input", { type: "number", value: localSettings.filters.volDivider || 1, onChange: (e) => updateLocal('filters.volDivider', Math.max(1, parseFloat(e.target.value))), className: "w-20 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white" })
                 ),
                 React.createElement("div", { className: "grid grid-cols-2 gap-4 pt-2" },
                   React.createElement("div", { className: "space-y-1" },
@@ -1659,6 +1666,7 @@ function getDefaultChartSettings() {
     },
     filters: {
       minVol: 100,
+      volDivider: 1,
       volumeColor: "#10b981",
       deltaColor: "#3b82f6",
       volumeOpacity: 0.8,
