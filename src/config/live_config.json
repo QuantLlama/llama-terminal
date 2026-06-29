@@ -194,7 +194,7 @@
                         "showWatermark": true,
                         "muteSaveNotifications": false,
                         "muteTradingNotifications": false,
-                        "syncDrawings": true
+                        "syncDrawings": false
                     },
                     "appearance": {
                         "backgroundColor": "#050505",
@@ -509,7 +509,7 @@
                 }
             }
         ],
-        "activeChartId": "popout-main",
+        "activeChartId": 1782748971406.4421,
         "showTape": true,
         "showOrderEntry": false,
         "showDom": false,
@@ -552,7 +552,8 @@
                     }
                 ],
                 "props": {
-                    "color": "#10b981"
+                    "color": "#10b981",
+                    "locked": true
                 },
                 "symbol": "BTCUSDT",
                 "chartId": "popout-main",
@@ -574,7 +575,8 @@
                     }
                 ],
                 "props": {
-                    "color": "#ef4444"
+                    "color": "#ef4444",
+                    "locked": true
                 },
                 "symbol": "BTCUSDT",
                 "chartId": "popout-main",
@@ -1059,14 +1061,14 @@
         "panel_sizes": {
             "tapeWidth": 296,
             "orderEntryWidth": 285,
-            "tape1Height": 557,
-            "tape2Height": 335,
+            "tape1Height": 562,
+            "tape2Height": 324,
             "domWidth": 280
         },
         "tapeWidth": 296,
         "orderEntryWidth": 285,
-        "tape1Height": 557,
-        "tape2Height": 335,
+        "tape1Height": 562,
+        "tape2Height": 324,
         "domWidth": 280,
         "bigTradeConfig": {
             "real": {
@@ -1089,7 +1091,7 @@
                 "textSize": 1
             }
         },
-        "updated_at": "2026-06-29T17:22:43.088Z"
+        "updated_at": "2026-06-29T23:41:34.898Z"
     },
     "workspaces": {
         "session_futures": {

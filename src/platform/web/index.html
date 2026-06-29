@@ -1812,7 +1812,7 @@
             React.createElement("div", { className: "flex items-center gap-1 bg-black/50 px-2 py-1 rounded border border-border" },
               React.createElement("i", { className: "fas fa-exchange-alt text-accent text-[10px]" }),
               React.createElement("select", {
-                value: detectPlatformType(),
+                value: detectPlatformType(),  // Note: controlled by localStorage; platform state flows via setCurrentPlatform
                 onChange: async (e) => {
                   const oldPlatform = detectPlatformType();
                   const newPlatform = e.target.value;
@@ -1861,6 +1861,8 @@
                     newPlatform
                   );
                   if (onSymbolChange) onSymbolChange(newSymbol);
+                  // Refresh workspace list so the dropdown reflects the new platform's saved workspaces
+                  if (window._fetchWorkspacesGlobal) window._fetchWorkspacesGlobal();
                   if (window.fetchAvailableSymbols) {
                     window.fetchAvailableSymbols(newPlatform);
                   }
@@ -4843,6 +4845,8 @@
       };
       useEffect(() => {
         fetchWorkspaces();
+        window._fetchWorkspacesGlobal = fetchWorkspaces;
+        return () => { delete window._fetchWorkspacesGlobal; };
       }, []);
       const [availableAccounts, setAvailableAccounts] = useState([]);
       const [connectionStatus, setConnectionStatus] =
