@@ -32,16 +32,12 @@ const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol, worksp
 
   useEffect(() => {
     if (isOpen) {
-      console.log("[WorkspacesModal] Modal opened. Prop workspaces:", propWorkspaces);
-      if (propWorkspaces && Object.keys(propWorkspaces).length > 0) {
-        setWorkspaces(propWorkspaces);
-      } else {
-        fetchWorkspaces();
-      }
+      console.log("[WorkspacesModal] Modal opened. Fetching fresh workspaces from API...");
+      fetchWorkspaces();
       setPos({ x: (window.innerWidth - 500) / 2, y: 150 });
       setNewName("");
     }
-  }, [isOpen, propWorkspaces]);
+  }, [isOpen]);
 
   const handleMouseDown = (e) => {
     if (e.target.closest(".drag-handle")) {

@@ -465,7 +465,7 @@ def get_all_workspaces(user_id: str = "default_user") -> Dict[str, Dict[str, Any
                 "visibility_settings": json.loads(row["visibility_settings"])
                 if row["visibility_settings"]
                 else {},
-                "chart_settings": json.loads(row["chart_settings"]) if row.get("chart_settings") else {},
+                "chart_settings": json.loads(row["chart_settings"]) if row["chart_settings"] else {},
                 "updated_at": row["updated_at"],
             }
         return workspaces
