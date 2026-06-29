@@ -276,8 +276,9 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
       if (hit) {
         e.preventDefault();e.stopPropagation();
         setSelectedId(hit.id);
-        if (e.button === 2) {
+        if (e.button === 2 || hit.drawing.props?.locked) {
           // No context menu for drawings, just show toolbar
+          // If locked, just select and show toolbar, no dragging
           updateToolbarPos(hit.id);
         } else {
           setDragTarget({ id: hit.id, startX: e.clientX, startY: e.clientY, initialPoints: hit.drawing.points.map((p) => ({ ...p })), pointIndex: hit.pointIndex });
@@ -740,6 +741,7 @@ const UserDrawingOverlay = ({ chart, series, activeTool, activeSymbol, activeTim
           style: { pointerEvents: 'auto' },
           onMouseDown: (e) => {
             e.stopPropagation();
+            e.preventDefault(); // Prevent native HTML dragging that causes stuttering
             const rect = e.currentTarget.closest('.bg-[#1a1a1a]').getBoundingClientRect();
             setModalDrag({
               offsetX: e.clientX - rect.left,
