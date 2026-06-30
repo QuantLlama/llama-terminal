@@ -86,7 +86,14 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
       const currentRect = lastRectRef.current;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, currentRect.width, currentRect.height);
+      
       const timeScale = currentChart.timeScale();
+      const paneWidth = timeScale.width();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, paneWidth, currentRect.height);
+      ctx.clip();
+      
       let minTime = timeScale.coordinateToTime(-200);
       let maxTime = timeScale.coordinateToTime(rect.width + 200);
       if (minTime && typeof minTime === 'object') minTime = minTime.timestamp;
@@ -98,15 +105,19 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
         if (t._parsedTime === null) return;
         let vTime = t._parsedTime;
 
-        // Alinear al centro de la vela usando el timeframe activo
-        if (tfSecs > 0) {
-          vTime = Math.floor(vTime / tfSecs) * tfSecs;
-        }
-
         if (vTime < minTime || vTime > maxTime) return;
 
-        const x = timeScale.timeToCoordinate(vTime);
-        if (x === null || x < -100 || x > rect.width + 100) return;
+        let x = timeScale.timeToCoordinate(vTime);
+        if (x === null) return;
+        
+        // Snap to the exact center of the nearest candle
+        const logical = timeScale.coordinateToLogical(x);
+        if (logical !== null) {
+          const snappedX = timeScale.logicalToCoordinate(Math.round(logical));
+          if (snappedX !== null) x = snappedX;
+        }
+        
+        if (x < -100 || x > rect.width + 100) return;
         const y = currentSeries.priceToCoordinate(t.price);
         if (y !== null) {
           const mode = t.bt_type === 'cumulative' || t.bt_type === 'agg' ? 'cumulative' : 'real';
@@ -188,6 +199,8 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
           ctx.globalAlpha = 1.0;
         }
       });
+      
+      ctx.restore();
     };
 
     // Renderizar solo cuando ocurre un evento real (sin loop continuo)
@@ -223,6 +236,7 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
         let _lastPriceCoord = null;
         let _lastTimeCoord = null;
         let _lastTradeCount = 0;
+        let _lastTsWidth = 0;
         let _monitorRaf = null;
         const monitorScale = () => {
             const currentTradeCount = sortedTradesRef.current ? sortedTradesRef.current.length : 0;
@@ -232,14 +246,16 @@ const BigTradeOverlay = ({ chart, series, trades, settings, visible = true, tfSe
                 _lastTradeCount = currentTradeCount;
                 needsRender = true;
             }
-            if (series) {
+            if (series && chart) {
                 try {
                     const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
                     const logicalRange = chart.timeScale().getVisibleLogicalRange();
                     const tc = logicalRange ? logicalRange.from : null;
-                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
+                    const tsWidth = chart.timeScale().width();
+                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord || tsWidth !== _lastTsWidth) {
                         _lastPriceCoord = pc;
                         _lastTimeCoord = tc;
+                        _lastTsWidth = tsWidth;
                         needsRender = true;
                     }
                 } catch(e) {}
