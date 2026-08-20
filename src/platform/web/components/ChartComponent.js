@@ -2036,26 +2036,27 @@ const ChartComponent = React.memo(({
 
         for (const tick of currentBatch) {
           const isCryptoTick = localStorage.getItem('platform') === 'crypto' || activeSymbol.includes('USDT');
+          // CFD instruments (EURUSD, XAUUSD, US30, GER40, etc.) report zero volume in MT5
+          // ticks — treat them like crypto for volume purposes (price still updates the candle).
+          const isCFDTick = !isCryptoTick && (tick.is_cfd === true || (
+            Number(tick.size) === 0 && Number(tick.last_size) === 0 && Number(tick.volume) === 0
+            && (tick.bid > 0 || tick.ask > 0 || tick.last > 0)
+          ));
+
 
           const tickPrice = tick.price || tick.last || tick.bid || tick.ask;
           if (!tickPrice || isNaN(tickPrice)) continue;
 
-          // FIX: Use server timestamp ALWAYS, fallback to reasonable local time only if invalid
+          // FIX: Use server timestamp ALWAYS. MT5 broker time can be hours ahead or behind
+          // the browser's local UTC time. Do not compare against Date.now()!
           let tickTimeSec = Number(tick.timestamp);
           if (tick.timestamp === undefined || tick.timestamp === null || isNaN(tickTimeSec) || tickTimeSec <= 0) {
-            // Invalid server timestamp - use local time as fallback
+            // Only use local time as a last resort fallback if missing
             tickTimeSec = Math.floor(Date.now() / 1000);
           } else {
             // Convert ms to s if needed
             if (tickTimeSec > 10000000000) tickTimeSec = tickTimeSec / 1000;
             tickTimeSec = Math.floor(tickTimeSec);
-
-            // Validate timestamp is reasonable (not too far from now)
-            const nowSec = Math.floor(Date.now() / 1000);
-            if (tickTimeSec < (nowSec - 3600) || tickTimeSec > (nowSec + 60)) {
-              // Timestamp is unreasonable - use local time instead
-              tickTimeSec = nowSec;
-            }
           }
 
         const tickBarTime = Math.floor(tickTimeSec / tfSeconds) * tfSeconds;
@@ -2167,23 +2168,41 @@ const ChartComponent = React.memo(({
           // ── SERVER OHLC: merge authoritative candle shape from backend ──
           // The server tracks the full candle from all trades (not just the
           // subset the frontend sees), so its high/low are more accurate.
-          if (tick.high && tick.high > 0) {
-            currentCandle.high = Math.max(currentCandle.high, tick.high);
+          // For BAR_TICK events the server OHLC IS the candle — apply it directly.
+          const isBarTick = tick.eventType === 'BAR_TICK';
+          if (isBarTick) {
+            // Trust server's open for the bar (frontend may have guessed from prev close)
+            if (tick.open && tick.open > 0) currentCandle.open = tick.open;
+            // Server high/low are authoritative: use them directly, not just as a bound
+            if (tick.high && tick.high > 0) currentCandle.high = tick.high;
+            if (tick.low  && tick.low  > 0) currentCandle.low  = tick.low;
+          } else {
+            if (tick.high && tick.high > 0) {
+              currentCandle.high = Math.max(currentCandle.high, tick.high);
+            }
+            if (tick.low && tick.low > 0) {
+              currentCandle.low = Math.min(currentCandle.low, tick.low);
+            }
           }
-          if (tick.low && tick.low > 0) {
-            currentCandle.low = Math.min(currentCandle.low, tick.low);
-          }
+
 
           // ── VOLUME: Use tick.size for both Crypto and MT5 (App.jsx remaps it) ──
           const isCryptoTick = localStorage.getItem('platform') === 'crypto' || activeSymbol.includes('USDT');
+          // CFD instruments in MT5 (EURUSD, XAUUSD, US30, etc.) have zero volume in ticks
+          const isCFDTick = !isCryptoTick && (tick.is_cfd === true || (
+            Number(tick.size) === 0 && Number(tick.last_size) === 0 && Number(tick.volume) === 0
+            && (tick.bid > 0 || tick.ask > 0 || tick.last > 0)
+          ));
           let tickSize = Number(tick.size) || Number(tick.last_size) || 0;
-          if (tickSize === 0 && !isCryptoTick) {
+          // Only try tick.volume fallback for non-crypto AND non-CFD instruments (futures/stocks)
+          if (tickSize === 0 && !isCryptoTick && !isCFDTick) {
             tickSize = Number(tick.volume) || 0;
           }
 
           if (tickSize > 0) {
             currentCandle.volume = (currentCandle.volume || 0) + tickSize;
           }
+
 
           // ── DELTA: Server delta is valid only if non-zero ─────────────────
           const serverDelta = Number(tick.delta);

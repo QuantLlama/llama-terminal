@@ -203,6 +203,30 @@ const App = () => {
           delta: msg.delta,
           symbol: displaySymbol
         });
+
+        // Also dispatch as market_tick so the RAF tick loop (flushTicks) receives the
+        // server's authoritative OHLC shape and can update currentCandle.high/low in
+        // real time. Without this, the candle only updated its close (from price ticks)
+        // but high/low never grew — the candle looked frozen even when price was moving.
+        if (msg.close && msg.close > 0) {
+          window.dispatchEvent(new CustomEvent('market_tick', {
+            detail: {
+              symbol: displaySymbol,
+              price: msg.close,
+              last:  msg.close,
+              open:  msg.open  || 0,
+              high:  msg.high  || 0,
+              low:   msg.low   || 0,
+              close: msg.close || 0,
+              volume: msg.volume || 0,
+              delta: msg.delta,
+              timestamp: tsSec,
+              side: "",
+              eventType: "BAR_TICK",
+              source: msg.source || "MT5"
+            }
+          }));
+        }
       } else if (eventType === "BOOK" || eventType === "BOOK_UPDATE") {
         window.dispatchEvent(new CustomEvent('market_dom', {
           detail: {

@@ -105,7 +105,7 @@ class MarketDataEngine:
         self._reconnect_delay_s   = 5
         self._max_reconnect_attempts = 10
         self._latency_threshold_ms   = 50
-        self._last_candle_poll: float = 0.0
+        self._last_candle_poll: Dict[str, float] = {}  # per-symbol; was a shared float (bug: only 1 symbol/s got candle updates)
 
         self._setup_logging()
         logger.info(f"MarketDataEngine inicializado para plataforma: {platform}")
@@ -618,26 +618,60 @@ class MarketDataEngine:
                             t_vol = raw_v if raw_v > 0 else 0
                         self._last_abs_volume[s_upper] = raw_v
 
+                    # Resolve the price to use for the candle/event.
+                    # MT5 tick types across broker models:
+                    #   Market Maker (AvaTrade, etc.): last=0, bid/ask populated → use mid-price
+                    #   ECN/Raw Spread  (ZeroMarkets, etc.): last>0, bid/ask populated, but
+                    #       volume=0 for quote ticks (not actual trades) → still need to emit
+                    #   Exchange/Futures (ES, NQ, etc.): last>0, volume>0, real trades
+                    tick_last = float(tick.get('last', 0))
+                    tick_bid  = float(tick.get('bid', 0))
+                    tick_ask  = float(tick.get('ask', 0))
+
+                    # is_cfd_tick: true when the broker doesn't give us a valid last price
+                    # OR when last > 0 but volume is zero (ECN quote tick, not a real trade)
+                    is_cfd_tick = (
+                        (tick_last == 0 and (tick_bid > 0 or tick_ask > 0))   # market maker
+                        or (raw_v == 0 and tick_last > 0 and (tick_bid > 0 or tick_ask > 0))  # ECN quote
+                    )
+                    if not is_cfd_tick and tick_last > 0:
+                        p = tick_last
+                    elif tick_bid > 0 and tick_ask > 0:
+                        p = (tick_bid + tick_ask) / 2
+                    else:
+                        p = tick_bid or tick_ask or tick_last
+
                     t_side = ""
                     if flags & 32:
                         t_side = "BUY"
                     elif flags & 64:
                         t_side = "SELL"
-                    elif t_vol > 0 and not (flags & 6):
-                        t_side = "BUY" if tick['last'] >= tick['ask'] else "SELL"
+                    elif p > 0:
+                        # For any tick with a valid price (with or without volume, trade or quote),
+                        # infer direction from last vs ask, or bid movement.
+                        # We do NOT filter out quote ticks (flags & 6) here because for ECN/CFD
+                        # brokers, quote ticks are often the only price updates we receive.
+                        ref = tick_last if tick_last > 0 else p
+                        t_side = "BUY" if (tick_ask > 0 and ref >= tick_ask) else "SELL"
 
-                    if t_vol > 0 and t_side:
+                    # Emit a TRADE event whenever we have a valid price and direction.
+                    # Volume is NOT required here — it only matters for the tape/footprint
+                    # (TradeBuffer), which has its own t_vol > 0 guard below.
+                    # Requiring t_vol > 0 was silently dropping all quote ticks from ECN
+                    # brokers (e.g. ZeroMarkets) where last>0 but volume=0.
+                    if p > 0 and t_side:
                         ts_val = float(tick['time_msc'] / 1000) if 'time_msc' in tick else float(tick['time'])
-                        p = float(tick['last'])
                         trade_ev = MarketDataEvent(
                             symbol=symbol, timestamp=ts_val, event_type="TRADE",
                             last=p, last_size=t_vol, side=t_side, source="MT5"
                         )
                         trade_batch.append(trade_ev)
-                        self._trade_buffer.push(TradeEvent(
-                            symbol=symbol, timestamp=ts_val,
-                            price=p, size=t_vol, side=t_side
-                        ))
+                        if t_vol > 0:  # only add to tape/footprint when there's real volume
+                            self._trade_buffer.push(TradeEvent(
+                                symbol=symbol, timestamp=ts_val,
+                                price=p, size=t_vol, side=t_side
+                            ))
+
 
                 if trade_batch:
                     self._event_buffer.push_batch(trade_batch)
@@ -676,14 +710,16 @@ class MarketDataEngine:
                         self._update_latency_metrics(event.latency_ms)
 
         now_clk = time.time()
-        if now_clk - self._last_candle_poll >= 1.0:
-            self._last_candle_poll = now_clk
+        if now_clk - self._last_candle_poll.get(s_upper, 0) >= 1.0:
+            self._last_candle_poll[s_upper] = now_clk
             try:
                 df = connector.get_latest_candles(broker_symbol, timeframe="1m", n=5)
                 if df is not None and not df.empty:
                     latest_row = df.iloc[-1]
                     bar_ts = int(latest_row['time'].timestamp()) if hasattr(latest_row['time'], 'timestamp') else int(latest_row['time'])
                     prev_bar_ts = self._mt5_bar_ts.get(s_upper, 0)
+
+                    # Reset accumulators only when a new candle bar opens
                     if bar_ts > prev_bar_ts:
                         self._mt5_bar_ts[s_upper]    = bar_ts
                         self._mt5_delta_acc[s_upper] = 0.0
@@ -691,6 +727,10 @@ class MarketDataEngine:
                         accumulated_delta = 0.0
                         accumulated_vol   = 0.0
 
+                    # Always emit the BAR event (not only on new bar) so the frontend
+                    # receives live OHLC updates for the in-progress candle every second.
+                    # Previously CFD charts appeared frozen mid-candle because the BAR
+                    # was only pushed once per minute (at bar boundary).
                     candle_event = MarketDataEvent(
                         symbol=symbol, timestamp=bar_ts, event_type="BAR",
                         open=float(latest_row.get('Open', latest_row.get('open', 0))),
