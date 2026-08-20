@@ -113,6 +113,14 @@
                 "VantageFX-International-Live",
                 "VantageFX-International-Demo"
             ]
+        },
+        {
+            "name": "ZeroMarkets",
+            "servers": [
+                "ZeroMarkets-1",
+                "ZeroMarkets-Live",
+                "ZeroMarkets-Demo"
+            ]
         }
     ]
 }
