@@ -203,6 +203,17 @@ const ChartComponent = React.memo(({
   const [footprintMode, setFootprintMode] = useState(
     () => chartSettings?.footprint?.mode || 'off'
   );
+  const [globalAppearance, setGlobalAppearance] = useState(
+    () => ({
+      backgroundColor: "#000000",
+      upColor: "#26a69a",
+      downColor: "#ef5350",
+      borderUpColor: "#4b5563",
+      borderDownColor: "#4b5563",
+      borderVisible: true,
+      ...(chartSettings?.appearance || {})
+    })
+  );
   useEffect(() => {
     const handleFpChange = (e) => {
       if (e.detail?.chartId === chartId) {
@@ -262,17 +273,6 @@ const ChartComponent = React.memo(({
   const [footprintData, setFootprintData] = useState(null);
   const [hoverData, setHoverData] = useState({ volume: null, delta: null });
   const footprintFetchingRef = useRef(false);
-  const [globalAppearance, setGlobalAppearance] = useState(
-    () => ({
-      backgroundColor: "#000000",
-      upColor: "#26a69a",
-      downColor: "#ef5350",
-      borderUpColor: "#4b5563",
-      borderDownColor: "#4b5563",
-      borderVisible: true,
-      ...(chartSettings?.appearance || {})
-    })
-  );
   useEffect(() => {
     if (chartSettings?.appearance) {
       setGlobalAppearance((prev) => ({
@@ -722,6 +722,10 @@ const ChartComponent = React.memo(({
 
   // ── Liquidity Heatmap: dedicated state and fetch ──
   const [liquidityHeatmapData, setLiquidityHeatmapData] = useState([]);
+  // Tracks whether the initial full-history fetch (10,000 bars) has been completed.
+  // On first mount it is true; after the first successful response it becomes false,
+  // switching subsequent candle-close fetches to the lighter 200-bar incremental mode.
+  const isInitialHeatmapLoad = useRef(true);
   useEffect(() => {
     let isMounted = true;
     let isFetching = false;
@@ -738,13 +742,9 @@ const ChartComponent = React.memo(({
         const platform = typeof detectPlatformType === "function"
           ? detectPlatformType()
           : window.detectPlatformType ? window.detectPlatformType() : localStorage.getItem("broker_platform") || localStorage.getItem("platform") || "futures";
-        let fetchLimit = 2000;
-        try {
-          const storedLimits = JSON.parse(localStorage.getItem('chart_history_limits') || '{}');
-          fetchLimit = Math.min(fetchLimit, storedLimits[activeTimeframe] || 3000);
-        } catch (e) {
-          fetchLimit = 2000;
-        }
+        // Use 10,000 bars on the initial load for full historical context;
+        // use 200 bars on subsequent candle-close triggers for lightweight incremental updates.
+        const fetchLimit = isInitialHeatmapLoad.current ? 10000 : 200;
         const url = `/api/indicators/calculate?symbol=${activeSymbol}&timeframe=${activeTimeframe}&limit=${fetchLimit}&platform=${encodeURIComponent(platform)}`;
         let res = null;
         for (let i = 0; i < 3; i++) {
@@ -759,6 +759,8 @@ const ChartComponent = React.memo(({
         if (!isMounted) return;
         if (data.indicators && data.indicators.liquidity_heatmap && data.indicators.liquidity_heatmap.data) {
           setLiquidityHeatmapData(data.indicators.liquidity_heatmap.data);
+          // Mark the initial load as complete so all future fetches use the 200-bar limit.
+          isInitialHeatmapLoad.current = false;
         } else {
           setLiquidityHeatmapData([]);
         }
@@ -782,7 +784,8 @@ const ChartComponent = React.memo(({
       if (fetchTimeout) clearTimeout(fetchTimeout);
       window.removeEventListener("cazastop_config_changed", handleUpdate);
     };
-  }, [activeSymbol, activeTimeframe, isChartReady, chartSettings]);
+  // localLastCandleTime is included so candle-close events trigger an incremental fetch.
+  }, [activeSymbol, activeTimeframe, isChartReady, localLastCandleTime, chartSettings]);
 
   const [llamaParams, setLlamaParams] = useState({ big: null, inbalance: null, caza: null });
   useEffect(() => {

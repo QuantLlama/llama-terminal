@@ -196,6 +196,21 @@ class RiskValidator:
         forex_base = ['EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF', 'USD', 'XAU', 'XAG']
         if any(pair in symbol_upper for pair in forex_base) and len(symbol_upper) >= 6:
             return 'forex'
+        # ── CFD indices & commodities (MT5 broker naming) ──────────────────
+        # These trade ~24h on weekdays, same session model as futures.
+        stripped = symbol_upper.replace('_', '').replace('.', '').replace('-', '')
+        cfd_prefixes = [
+            'US', 'NAS', 'SPX', 'DJ', 'GER', 'DE', 'UK',
+            'JP', 'AUS', 'FR', 'EU', 'IT', 'ES', 'HK', 'CH', 'NL',
+        ]
+        for pfx in cfd_prefixes:
+            if stripped.startswith(pfx):
+                rest = stripped[len(pfx):]
+                if rest and rest[0].isdigit():
+                    return 'futures'
+        cfd_commodities = ['USOIL', 'UKOIL', 'WTI', 'BRENT', 'NATGAS', 'NGAS']
+        if any(c in stripped for c in cfd_commodities):
+            return 'futures'
         return 'stocks'
     def _get_current_session(self, symbol: str = "") -> str:
         try:

@@ -71,6 +71,7 @@ const DOMHeatmapOverlay = ({
             if (historyRef.current.length > historySize) {
                 historyRef.current.shift();
             }
+            window.dispatchEvent(new CustomEvent('dom_heatmap_redraw'));
         };
 
         const handleUpdate = (e) => {
@@ -137,29 +138,47 @@ const DOMHeatmapOverlay = ({
         };
         const tfSeconds = getTimeframeSeconds(activeTimeframe);
 
-        const getColor = (intensity, theme) => {
-            // intensity is 0.0 to 1.0
-            let r, g, b;
-            const i = Math.max(0, Math.min(1, intensity * maxIntensityFactor));
+        // 8-stop pre-calculated palette to avoid dynamic math evaluations on every cell
+        const CLASSIC_COLOR_LUT = [];
+        const LLAMA_COLOR_LUT = [];
+        const GRAY_COLOR_LUT = [];
 
-            if (theme === 'grayscale') {
-                const v = Math.floor(i * 255);
-                r = v; g = v; b = v;
-            } else if (theme === 'llama') {
-                if (i <= 0.001) { r = 8; g = 20; b = 41; } // Visible deep navy-blue for empty Llama space
-                else if (i < 0.2) { r = 0; g = 0; b = Math.floor(i * 5 * 255); }
-                else if (i < 0.4) { r = 0; g = Math.floor((i - 0.2) * 5 * 255); b = 255; }
-                else if (i < 0.6) { r = Math.floor((i - 0.4) * 5 * 255); g = 255; b = 255 - Math.floor((i - 0.4) * 5 * 255); }
-                else if (i < 0.8) { r = 255; g = 255 - Math.floor((i - 0.6) * 5 * 255); b = 0; }
-                else { r = 255; g = Math.floor((i - 0.8) * 5 * 255); b = Math.floor((i - 0.8) * 5 * 255); }
-            } else {
-                if (i <= 0.001) { r = 10; g = 10; b = 10; } // Very dark grey for classic bookmap empty space
-                else if (i < 0.33) { r = Math.floor(i * 3 * 255); g = 0; b = 0; }
-                else if (i < 0.66) { r = 255; g = Math.floor((i - 0.33) * 3 * 165); b = 0; }
-                else if (i < 0.9) { r = 255; g = 165 + Math.floor((i - 0.66) * 4.16 * 90); b = 0; }
-                else { r = 255; g = 255; b = Math.floor((i - 0.9) * 10 * 255); }
+        const initColorLut = (theme) => {
+            const lut = [];
+            for (let idx = 0; idx <= 256; idx++) {
+                const i = (idx / 256) * maxIntensityFactor;
+                let r, g, b;
+                if (theme === 'grayscale') {
+                    const v = Math.floor(i * 255);
+                    r = v; g = v; b = v;
+                } else if (theme === 'llama') {
+                    if (i <= 0.001) { r = 8; g = 20; b = 41; }
+                    else if (i < 0.2) { r = 0; g = 0; b = Math.floor(i * 5 * 255); }
+                    else if (i < 0.4) { r = 0; g = Math.floor((i - 0.2) * 5 * 255); b = 255; }
+                    else if (i < 0.6) { r = Math.floor((i - 0.4) * 5 * 255); g = 255; b = 255 - Math.floor((i - 0.4) * 5 * 255); }
+                    else if (i < 0.8) { r = 255; g = 255 - Math.floor((i - 0.6) * 5 * 255); b = 0; }
+                    else { r = 255; g = Math.floor((i - 0.8) * 5 * 255); b = Math.floor((i - 0.8) * 5 * 255); }
+                } else {
+                    if (i <= 0.001) { r = 10; g = 10; b = 10; }
+                    else if (i < 0.33) { r = Math.floor(i * 3 * 255); g = 0; b = 0; }
+                    else if (i < 0.66) { r = 255; g = Math.floor((i - 0.33) * 3 * 165); b = 0; }
+                    else if (i < 0.9) { r = 255; g = 165 + Math.floor((i - 0.66) * 4.16 * 90); b = 0; }
+                    else { r = 255; g = 255; b = Math.floor((i - 0.9) * 10 * 255); }
+                }
+                lut.push(`rgba(${r}, ${g}, ${b}, ${opacity})`);
             }
-            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            return lut;
+        };
+
+        const themeLuts = {
+            classic: initColorLut('classic'),
+            llama: initColorLut('llama'),
+            grayscale: initColorLut('grayscale')
+        };
+
+        const getColorFast = (intensity, theme) => {
+            const idx = Math.max(0, Math.min(256, Math.floor(intensity * 256)));
+            return themeLuts[theme]?.[idx] || themeLuts.classic[idx];
         };
 
         let cachedMaxVol = 1;
@@ -186,7 +205,7 @@ const DOMHeatmapOverlay = ({
             ctx.clearRect(0, 0, W, H);
 
             // Fill the whole canvas with the "0 intensity" base color to give the authentic ATAS background
-            ctx.fillStyle = getColor(0, colorTheme);
+            ctx.fillStyle = getColorFast(0, colorTheme);
             ctx.fillRect(0, 0, W, H);
 
             const history = historyRef.current;
@@ -256,21 +275,10 @@ const DOMHeatmapOverlay = ({
                 return;
             }
 
-            // Lightweight charts timescale mappings
-            // For a continuous heatmap, we map from Right to Left. 
-            // Chart updates push the current candle to timeScale().coordinateToTime(x)
-
-            // Calculate continuous X mapping by interpolating the last candle's position and time
             const rightTime = chart.timeScale().coordinateToTime(W - 55);
             const leftTime = chart.timeScale().coordinateToTime(0);
 
             let timeNowPx = W - 55; // default scale width reserved
-
-            // Since lightweight charts returns discrete time items, mapping continuous unix timestamps
-            // perfectly requires relying on the distance between the last two bars.
-            // A robust approximation since the user's data rate is steady: 
-            // we draw the *latest* snapshot at the right edge, and previous ones sequentially to the left
-            // based on the updateInterval.
 
             const pxPerMs = 0.05; // default fallback speed
             const rightMostTs = history[history.length - 1].time;
@@ -282,6 +290,17 @@ const DOMHeatmapOverlay = ({
             const rightScaleW = chart.priceScale('right').width() || 60;
             const rightBoundary = W - rightScaleW;
             let currentRightEdge = rightBoundary;
+
+            // 1-Pass Price Coordinate Cache to completely eliminate massive O(N * M) priceToCoordinate API bottlenecks
+            const priceCoordCache = new Map();
+            const getCachedPriceY = (price) => {
+                let y = priceCoordCache.get(price);
+                if (y === undefined) {
+                    y = series.priceToCoordinate(price);
+                    priceCoordCache.set(price, y);
+                }
+                return y;
+            };
 
             for (let i = history.length - 1; i >= 0; i--) {
                 const snap = history[i];
@@ -314,7 +333,8 @@ const DOMHeatmapOverlay = ({
                     continue;
                 }
 
-                if (drawX + mathW < -100) break; // totally offscreen
+                // If column is completely out of screen on the left, break out immediately
+                if (drawX + mathW < -10) break;
 
                 const isLatest = i === history.length - 1;
 
@@ -337,11 +357,11 @@ const DOMHeatmapOverlay = ({
                         if (size < minVolumeFilter) continue;
                         if (price < visibleMin || price > visibleMax) continue;
 
-                        const y = series.priceToCoordinate(price);
+                        const y = getCachedPriceY(price);
                         if (y === null) continue;
 
                         const intensity = Math.pow(Math.min(1, size / cachedMaxVol), 0.5);
-                        ctx.fillStyle = getColor(intensity, colorTheme);
+                        ctx.fillStyle = getColorFast(intensity, colorTheme);
 
                         // Enforce strict integer pixels to prevent Canvas antialiasing flicker
                         const finalY = Math.floor(y - rectH / 2);
@@ -358,46 +378,37 @@ const DOMHeatmapOverlay = ({
 
         let _isDrawing = false;
         let _needsRedraw = false;
+        let lastDrawTime = 0;
         const onEventDraw = () => {
             if (_isDrawing) {
                 _needsRedraw = true;
                 return;
             }
-            _isDrawing = true;
-            try { draw(); } catch(e) {}
-            requestAnimationFrame(() => {
-                _isDrawing = false;
-                if (_needsRedraw) {
-                    _needsRedraw = false;
-                    onEventDraw();
-                }
-            });
-        };
+            const now = performance.now();
+            const elapsed = now - lastDrawTime;
+            const waitTime = Math.max(0, 16 - elapsed); // throttle to max 60fps
 
-        let _lastPriceCoord = null;
-        let _lastTimeCoord = null;
-        let _monitorRaf = null;
-        const monitorScale = () => {
-            if (series) {
-                try {
-                    const pc = series.priceToCoordinate(0) || series.priceToCoordinate(100);
-                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
-                    const tc = logicalRange ? logicalRange.from : null;
-                    if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
-                        _lastPriceCoord = pc;
-                        _lastTimeCoord = tc;
+            _isDrawing = true;
+            setTimeout(() => {
+                requestAnimationFrame(() => {
+                    _isDrawing = false;
+                    lastDrawTime = performance.now();
+                    try { draw(); } catch(e) {}
+                    if (_needsRedraw) {
+                        _needsRedraw = false;
                         onEventDraw();
                     }
-                } catch(e) {}
-            }
-            _monitorRaf = requestAnimationFrame(monitorScale);
+                });
+            }, waitTime);
         };
-        _monitorRaf = requestAnimationFrame(monitorScale);
 
         if (chart) {
             chart.timeScale().subscribeVisibleTimeRangeChange(onEventDraw);
-            chart.subscribeCrosshairMove(onEventDraw);
+            chart.timeScale().subscribeVisibleLogicalRangeChange(onEventDraw);
+            // Disabled subscribeCrosshairMove to prevent redraw overload on simple mouse hover
+            // chart.subscribeCrosshairMove(onEventDraw);
         }
+        window.addEventListener('dom_heatmap_redraw', onEventDraw);
 
         // Initial draw
         onEventDraw();
@@ -405,9 +416,9 @@ const DOMHeatmapOverlay = ({
         return () => {
             if (chart) {
                 chart.timeScale().unsubscribeVisibleTimeRangeChange(onEventDraw);
-                chart.unsubscribeCrosshairMove(onEventDraw);
+                chart.timeScale().unsubscribeVisibleLogicalRangeChange(onEventDraw);
             }
-            if (_monitorRaf) cancelAnimationFrame(_monitorRaf);
+            window.removeEventListener('dom_heatmap_redraw', onEventDraw);
             if (animationId) cancelAnimationFrame(animationId);
         };
     }, [

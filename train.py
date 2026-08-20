@@ -235,7 +235,7 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     optimizer = optim.Adam(generator.parameters(), lr=config.LEARNING_RATE_G, eps=1e-8)
     criterion = nn.MSELoss()
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=10, verbose=True
+        optimizer, mode='min', factor=0.5, patience=10
     )
     
     # Early stopping configuration

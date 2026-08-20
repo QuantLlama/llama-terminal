@@ -148,10 +148,22 @@ class MT5Connector:
             if not self.connected:
                 if not self.connect():
                     return None
-            ticks = mt5.copy_ticks_from_pos(symbol, 0, n, mt5.COPY_TICKS_ALL)
+            ticks = None
+            if hasattr(mt5, 'copy_ticks_from_pos'):
+                # Fast path: position-based tick copy (MT5 5.0.44+)
+                ticks = mt5.copy_ticks_from_pos(symbol, 0, n, mt5.COPY_TICKS_ALL)
+            else:
+                # Fallback: copy_ticks_from_pos unavailable — request ticks
+                # from a time window large enough to contain ~n ticks.
+                window = timedelta(minutes=max(1, min(60, n // 100)))
+                from_dt = datetime.now(timezone.utc) - window
+                ticks = mt5.copy_ticks_from(symbol, from_dt, n, mt5.COPY_TICKS_ALL)
             if ticks is None or len(ticks) == 0:
                 return None
-            return pd.DataFrame(ticks)
+            df = pd.DataFrame(ticks)
+            if len(df) > n:
+                df = df.tail(n).reset_index(drop=True)
+            return df
     def get_ticks_since(self, symbol, from_msc):
         with self._lock:
             if not self.connected:

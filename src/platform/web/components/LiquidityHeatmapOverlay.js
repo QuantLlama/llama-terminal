@@ -34,6 +34,33 @@ const getHeatColor = (intensity) => {
     return { r: 255, g: 250, b: 220 };
 };
 
+// Pre-calculated Color Lookup Table (LUT) to avoid dynamic math calculations per cell on every frame
+const COLOR_LUT = [];
+for (let i = 0; i <= 256; i++) {
+    const c = i / 256;
+    let colorVal = { r: 255, g: 250, b: 220 };
+    for (let j = 1; j < HEAT_COLOR_STOPS.length; j++) {
+        const [t0, r0, g0, b0] = HEAT_COLOR_STOPS[j - 1];
+        const [t1, r1, g1, b1] = HEAT_COLOR_STOPS[j];
+        if (c <= t1) {
+            const span = t1 - t0 || 1e-9;
+            const t    = (c - t0) / span;
+            colorVal = {
+                r: Math.round(r0 + (r1 - r0) * t),
+                g: Math.round(g0 + (g1 - g0) * t),
+                b: Math.round(b0 + (b1 - b0) * t)
+            };
+            break;
+        }
+    }
+    COLOR_LUT.push(colorVal);
+}
+
+const getHeatColorFast = (intensity) => {
+    const idx = Math.max(0, Math.min(256, Math.floor(intensity * 256)));
+    return COLOR_LUT[idx];
+};
+
 const _getTimeframeSeconds = (tf) => {
     if (!tf) return 60;
     const value = parseInt(tf) || 1;
@@ -97,18 +124,17 @@ const LiquidityHeatmapOverlay = ({
             return;
         }
 
-        const historicalMap = new Map();
-        for (const d of data) historicalMap.set(d.time, d);
-
+        // Build a Map from the existing buffer keyed by timestamp.
         const liveMap = new Map();
         for (const d of buffer) liveMap.set(d.time, d);
 
-        for (const [time, d] of historicalMap) {
-            if (!liveMap.has(time)) liveMap.set(time, { ...d });
-        }
+        // Incoming data always overwrites existing entries at the same timestamp
+        // to ensure corrected or late-arriving ticks are reflected correctly.
+        for (const d of data) liveMap.set(d.time, { ...d });
 
+        // Sort merged result by timestamp and truncate to 20,000-bar capacity.
         const merged = Array.from(liveMap.values()).sort((a, b) => a.time - b.time);
-        _dataRef.current = merged.length > 5000 ? merged.slice(-5000) : merged;
+        _dataRef.current = merged.length > 20000 ? merged.slice(-20000) : merged;
     }, [data]);
 
     useEffect(() => {
@@ -161,9 +187,6 @@ const LiquidityHeatmapOverlay = ({
 
             // ----------------------------------------------------------------
             // Altura de un tick en píxeles
-            // Problema original: con prices altos (NQ 20000, BTC 65000) y
-            // effectiveTickSize chico, rectH resultaba en ~1px → líneas finísimas.
-            // Solución: garantizar mínimo 3px y escalar según zoom.
             // ----------------------------------------------------------------
             const midPrice = currentData[currentData.length - 1]?.close || 1000;
             const py1      = series.priceToCoordinate(midPrice);
@@ -209,7 +232,17 @@ const LiquidityHeatmapOverlay = ({
                 const item = currentData[i];
                 if (!item.heatmap || item.heatmap.length === 0) continue;
 
-                const x = timeScale.timeToCoordinate(item.time);
+                let x = timeScale.timeToCoordinate(item.time);
+                if (x === null) {
+                    if (i < currentData.length - 1) {
+                        const nextX = timeScale.timeToCoordinate(currentData[i + 1].time);
+                        if (nextX !== null) x = nextX - barSpacing;
+                    }
+                    if (x === null && i > 0) {
+                        const prevX = timeScale.timeToCoordinate(currentData[i - 1].time);
+                        if (prevX !== null) x = prevX + barSpacing;
+                    }
+                }
                 if (x === null) continue;
 
                 const drawX  = Math.floor(x - barSpacing / 2);
@@ -235,9 +268,7 @@ const LiquidityHeatmapOverlay = ({
             if (visibleHeat.length === 0) return;
 
             // ----------------------------------------------------------------
-            // Normalización doble optimizada:
-            //   1. Estimación O(N) del techo para evitar sort() costoso.
-            //   2. Sqrt sobre la intensidad → eleva el rango medio
+            // Normalización doble optimizada
             // ----------------------------------------------------------------
             let maxDepth = 0;
             let sumDepth = 0;
@@ -262,7 +293,6 @@ const LiquidityHeatmapOverlay = ({
                 if (point.depth < noiseFloor) continue;
 
                 const logI = Math.min(1, Math.log1p(point.depth) / logMax);
-                // Sqrt: eleva el rango medio para que cian/verde/amarillo sean visibles
                 const intensity = Math.sqrt(logI);
 
                 if (intensity < 0.10) continue;
@@ -281,15 +311,14 @@ const LiquidityHeatmapOverlay = ({
 
             // ----------------------------------------------------------------
             // RENDER 1 — Cuerpo del heatmap por bucket
-            // Alpha en curva S: zonas frías casi invisibles, calientes bien opacas
             // ----------------------------------------------------------------
             for (let i = 0; i < BUCKET_COUNT; i++) {
                 if (!buckets[i].length) continue;
 
                 const intensity = (i + 0.5) / BUCKET_COUNT;
-                const { r, g, b } = getHeatColor(intensity);
+                const { r, g, b } = getHeatColorFast(intensity);
 
-                // Curva S centrada en 0.50 — corte limpio frío/caliente
+                // Curva S centrada en 0.50
                 const sig   = 1 / (1 + Math.exp(-9 * (intensity - 0.50)));
                 const alpha = Math.min(0.80, 0.03 + sig * 0.77) * opacity;
 
@@ -302,12 +331,11 @@ const LiquidityHeatmapOverlay = ({
             }
 
             // ----------------------------------------------------------------
-            // RENDER 2 — Zonas calientes (naranja): glow suave
+            // RENDER 2 — Zonas calientes (naranja): glow suave sin shadowBlur
             // ----------------------------------------------------------------
             if (hotRects.length > 0) {
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter';
-                // Removed shadowBlur to fix severe panning/zooming lag
                 ctx.fillStyle   = 'rgba(255,160,30,0.40)';
                 ctx.beginPath();
                 for (const pt of hotRects) {
@@ -318,11 +346,10 @@ const LiquidityHeatmapOverlay = ({
             }
 
             // ----------------------------------------------------------------
-            // RENDER 3 — Paredes extremas (blanco-amarillo): máximo destaque
-            // Estas son las "órdenes institucionales" — deben verse de inmediato
+            // RENDER 3 — Paredes extremas (blanco-amarillo)
             // ----------------------------------------------------------------
             if (extremeRects.length > 0) {
-                // Capa 1: glow exterior amplio simulado sin shadowBlur
+                // Capa 1: glow exterior simulado sin shadowBlur
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter';
                 ctx.fillStyle   = 'rgba(255,200,40,0.50)';
@@ -344,8 +371,7 @@ const LiquidityHeatmapOverlay = ({
                 ctx.fill();
                 ctx.restore();
 
-                // Capa 3: línea horizontal de 1px en el centro del tick
-                // Marca con precisión el PRECIO EXACTO de la pared
+                // Capa 3: línea horizontal de 1px
                 ctx.save();
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.strokeStyle = `rgba(255,245,150,${(0.95 * opacity).toFixed(3)})`;
@@ -361,14 +387,24 @@ const LiquidityHeatmapOverlay = ({
             }
         };
 
+        // Render throttling to prevent lag during fast zoom/scroll operations
         let _drawQueued = false;
+        let lastDrawTime = 0;
         const scheduleDraw = () => {
             if (_drawQueued) return;
+            const now = performance.now();
+            const elapsed = now - lastDrawTime;
+            // Throttle to max ~60 FPS (16ms interval) to keep user interaction buttery-smooth
+            const waitTime = Math.max(0, 16 - elapsed);
+            
             _drawQueued = true;
-            animationFrameRef.current = requestAnimationFrame(() => {
-                _drawQueued = false;
-                try { draw(); } catch(e) { /* silent */ }
-            });
+            animationFrameRef.current = setTimeout(() => {
+                animationFrameRef.current = requestAnimationFrame(() => {
+                    _drawQueued = false;
+                    lastDrawTime = performance.now();
+                    try { draw(); } catch(e) { /* silent */ }
+                });
+            }, waitTime);
         };
 
         const resizeObserver = typeof ResizeObserver !== 'undefined'
@@ -389,7 +425,7 @@ const LiquidityHeatmapOverlay = ({
 
             const effectiveTickSize = _estimateTickSize(_dataRef.current, tickSize);
             const tfSeconds = _getTimeframeSeconds(activeTimeframe);
-            const ts   = domData.timestamp > 1e11 ? domData.timestamp / 1000 : domData.timestamp;
+            const ts   = domData.timestamp ? (domData.timestamp > 1e11 ? domData.timestamp / 1000 : domData.timestamp) : (Date.now() / 1000);
             const time = Math.floor(ts / tfSeconds) * tfSeconds;
 
             const bids   = domData.bids || [];
@@ -465,7 +501,7 @@ const LiquidityHeatmapOverlay = ({
                 _liveConfirmMap.current = new Map();
             }
 
-            if (buffer.length > 5000) _dataRef.current = buffer.slice(-5000);
+            if (buffer.length > 20000) _dataRef.current = buffer.slice(-20000);
             scheduleDraw();
         };
 
@@ -475,11 +511,14 @@ const LiquidityHeatmapOverlay = ({
         let _monitorRaf     = null;
         const monitorChanges = () => {
             let needsDraw = false;
-            const curLen  = _dataRef.current ? _dataRef.current.length : 0;
+            const currentData = _dataRef.current;
+            const curLen  = currentData ? currentData.length : 0;
             if (curLen !== _lastDataLen) { _lastDataLen = curLen; needsDraw = true; }
             if (series) {
                 try {
-                    const pc           = series.priceToCoordinate(0) || series.priceToCoordinate(100);
+                    const midPrice = (currentData && currentData.length > 0) ? (currentData[currentData.length - 1].close || 1000) : 1000;
+                    // Do quick dirty checks of coordinates, only schedule redraw if values actually shifted
+                    const pc           = series.priceToCoordinate(midPrice);
                     const logicalRange = chart.timeScale().getVisibleLogicalRange();
                     const tc           = logicalRange ? logicalRange.from : null;
                     if (pc !== _lastPriceCoord || tc !== _lastTimeCoord) {
@@ -506,7 +545,10 @@ const LiquidityHeatmapOverlay = ({
             window.removeEventListener('market_dom', onMarketDom);
             chart.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleDraw);
             chart.timeScale().unsubscribeVisibleTimeRangeChange(scheduleDraw);
-            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+            if (animationFrameRef.current) {
+                clearTimeout(animationFrameRef.current);
+                cancelAnimationFrame(animationFrameRef.current);
+            }
         };
 
     }, [chart, series, symbol, activeTimeframe, visible, tickSize, opacity]);
