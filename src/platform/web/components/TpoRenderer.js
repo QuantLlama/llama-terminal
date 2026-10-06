@@ -311,7 +311,7 @@ const TpoRenderer = ({ chart, series, data, settings, visible = true }) => {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleRender);
       chart.timeScale().unsubscribeVisibleTimeRangeChange(scheduleRender);
       chart.unsubscribeCrosshairMove(scheduleRender);
-      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
   }, [chart, series, profiles, visible]);
 
