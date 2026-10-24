@@ -170,7 +170,9 @@ def test_api_symbols_get_sends_token_and_returns_empty_on_error_payload(monkeypa
     assert all(h and h.get("X-Bridge-Token") == "s3cret" for h in seen["headers"]), seen["headers"]
     path, kwargs = seen["calls"][0]
     assert path == "/api/symbols"
-    assert kwargs["params"] == {"group": "*USD*", "pattern": "USD"}
+    # Filtering happens locally against one cached snapshot: the catalogue can
+    # be megabytes over the tailnet, so it is fetched whole at most once per TTL.
+    assert kwargs["params"] == {"group": "*"}
 
 
 def test_api_symbols_get_ignores_dict_payload_with_status_200(monkeypatch):
