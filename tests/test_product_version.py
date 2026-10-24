@@ -5,27 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from contextlib import contextmanager
+from test_api_route_composition import composed_client
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def version_client():
-    source = ROOT / 'src/platform/api/main.py'
-    tree = ast.parse(source.read_text())
-    names = {'VERSION', 'STABLE_VERSION', 'UPDATE_REQUIRED', 'UPDATE_MSG'}
-    nodes = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module == 'src.product_version':
-            nodes.append(node)
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in names for t in node.targets):
-            nodes.append(node)
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == 'get_version':
-            nodes.append(node)
-    app = FastAPI()
-    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), {'app': app})
-    return TestClient(app)
+    return contextmanager(composed_client)(lambda: {"ready_for_ui": True})
 
 
 def test_product_version_route_matches_package_without_forcing_update():
@@ -33,6 +20,7 @@ def test_product_version_route_matches_package_without_forcing_update():
     with version_client() as client:
         response = client.get('/api/platform/version')
     assert response.status_code == 200
+    assert response.headers['content-type'] == 'application/json'
     assert response.json() == {
         'version': expected,
         'stable_version': expected,

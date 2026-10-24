@@ -1,5 +1,7 @@
 import asyncio
 from src.product_version import PRODUCT_VERSION
+from src.platform.api.runtime_api import create_runtime_router
+from src.platform.api.version_api import router as version_router
 import json
 import logging
 import math
@@ -303,11 +305,6 @@ class LiveStartRequest(BaseModel):
     model_config = ConfigDict(
         extra="ignore"
     )
-
-VERSION = PRODUCT_VERSION
-STABLE_VERSION = PRODUCT_VERSION
-UPDATE_REQUIRED = False
-UPDATE_MSG = "Nueva versión estable disponible. Por favor actualice para continuar."
 
 # ── /api/modify registrado PRIMERO — antes de cualquier router o middleware ──
 # Esto garantiza que ninguna ruta comodín ni sub-router lo sombree.
@@ -1174,17 +1171,7 @@ async def get_economic_calendar(countries: str = Query("USD")):
 async def update_mapping(platform: str = Query("mt5"), data: dict = Body(...)):
     save_symbol_map(data, platform)
     return {"status": "ok"}
-@app.get("/health")
-async def health_check():
-    return get_platform_health()
-
-@app.get("/api/health")
-async def readiness_check():
-    health = get_platform_health()
-    return JSONResponse(
-        content=health,
-        status_code=200 if health.get("ready_for_ui") is True else 503,
-    )
+app.include_router(create_runtime_router(get_platform_health))
 
 @app.get("/api/license/check")
 async def check_license_endpoint(
@@ -4498,14 +4485,7 @@ logs_dir = get_logs_dir()
 os.makedirs(logs_dir, exist_ok=True)
 logger.info(f"Montando LOGS_DIR: {logs_dir}")
 app.mount("/logs", StaticFiles(directory=logs_dir), name="logs")
-@app.get("/api/platform/version")
-async def get_version():
-    return {
-        "version": VERSION,
-        "stable_version": STABLE_VERSION,
-        "update_required": UPDATE_REQUIRED,
-        "message": UPDATE_MSG
-    }
+app.include_router(version_router)
 @app.get("/api/auth/session")
 async def check_session(
     user: Any = Depends(get_current_user),

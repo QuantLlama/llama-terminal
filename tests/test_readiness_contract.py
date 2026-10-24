@@ -1,5 +1,4 @@
 """Readiness contracts without importing broker-backed application startup."""
-import ast
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -7,36 +6,17 @@ from unittest.mock import Mock, patch
 
 import pytest
 import requests
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.testclient import TestClient
+from contextlib import contextmanager
+from test_api_route_composition import composed_client
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def route_client(payload):
-    # Compile the actual decorated routes in source order, including the SPA.
-    path = ROOT / "src/platform/api/main.py"
-    tree = ast.parse(path.read_text())
-    routes = []
-    for node in tree.body:
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if any(isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
-               and isinstance(d.func.value, ast.Name) and d.func.value.id == "app"
-               and d.args and isinstance(d.args[0], ast.Constant)
-               and d.args[0].value in ("/health", "/api/health", "/{path:path}")
-               for d in node.decorator_list):
-            routes.append(node)
-    app = FastAPI()
-    namespace = dict(app=app, get_platform_health=lambda: payload,
-                     JSONResponse=JSONResponse, FileResponse=FileResponse,
-                     os=__import__("os"), WEB_DIR=str(ROOT / "src/platform/web"))
-    exec(compile(ast.Module(body=routes, type_ignores=[]), str(path), "exec"), namespace)
-    return TestClient(app)
+    return contextmanager(composed_client)(lambda: payload)
 
 
-@pytest.mark.parametrize("ready,status", [(True, 200), (False, 503)])
+@pytest.mark.parametrize("ready,status", [(True, 200), (False, 503), ("true", 503), (None, 503)])
 def test_actual_readiness_route_precedes_spa_and_preserves_liveness(ready, status):
     payload = {"ready_for_ui": ready, "services": {"market_data": "OFFLINE"},
                "mt5_status": "stopped", "timestamp": 123.0}
@@ -44,9 +24,10 @@ def test_actual_readiness_route_precedes_spa_and_preserves_liveness(ready, statu
         live = client.get("/health")
         assert live.status_code == 200
         assert live.json() == payload
+        assert live.headers["content-type"] == "application/json"
         response = client.get("/api/health")
         assert response.status_code == status
-        assert response.headers["content-type"].startswith("application/json")
+        assert response.headers["content-type"] == "application/json"
         assert response.json() == payload
 
 

@@ -115,8 +115,9 @@ Routers are registered in `src/platform/api/main.py`.
 | `/api/backtest` | `backtesting_api.py` | Strategy catalogue, data load/upload/validate, run, optimize, results, PDF export, logs |
 | `/api/analysis` | `analysis_api.py` | Technical analysis endpoint |
 | `/ws`, `/ws/terminal` | `main.py` | Terminal-level streaming routes |
-| `/health` | `main.py` | Liveness probe used by the container health check (unchanged health body, HTTP 200) |
-| `/api/health` | `main.py` | JSON readiness for Electron and browser launchers; HTTP 200 only when `ready_for_ui` is true, otherwise 503 |
+| `/health` | `runtime_api.py` | Liveness probe used by the container health check (unchanged health body, HTTP 200) |
+| `/api/health` | `runtime_api.py` | JSON readiness for Electron and browser launchers; HTTP 200 only when `ready_for_ui` is true, otherwise 503 |
+| `/api/platform/version` | `version_api.py` | Product identity from `src/product_version.py`; unchanged update fields and policy |
 | `/api/license/check` | `main.py` | License gate queried by the Electron supervisor |
 | `/api/system/telemetry` | `main.py` | CPU/GPU/memory telemetry for the UI |
 | `/api/algo/*` | `main.py` | Start, stop, live, status, clean and logs for the algorithm runtime |
@@ -124,6 +125,13 @@ Routers are registered in `src/platform/api/main.py`.
 Serving order matters: the SPA catch-all is registered **after** every API route, so a
 new router added later must be registered before it, or its paths will be swallowed by
 the `index.html` fallback.
+
+The first extraction slice leaves startup, service lifecycle and the remaining domain
+routes in `main.py`; it does not complete the broader API decomposition. The runtime
+router factory receives the existing `get_platform_health` callable explicitly and
+owns no health state. The version router imports only product metadata. Both are
+included at their original registration positions, before the SPA fallback; neither
+router imports `main.py` or starts services. Public paths and JSON contracts are unchanged.
 
 Both health routes reuse `get_platform_health()`. Readiness preserves its fields
 (`ready_for_ui`, `mt5_status`, `services`, `timestamp`); it does not require a broker
