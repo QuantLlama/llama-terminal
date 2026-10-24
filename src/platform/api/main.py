@@ -1,4 +1,5 @@
 import asyncio
+from src.product_version import PRODUCT_VERSION
 import json
 import logging
 import math
@@ -212,7 +213,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Quantum Llama Platform API",
     description="Plataforma de trading con arquitectura desacoplada",
-    version="2.4.0",
+    version=PRODUCT_VERSION,
     lifespan=lifespan,
 )
 
@@ -303,8 +304,8 @@ class LiveStartRequest(BaseModel):
         extra="ignore"
     )
 
-VERSION = "2.4.0"
-STABLE_VERSION = "2.4.0" 
+VERSION = PRODUCT_VERSION
+STABLE_VERSION = PRODUCT_VERSION
 UPDATE_REQUIRED = False
 UPDATE_MSG = "Nueva versión estable disponible. Por favor actualice para continuar."
 

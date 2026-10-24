@@ -256,7 +256,7 @@ Recorded deliberately: this is what a maintainer should know before touching the
 | 3 | Two backtesting engines (`src/analysis/backtester.py`, `src/engine/backtesting/backtester.py`) and two risk implementations. | Results and limits can disagree between the trainer and the platform. |
 | 4 | `src/platform/api/main.py` is ~4,600 lines and mixes routing, startup, licensing, telemetry and static serving. | Hard to review, easy to create import cycles. |
 | 5 | Duplicate imports and dead modules exist (`src/models/gan.py`, `src/platform/web/App.jsx`). | Misleads readers about what ships. |
-| 6 | The API reports version `2.4.0` while the package is `1.8.1`. | Any client depending on the version endpoint sees the wrong value. |
+| 6 | Product identity is loaded from `package.json` by `src/product_version.py`. | `/api/platform/version` retains its response fields, reports the product version and does not force updates. Frozen builds must include that metadata file. |
 | 7 | `transformers` and `xgboost` are pinned in `requirements.txt` but unused. | Larger installs, slower CI images, false expectations. |
 | 8 | `src/doctecnicaalgos/EvolutionaryGAN.md` describes a GAN that the shipped trainer does not implement. | Documentation overstates the ML path. |
 | 9 | A local PyArmor/Cython build leaves `*.so` files next to the sources (`src/services/security.cpython-311-*.so`, `src/live/*.so`, `run.cpython-311-*.so`). On Python 3.11 the extension shadows the `.py` module. | A developer editing the source runs the old compiled code without noticing. `.dockerignore` excludes `*.so`, so images are unaffected. |
