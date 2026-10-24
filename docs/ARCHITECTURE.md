@@ -119,7 +119,7 @@ Routers are registered in `src/platform/api/main.py`.
 | `/api/health` | `runtime_api.py` | JSON readiness for Electron and browser launchers; HTTP 200 only when `ready_for_ui` is true, otherwise 503 |
 | `/api/platform/version` | `version_api.py` | Product identity from `src/product_version.py`; unchanged update fields and policy |
 | `/api/license/check` | `main.py` | License gate queried by the Electron supervisor |
-| `/api/system/telemetry` | `main.py` | CPU/GPU/memory telemetry for the UI |
+| `/api/system/telemetry` | `telemetry_api.py` | CPU/GPU/memory telemetry for the UI |
 | `/api/algo/*` | `main.py` | Start, stop, live, status, clean and logs for the algorithm runtime |
 
 Serving order matters: the SPA catch-all is registered **after** every API route, so a
@@ -132,6 +132,15 @@ router factory receives the existing `get_platform_health` callable explicitly a
 owns no health state. The version router imports only product metadata. Both are
 included at their original registration positions, before the SPA fallback; neither
 router imports `main.py` or starts services. Public paths and JSON contracts are unchanged.
+
+The telemetry slice uses `create_telemetry_router` at the original telemetry route
+position. Explicit callbacks read the current metrics provider, algorithm status and
+application-owned GPU cache; `main.py` retains `_get_gpu_info_cached` as an adapter.
+The five-second cache refreshes only after its TTL (or when empty). CUDA detection
+still falls back through optional NVML and GPUtil, and failures retain the existing
+HTTP 200 error body. No telemetry startup hook or separate cache is introduced.
+Live-status files, dashboard serving and algorithm lifecycle remain in `main.py`;
+the broader decomposition is still pending.
 
 Both health routes reuse `get_platform_health()`. Readiness preserves its fields
 (`ready_for_ui`, `mt5_status`, `services`, `timestamp`); it does not require a broker
