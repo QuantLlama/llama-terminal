@@ -137,3 +137,17 @@ Delivered to `main` as PR #44 (merge `27965910`) and deployed to `llama.nbmsyste
 **Infrastructure.** `qllama-postgres` (postgres:16-alpine) runs with a daily 03:00 backup configuration (`yquklfzmujzgcy7qg4cjv231`). Umami runs healthy as a Coolify service with the website `Quantum Llama` (`03f3d019-…`) for `llama.nbmsystemas.com`.
 
 **Known gaps, stated plainly.** The Umami service domain cannot be set through the Coolify API (service `domains`, `fqdn` and `docker_compose` are all rejected), so `umami.nbmsystemas.com` needs one field set in the UI; until then the tracker's script never loads and no visits are recorded. The `order_gateway` service reports `stopped` in production health while MT5 is connected. Backups cover the database only, not the `/app/config`, `/app/outputs` or `/app/logs` volumes. No installer was built.
+
+### L13 — production hardening, desktop import and cleanup
+
+Delivered and merged to `main`; push CI green on every merge (`705b152` latest). Production `llama.nbmsystemas.com` verified live: app shell 200, `authFetch` helper 200, assets, `/robots.txt`, `/sitemap.xml`, `/api/health` and `/api/platform/version` all 200, `Strict-Transport-Security`/`X-Content-Type-Options`/`Referrer-Policy` present, and every per-user endpoint answering 401 without a token.
+
+**A production-only defect the suite could not see.** `requirements.deploy.txt`, the only file the container image installs, never declared a PostgreSQL driver. Every authenticated request that touched storage failed with `ModuleNotFoundError: psycopg2`, while unauthenticated requests still returned the expected 401 — so the isolation work looked green in production because only the auth path was exercised. Found by a live 500, fixed with `psycopg2-binary==2.9.9`, and pinned by a contract test that compares the storage module's real imports against the file the image installs.
+
+**Desktop data import.** Delivered as a gated transport (`POST /api/ops/desktop-import`) rather than a manual poke, because the hosting panel exposes no command execution and the database is unreachable from outside its network. It is inert without `QL_DESKTOP_IMPORT_TOKEN`, validates the SQLite header, caps size, writes atomically with `0600`, refuses after the marker exists, and offers explicit force and replace modes. It was armed, used, then disarmed and re-verified as 404 with and without the old token.
+
+**Unresolved, stated plainly.** The import is incomplete. A first pass moved 3 of 6 workspaces under `default_user` because the target variable had not taken effect; a later replace targeting the real account reported 0 replaced and 0 imported, meaning the container read empty tables from an upload whose identical bytes yield 6 workspaces and 1 settings row locally. Cause unknown, diagnosis pending. The account owner's local `quantum_llama.db` was never committed or shared.
+
+**Cleanup.** 18 merged remote branches deleted atomically; `main`, `feature/coolify-deploy` and the Dependabot branches remain. The Umami default credential was replaced by the owner and the old one now returns 401.
+
+**Still open.** Volume backups for `/app/config`, `/app/outputs` and `/app/logs` (only the database has a daily backup); `order_gateway` reporting stopped while MT5 is connected; the Umami service domain field in the UI; GitHub Support for the cached PR references; no installer was built, per the owner's decision.
