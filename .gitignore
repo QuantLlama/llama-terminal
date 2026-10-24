@@ -11,8 +11,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -74,3 +74,5 @@ Thumbs.db
 *.bak
 quantum_llama.db
 src/config/quantum_llama.db
+# Local Pi runtime state
+.atl/
