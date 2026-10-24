@@ -110,11 +110,21 @@ class MT5ApiConnector:
             return False
 
     def shutdown(self):
+        """Release this client only; the bridge owns the MT5 session.
+
+        Posting /api/shutdown here would tear down the Wine-side MT5 session
+        for every other platform client on each request that finishes with a
+        connector shutdown.
+        """
+        self.connected = False
+
+    def shutdown_bridge(self):
+        """Explicitly stop the remote bridge session (operator action)."""
         try:
             self._client.post("/api/shutdown", timeout=2.0)
-            self.connected = False
-        except:
+        except Exception:
             pass
+        self.connected = False
 
     def get_balance(self):
         try:
