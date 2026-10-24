@@ -53,7 +53,7 @@ Create a `.env` file in the repository root with the variables you need. Nothing
 | `USE_MT5_API` | no | `auto` (default), `true` (HTTP bridge), `false` (native package) |
 | `CRYPTO_HTTP_PROXY` | only when a venue is geo-blocked | Proxy for CCXT traffic |
 | `QUANTUM_LLAMA_KEY_DIR` | containers | Writable directory for key material |
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | only for cloud auth | Session validation in the cloud build |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | for authentication | Session validation. There are no compiled defaults: without both, auth-dependent routes answer `500 Supabase not configured` |
 | `APP_PORT` | no | Container listen port, default `8050` |
 
 ### Python environment
@@ -146,6 +146,13 @@ python mt5_server.py            # listens on 127.0.0.1:8081 by default
   documented option) as described in [`../deploy/MT5_BRIDGE.md`](../deploy/MT5_BRIDGE.md).
 
 ---
+
+### Before you push
+
+```bash
+python scripts/check_secrets.py    # the same guard CI runs
+python -m pytest -q
+```
 
 ## 5. Tests
 

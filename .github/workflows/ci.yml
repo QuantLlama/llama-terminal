@@ -70,6 +70,9 @@ jobs:
           fi
           echo "no conflict markers"
 
+      - name: Reject committed secrets
+        run: python scripts/check_secrets.py
+
       - name: Check documentation links
         run: python scripts/check_docs_links.py
 

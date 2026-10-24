@@ -46,11 +46,16 @@ so Coolify can clone but never push.
 | `MT5_AUTO_LAUNCH` | `false` | There is no Wine/MT5 inside the container; never try to boot it |
 | `MT5_BRIDGE_URL` | *(unset)* | Set it to the tunnel URL when the local MT5 bridge is exposed |
 | `TZ` | `America/Argentina/Buenos_Aires` | Market session / chart time handling |
+| `SUPABASE_URL` | from the Supabase project | Required for authentication; no code default |
+| `SUPABASE_ANON_KEY` | from the Supabase project | Required for authentication; no code default |
 | `QUANTUM_LLAMA_KEY_DIR` | `/app/config/keys` | Writable location for the credential encryption keys (the container user cannot write the project root) |
 | `PYTHONUNBUFFERED` | `1` | Live container logs |
 
-`SUPABASE_URL` and `SUPABASE_ANON_KEY` fall back to the values compiled into
-`src/services/auth.py`; override them only if the Supabase project changes.
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are **required** when authentication is used: the
+application has no compiled defaults, and without both variables the Supabase client stays
+disabled (auth-dependent routes answer `500 Supabase not configured`). Set them in the
+application's environment before deploying a build that includes this change. They live in
+the deployment secret store, never in the repository.
 
 ## Persistent volumes
 
