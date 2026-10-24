@@ -694,6 +694,47 @@ class MT5Connector:
                     "digits": s.digits
                 })
             return result
+    def symbols_get(self, group=None, pattern=None):
+        """Return the symbol catalogue as plain dicts, never raising.
+
+        ``group`` is the MetaTrader5 glob filter (for example ``"*USD*"``) and is
+        forwarded to the terminal. ``pattern`` is a plain case-insensitive
+        substring filter applied to the symbol name or path; on its own it scans
+        the whole catalogue instead of only the Market Watch list.
+        """
+        with self._lock:
+            try:
+                if not self.connected:
+                    self.connect()
+                if group:
+                    symbols = mt5.symbols_get(group=group)
+                elif pattern:
+                    symbols = mt5.symbols_get(group="*")
+                else:
+                    symbols = mt5.symbols_get()
+                if symbols is None:
+                    return []
+                needle = pattern.strip().lower() if pattern else None
+                result = []
+                for s in symbols:
+                    name = getattr(s, "name", None)
+                    if not name:
+                        continue
+                    path = getattr(s, "path", "") or ""
+                    if needle and needle not in name.lower() and needle not in path.lower():
+                        continue
+                    result.append({
+                        "name": name,
+                        "description": getattr(s, "description", "") or "",
+                        "path": path,
+                        "visible": bool(getattr(s, "visible", False)),
+                        "trade_mode": int(getattr(s, "trade_mode", 0) or 0),
+                        "expiration_time": int(getattr(s, "expiration_time", 0) or 0),
+                    })
+                return result
+            except Exception as e:
+                logger.error(f"MT5 symbols_get error: {e}")
+                return []
     def get_symbol_details(self, symbol):
         with self._lock:
             if not self.connected:
