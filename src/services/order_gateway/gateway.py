@@ -174,7 +174,8 @@ class OrderGateway:
                     if step > 0:
                         qty = round(qty / step) * step
 
-                    if min_amount > 0 and qty < min_amount:
+                    # Keep nonpositive input invalid for the risk validator.
+                    if min_amount > 0 and order.quantity > 0 and qty < min_amount:
                         qty = min_amount
 
                     order.quantity = qty

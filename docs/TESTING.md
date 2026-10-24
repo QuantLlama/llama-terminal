@@ -38,7 +38,8 @@ nothing else. Three rules follow from that:
 
 ## 2. What is covered today
 
-85 tests across eleven modules.
+The baseline below has 85 tests across eleven modules; focused gateway/risk coverage
+is listed separately because other release-readiness units add independent tests.
 
 | Module | Tests | What it pins |
 | --- | --- | --- |
@@ -54,6 +55,32 @@ nothing else. Three rules follow from that:
 | `test_secrets_guard.py` | 5 | Pattern detection, masked reports, binary exclusion and large first-party files |
 | `test_public_auth_config.py` | 27 | Runtime anon-only settings, privileged/missing/malformed rejection, escaping, caching and frontend startup |
 
+### Order gateway and live risk boundary
+
+```bash
+venv_linux/bin/python -m pytest -q tests/test_order_gateway.py tests/test_live_risk_validator.py
+```
+
+These deterministic tests use real request/response models and risk validation with a
+fake connector. Synchronous submission creates no worker threads; fixtures isolate the
+singleton, disable file logging and replication, and shut down the executor in teardown.
+No broker, runtime configuration, credentials, network or live market data is used.
+
+- Successful submissions dispatch exactly once with the normalized size; failed broker
+  responses do not consume daily risk allowance.
+- A daily limit of N permits N successful orders and rejects the next with
+  `MAX_ORDERS_EXCEEDED`. Total and ALGO-specific caps remain distinct (defaults 50/20).
+- Daily PnL at or below -500 rejects with `MAX_DAILY_LOSS_EXCEEDED`; -499 permits trading.
+- Nonpositive crypto sizes must remain invalid, not be raised to the exchange minimum.
+  Positive fractional sizing still uses the existing contract conversion and rounding.
+- Manual/ALGO position caps remain 10/5. `RiskValidator.update_position()` supplies the
+  snapshot; validation and `record_order()` do not automatically rewrite positions.
+- Rejections leave risk counters, PnL, positions and execution metrics unchanged.
+  Gateway received/rejected telemetry intentionally increments; it is not risk allowance.
+
+Position accumulation through live fills, concurrent submissions, asynchronous queue
+processing and worker lifecycle behavior are not established by these synchronous tests.
+
 The common thread: the connector boundary and the credential boundary. Both are places
 where a regression is invisible in the UI and expensive in production.
 
@@ -66,8 +93,8 @@ a reason for extra care, not a reason to skip verification.
 
 | Area | Path | Risk |
 | --- | --- | --- |
-| Order gateway | `src/services/order_gateway/` | No test proves that every order passes the queue and the venue dispatch |
-| Live risk validator | `src/services/order_gateway/risk_validator.py` | Daily limits and position tracking are untested |
+| Order gateway | `src/services/order_gateway/` | Async queue/concurrent dispatch and lifecycle remain untested |
+| Live risk validator | `src/services/order_gateway/risk_validator.py` | Live fill-to-position synchronization and daily rollover remain untested |
 | Market data engine | `src/services/market_data_engine/` | Buffer eviction and fan-out are untested |
 | Strategies | `src/algorithms/` | No strategy has a deterministic fixture |
 | Backtesters | `src/analysis/backtester.py`, `src/engine/backtesting/` | Metrics, costs and equity curves are unverified |
@@ -81,7 +108,8 @@ Closing these gaps is the first theme of the roadmap; see [`ROADMAP.md`](ROADMAP
 
 ## 4. Writing a test
 
-A test is accepted when it fails on the old code and passes on the new one. Practical
+Behavior fixes require an observed failure on the old code and a pass on the fix.
+Characterization of already-correct behavior needs no fabricated RED. Practical
 patterns used in this repository:
 
 **Fake a module** — replace a dependency with a stub injected into `sys.modules`:
