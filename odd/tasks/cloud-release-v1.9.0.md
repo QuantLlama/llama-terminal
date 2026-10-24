@@ -60,3 +60,21 @@ integration story legible to users and to a reviewer. Branch: `chore/repo-profes
 - The API's `VERSION`/`STABLE_VERSION` constants stay at `2.4.0` in this release: changing a value
   old clients compare against is a contract decision, and it is already tracked as issue #8.
 - Merge of PR #13 is part of publishing: a release must point at a tagged commit on `main`.
+
+### L4 — release outcome
+
+- **Merged:** PR #13 squashed into `main` as `4d56798` (`chore(repo): professionalize the
+  repository and document cloud mode (#13)`). Main CI on the merge commit: success.
+- **Tag:** `v1.9.0` at `4d56798`.
+- **Release:** <https://github.com/QuantLlama/llama-terminal/releases/tag/v1.9.0> — title
+  `v1.9.0 — Cloud mode`, body generated from `docs/RELEASES/v1.9.0.md` with the relative
+  documentation links rewritten to `blob/v1.9.0` absolute URLs (6900 characters, no relative
+  links left).
+- **Live deployment unchanged and healthy:** `GET https://llama.nbmsystemas.com/health` →
+  `{"ready_for_ui": true, "mt5_status": "connected", "services": {...}}`.
+- **Dependabot is already working:** two Actions PRs opened minutes after the merge
+  (`actions/checkout` 4→7, `actions/setup-python` 5→7). Left for the maintainer: major Action
+  bumps are a delivery decision, not an automatic merge.
+- **Not done on purpose:** the Coolify application still tracks `feature/coolify-deploy`. Switching
+  the tracked branch to `main` triggers a production redeploy, which is the operator's decision
+  (`deploy/COOLIFY.md` now says so explicitly).
