@@ -1,18 +1,18 @@
 # Runtime dependencies for the cloud (Coolify / container) deployment.
 # Training-only and desktop-only packages are intentionally excluded:
 # torch, transformers, xgboost, vectorbt, gym, pyarmor, PyInstaller.
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
+fastapi==0.159.1
+uvicorn[standard]==0.54.0
 pydantic>=2.6,<3
-python-dotenv==1.0.1
-httpx==0.27.0
+python-dotenv==1.2.4
+httpx==0.28.1
 numpy==1.26.4
 pandas==2.2.2
-scikit-learn==1.4.2
-statsmodels==0.14.2
+scikit-learn==1.9.1
+statsmodels==0.15.0
 yfinance==0.2.40
 pytz==2024.1
-matplotlib==3.8.4
+matplotlib==3.11.2
 seaborn==0.13.2
 mplfinance
 cryptography
@@ -21,12 +21,12 @@ Pillow==10.3.0
 GPUtil
 beautifulsoup4
 lxml
-ccxt==4.2.52
-supabase==2.4.3
-psycopg2-binary==2.9.9
+ccxt==4.5.89
+supabase==2.33.0
+psycopg2-binary==2.9.13
 certifi
 reportlab
 websockets
 requests
-TA-Lib==0.6.5
+TA-Lib==0.8.2
 rich==13.7.1
