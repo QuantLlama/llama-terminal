@@ -77,3 +77,26 @@ recruiter-facing open-source project, and ship a custom GitHub profile README fo
   homepage URL.
 - `deploy/COOLIFY.md` and `deploy/MT5_BRIDGE.md` were already written in English; `docs/RELEASES/v1.8.1.md`
   is Spanish.
+
+### L4 — delivery strategy and slice boundaries
+
+Delivery strategy: **single PR** (solo maintainer, private repo, no release in this feature).
+Review budget: the PR exceeds the ~400-line guideline because repository scaffolding is mostly
+prose (templates, ADRs, governance). Slices, each a commit:
+
+1. `chore(repo)` — governance templates, 461 lines.
+2. `docs(governance)` — contributing, conduct, security, changelog, 377 lines.
+3. `docs(readme)` — README rewrite + screenshot asset move.
+4. `docs` — architecture, development, testing, ML, roadmap, ADRs, release-note translation.
+5. `ci` — workflow, minimal CI requirements, dependabot, link checker, pytest.ini.
+
+### L5 — scope deviations (owner should know)
+
+- The previous README claimed `Transformers` and `XGBoost` as active ML components. Neither is
+  imported anywhere (`git grep`), so the English README states the pipeline that actually runs
+  (LSTM + random forest + ARIMA/Gaussian-process diagnostics + DEAP search). Accuracy over
+  marketing: an interviewer will ask.
+- `.env.example` could not be created (harness blocked writes to that path); the environment
+  variables are documented as a table in `docs/DEVELOPMENT.md` instead.
+- English scope stayed at README + `docs/` as decided (L2-Q4). Non-English code comments remain;
+  `docs/ROADMAP.md` lists the follow-ups.
