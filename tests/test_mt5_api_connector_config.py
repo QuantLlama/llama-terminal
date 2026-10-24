@@ -96,3 +96,48 @@ def test_no_token_header_when_unset(monkeypatch):
     connector = module.MT5ApiConnector()
 
     assert "X-Bridge-Token" not in connector._client.headers
+
+
+class _RecordingClient:
+    def __init__(self):
+        self.posts = []
+
+    def post(self, path, *args, **kwargs):
+        self.posts.append(path)
+
+        class _Response:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"success": True}
+
+        return _Response()
+
+    def get(self, path, *args, **kwargs):
+        return self.post(path, *args, **kwargs)
+
+
+def test_shutdown_does_not_tear_down_the_shared_bridge(monkeypatch):
+    module, _ = _fresh_connector(monkeypatch, {"MT5_AUTO_LAUNCH": "false"})
+    connector = module.MT5ApiConnector()
+    recorder = _RecordingClient()
+    connector._client = recorder
+    connector.connected = True
+
+    connector.shutdown()
+
+    assert recorder.posts == [], "request-level shutdown must not POST /api/shutdown"
+    assert connector.connected is False
+
+
+def test_shutdown_bridge_is_explicit(monkeypatch):
+    module, _ = _fresh_connector(monkeypatch, {"MT5_AUTO_LAUNCH": "false"})
+    connector = module.MT5ApiConnector()
+    recorder = _RecordingClient()
+    connector._client = recorder
+    connector.connected = True
+
+    connector.shutdown_bridge()
+
+    assert recorder.posts == ["/api/shutdown"]
