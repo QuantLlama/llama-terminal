@@ -23,6 +23,24 @@ DEFAULT_USER_ID = "default_user"
 DATABASE_URL_ENV = "DATABASE_URL"
 LEGACY_IMPORT_DISABLE_ENV = "QL_DISABLE_LEGACY_SQLITE_IMPORT"
 LEGACY_IMPORT_MARKER = "legacy_sqlite_default_user_v1"
+LEGACY_IMPORT_TARGET_ENV = "QL_LEGACY_IMPORT_USER_ID"
+
+
+def legacy_import_user_id() -> str:
+    """Identity that receives pre-migration SQLite rows.
+
+    A desktop owner migrating to the hosted platform sets this to their own
+    account id so their workspaces and settings do not land in a shared
+    placeholder. Unset keeps the historical behaviour.
+    """
+    raw = (os.environ.get(LEGACY_IMPORT_TARGET_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_USER_ID
+    if len(raw) > 128 or any(ch.isspace() or ch in "/\\" for ch in raw):
+        raise ValueError(
+            f"{LEGACY_IMPORT_TARGET_ENV} must be a single account identifier"
+        )
+    return raw
 
 _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "platform": "mt5",
@@ -617,11 +635,15 @@ def _read_legacy_rows(path: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
         except sqlite3.Error:
             return None
         rows: Dict[str, List[Dict[str, Any]]] = {}
+        identity = legacy_import_user_id()
         for table in ("user_settings", "workspaces", "ai_chat_history", "algolab_state"):
             try:
-                rows[table] = [dict(row) for row in connection.execute(f"SELECT * FROM {table}")]
+                found = [dict(row) for row in connection.execute(f"SELECT * FROM {table}")]
             except sqlite3.Error:
-                rows[table] = []
+                found = []
+            for row in found:
+                row["user_id"] = identity
+            rows[table] = found
         return rows
     finally:
         connection.close()
