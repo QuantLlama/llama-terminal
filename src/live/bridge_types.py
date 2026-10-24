@@ -76,3 +76,15 @@ def as_list(value):
     if isinstance(value, tuple):
         return list(value)
     return []
+
+
+def symbol_is_tradable(symbol):
+    """Whether the handler should list a symbol.
+
+    Native MT5 objects carry an accurate ``trade_mode``. Bridge payloads report
+    ``trade_mode == 0`` for every symbol the terminal has not selected yet, so
+    filtering on it there would hide the whole catalogue from the cloud UI.
+    """
+    if isinstance(symbol, AttrDict):
+        return True
+    return (getattr(symbol, "trade_mode", 0) or 0) != 0
