@@ -100,3 +100,32 @@ prose (templates, ADRs, governance). Slices, each a commit:
   variables are documented as a table in `docs/DEVELOPMENT.md` instead.
 - English scope stayed at README + `docs/` as decided (L2-Q4). Non-English code comments remain;
   `docs/ROADMAP.md` lists the follow-ups.
+
+### L6 — GitHub surface (T6, T7, T8)
+
+- Renamed `QuantLlama/Plataforma_LamaTerminal_V0.1.7b` → `QuantLlama/llama-terminal`; local `origin`
+  updated to the new URL.
+- Description rewritten in English, homepage `https://llamaterminal.nbmsystemas.com`, 14 topics,
+  8 new labels, milestone `v1.9.0 — Hardening`.
+- 14 issues opened (12 roadmap/tech-debt from `docs/ROADMAP.md` + the readiness probe + the stale
+  compiled-extension bug found during verification).
+- PR #13 opened against `main`: `chore(repo): professionalize the repository for release`
+  (+2592/−144 in 33 files). CI green on 3.11, 3.12, static checks and the PR title check.
+- `QuantLlama/QuantLlama` created (public) with `assets/banner.svg` (hand-written SVG) and the
+  English profile README; raw README and banner both serve `200`, tags balanced.
+- Branch protection is **not** available: GitHub requires Pro for protected branches on private
+  repositories. It becomes available when the repository is published.
+
+### L7 — failures found and fixed during verification
+
+1. **CI red on first run** (`40103291152`): both pytest jobs failed at collection with
+   `ModuleNotFoundError: No module named 'rich'`. Reproduced in a clean Python 3.11 venv, added
+   `rich==13.7.1` to `requirements.ci.txt`, re-ran → `53 passed`. Second run green.
+2. **Stale compiled extensions** (`src/services/security.cpython-311-*.so` and 8 more) shadow the
+   `.py` modules on Python 3.11, which made `tests/test_credential_manager_key_dir.py` fail locally
+   with an `AttributeError` for a method that exists in the source. Not a CI problem (fresh runners
+   have no `.so`), and `.dockerignore` excludes them, so images were never affected. Documented and
+   tracked as issue #14.
+3. **`pandas==2.2.2` has no wheel for Python 3.14**, so a scratch venv built with the local 3.14
+   interpreter tried to compile pandas from source. The CI matrix (3.11/3.12) is unaffected; the
+   proof was re-run on 3.11.
