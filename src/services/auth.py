@@ -5,12 +5,18 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 load_dotenv()
 
-# Built-in defaults (protected by PyArmor in production builds)
-_DEFAULT_URL = ""
-_DEFAULT_KEY = ""
+# Credentials are never stored in the repository. Provide them through the
+# environment (SUPABASE_URL / SUPABASE_ANON_KEY) or through the deployment
+# secret store. When they are absent, authentication is disabled explicitly
+# instead of falling back to a committed key.
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip()
+SUPABASE_ANON_KEY = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", _DEFAULT_URL)
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", _DEFAULT_KEY)
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    print(
+        "WARNING: SUPABASE_URL and SUPABASE_ANON_KEY are not configured. "
+        "Authentication features are disabled."
+    )
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
 except Exception as e:

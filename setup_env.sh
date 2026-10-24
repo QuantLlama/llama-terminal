@@ -13,8 +13,9 @@ python3 -m venv venv_linux 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "Fallo al crear venv local (probablemente debido a sistema de archivos NTFS/exFAT)."
     echo "Creando el entorno virtual en la partición nativa de Linux del usuario..."
-    VENV_PATH="REDACTED.gemini/antigravity-cli/venv_linux"
-    mkdir -p "REDACTED.gemini/antigravity-cli"
+    FALLBACK_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/quantumllama"
+    VENV_PATH="$FALLBACK_ROOT/venv_linux"
+    mkdir -p "$FALLBACK_ROOT"
     rm -rf "$VENV_PATH"
     python3 -m venv "$VENV_PATH"
     if [ $? -eq 0 ]; then
