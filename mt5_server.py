@@ -7,10 +7,21 @@ import json
 
 from src.live.mt5_native_connector import MT5Connector
 from src.live.mt5_bridge_auth import bridge_bind, require_bridge_token
+from src.live.mt5_bridge_session import ensure_connected
 
 app = FastAPI(title="MT5 Wine Server", version="1.0.0")
 app.middleware("http")(require_bridge_token)
 connector = MT5Connector()
+
+_SESSION_EXEMPT_PATHS = {"/api/shutdown", "/docs", "/openapi.json"}
+
+
+@app.middleware("http")
+async def ensure_mt5_session(request: Request, call_next):
+    """Reconnect the shared MT5 session before serving data routes."""
+    if request.url.path not in _SESSION_EXEMPT_PATHS:
+        ensure_connected(connector)
+    return await call_next(request)
 
 class ConnectRequest(BaseModel):
     path: Optional[str] = None
