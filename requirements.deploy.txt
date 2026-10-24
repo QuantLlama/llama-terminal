@@ -24,6 +24,7 @@ lxml
 ccxt==4.2.52
 supabase==2.4.3
 psycopg2-binary==2.9.9
+boto3==1.34.131
 certifi
 reportlab
 websockets
