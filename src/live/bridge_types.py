@@ -63,3 +63,16 @@ def positions_to_web(positions):
             }
         )
     return result
+
+
+def as_list(value):
+    """Return a list for list/tuple payloads, otherwise an empty list.
+
+    The bridge answers failed calls with a dict payload ({"detail": ...}), so
+    iterating the result blindly turns keys into items and crashes handlers.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []

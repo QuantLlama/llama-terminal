@@ -152,3 +152,18 @@ def test_positions_to_web_defaults_missing_bridge_fields():
         "swap": 0,
         "comment": "",
     }
+
+
+def test_as_list_discards_error_payloads():
+    from src.live.bridge_types import as_list
+
+    assert as_list([{"a": 1}]) == [{"a": 1}]
+    assert as_list({"detail": "invalid bridge token"}) == []
+    assert as_list("boom") == []
+    assert as_list(None) == []
+
+
+def test_as_list_accepts_tuples_from_native_connector():
+    from src.live.bridge_types import as_list
+
+    assert as_list(({"a": 1},)) == [{"a": 1}]
