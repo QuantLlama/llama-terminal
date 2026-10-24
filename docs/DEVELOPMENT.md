@@ -79,13 +79,36 @@ non-refreshing session behavior.
 setup_env.bat           # Windows
 ```
 
-The script creates `venv_linux` (or `venv`), records the path in `.venv_linux_path` and
-installs `requirements.txt`. Two caveats worth knowing before you run it:
+Run the Linux/macOS script from the project root. It creates or reuses `venv_linux`,
+installs `requirements.txt` through that environment's Python, and records the selected
+path in `.venv_linux_path`. Default reruns preserve valid environments and user files;
+they still upgrade pip and install requirements. Windows uses `setup_env.bat` and `venv`;
+the options below apply only to `setup_env.sh`.
 
-- It **deletes and recreates** the virtual environment on every run, so keep long-lived
-  local state elsewhere.
-- If the repository lives on a non-native filesystem (NTFS/exFAT), it falls back to a
-  path under the user's home directory.
+If local creation fails (for example on NTFS/exFAT), setup uses
+`${XDG_DATA_HOME:-$HOME/.local/share}/quantumllama/venv_linux`. The recorded fallback
+is reused on subsequent runs, including paths containing spaces. XDG paths must be
+absolute. A changed HOME/XDG location can invalidate an old recorded path: inspect the
+pointer and environments before moving or updating them manually.
+
+```bash
+./setup_env.sh --help       # No filesystem changes or installs
+./setup_env.sh --recreate   # Explicitly discard the selected valid environment
+```
+
+`--recreate` removes only the exact local or recorded fallback target after checking
+ownership, venv metadata, activation file and that Python reports that environment's
+prefix. Back up any user files inside it first. Unknown arguments exit with code 2
+without mutations. Unsafe targets, symlinked targets or parent directories, malformed
+path records and unrecognizable/broken environments are refused, even with
+`--recreate`; inspect these manually rather than asking setup to delete them. Standard
+venv interpreter symlinks are allowed; activation scripts are never sourced.
+
+Creation and pip failures exit nonzero and never print `Setup complete.`. Failed
+creation can leave a partial directory for manual inspection; it is not automatically
+removed. Run only one setup process per project/shared XDG environment at a time, in
+trusted directories (the checks are not protection against concurrent filesystem
+replacement). The fallback retains the existing per-user shared environment layout.
 
 To create the environment by hand:
 
