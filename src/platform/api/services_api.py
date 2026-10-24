@@ -9,12 +9,14 @@ logger = logging.getLogger(__name__)
 from fastapi import (
     APIRouter,
     Body,
+    Depends,
     HTTPException,
     Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
 )
+from src.services.auth import get_authenticated_user_id
 from pydantic import BaseModel, Field
 from src.platform.api.utils import sanitize_float, resolve_symbol
 router = APIRouter(prefix="/api/v2", tags=["Platform Services"])
@@ -672,9 +674,9 @@ async def startup_services(platform: str = "mt5"):
         "detail": "MT5 and Engines are launching in background",
     }
 @router.get("/config")
-async def get_config():
+async def get_config(user_id: str = Depends(get_authenticated_user_id)):
     from src.services.database import get_settings
-    settings = get_settings()
+    settings = get_settings(user_id=user_id)
     if "extra_settings" in settings and isinstance(settings["extra_settings"], str):
         try:
             extra = json.loads(settings["extra_settings"])
@@ -684,7 +686,10 @@ async def get_config():
         del settings["extra_settings"]  
     return settings
 @router.post("/config")
-async def save_config(config: Dict[str, Any] = Body(...)):
+async def save_config(
+    config: Dict[str, Any] = Body(...),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     from src.services.database import save_settings
     known_columns = {
         "platform",
@@ -708,7 +713,7 @@ async def save_config(config: Dict[str, Any] = Body(...)):
             extra_data[k] = v
     if extra_data:
         main_data["extra_settings"] = json.dumps(extra_data)
-    if save_settings(main_data):
+    if save_settings(main_data, user_id=user_id):
         return {"status": "saved"}
     raise HTTPException(status_code=500, detail="Error saving settings")
 @router.post("/system/shutdown")

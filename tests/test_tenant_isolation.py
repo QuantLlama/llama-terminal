@@ -551,3 +551,57 @@ def test_main_has_no_default_user_tenant_in_per_user_code():
     source = MAIN.read_text()
     for fragment in ("user_id=\"default_user\"", "user_id='default_user'"):
         assert fragment not in source
+
+
+def test_v2_config_requires_authentication_and_is_tenant_scoped():
+    """`/api/v2/config` must not serve or write shared settings.
+
+    The router lives in `services_api.py`, which cannot be imported here, so the
+    two handlers are extracted from source with the same technique used for the
+    main API: real function bodies, stubbed storage.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "src/platform/api/services_api.py"
+    tree = ast.parse(source.read_text())
+    handlers = {}
+    for node in tree.body:
+        if isinstance(node, ast.AsyncFunctionDef) and node.name in {"get_config", "save_config"}:
+            handlers[node.name] = ast.get_source_segment(source.read_text(), node)
+    assert set(handlers) == {"get_config", "save_config"}
+
+    recording_dependency = (
+        "def get_authenticated_user_id():\n"
+        "    return _TEST_USER\n"
+    )
+
+    calls = []
+    namespace = {
+        "Body": lambda default=None, **kw: default,
+        "Depends": lambda fn: fn(),
+        "Dict": dict,
+        "Any": object,
+        "json": __import__("json"),
+        "HTTPException": __import__("fastapi").HTTPException,
+        "_TEST_USER": "user-a",
+        "get_settings": lambda **kw: calls.append(("get", kw)) or {},
+        "save_settings": lambda payload, **kw: calls.append(("save", kw)) or True,
+        "router": __import__("fastapi").APIRouter(),
+    }
+    code = recording_dependency + handlers["get_config"] + "\n\n" + handlers["save_config"]
+    module = ast.parse(code)
+    for node in module.body:
+        if isinstance(node, ast.AsyncFunctionDef):
+            for arg in node.args.args:
+                pass
+    exec(compile(module, str(source), "exec"), namespace)
+
+    # The handlers must declare the auth dependency and forward its identity.
+    for name in ("get_config", "save_config"):
+        assert "get_authenticated_user_id" in handlers[name], (
+            f"{name} must depend on the validated token, not on a shared tenant"
+        )
+        assert "user_id=" in handlers[name], (
+            f"{name} must scope storage by the authenticated user"
+        )
