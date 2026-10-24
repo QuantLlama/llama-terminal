@@ -236,6 +236,15 @@ async def log_not_found(request: Request, call_next):
         logger.warning(f"[404] {request.method} {request.url.path}")
     return response
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Advertise HTTPS-only transport without changing any response body."""
+    response = await call_next(request)
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 # ── PYDANTIC MODELS ────────────────────────────────────────────────
 class OrderRequest(BaseModel):
     platform: str  
