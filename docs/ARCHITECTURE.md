@@ -250,6 +250,7 @@ Recorded deliberately: this is what a maintainer should know before touching the
 | 6 | The API reports version `2.4.0` while the package is `1.8.1`. | Any client depending on the version endpoint sees the wrong value. |
 | 7 | `transformers` and `xgboost` are pinned in `requirements.txt` but unused. | Larger installs, slower CI images, false expectations. |
 | 8 | `src/doctecnicaalgos/EvolutionaryGAN.md` describes a GAN that the shipped trainer does not implement. | Documentation overstates the ML path. |
+| 9 | A local PyArmor/Cython build leaves `*.so` files next to the sources (`src/services/security.cpython-311-*.so`, `src/live/*.so`, `run.cpython-311-*.so`). On Python 3.11 the extension shadows the `.py` module. | A developer editing the source runs the old compiled code without noticing. `.dockerignore` excludes `*.so`, so images are unaffected. |
 
 Each item maps to an issue tracked under the `roadmap` and `tech-debt` labels.
 

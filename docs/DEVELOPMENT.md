@@ -199,6 +199,8 @@ The container does not include the desktop shell or the MT5 terminal; see
 | `PermissionError` on the key directory | Read-only container tree | Set `QUANTUM_LLAMA_KEY_DIR` to a writable path |
 | Exchange returns HTTP 451 | Regional block | Configure `CRYPTO_HTTP_PROXY` |
 | GPU not used | Wrong torch build or no driver | Check `torch.cuda.is_available()`; the platform falls back to CPU |
+| Tests fail only on Python 3.11 with a missing attribute or stale behavior | A PyArmor/Cython `.so` from a local build sits next to the source and shadows the `.py` file (for example `src/services/security.cpython-311-x86_64-linux-gnu.so`) | Delete the `*.so` files under `src/` and the repository root — they are build artifacts, ignored by Git and excluded by `.dockerignore` |
+| `pytest` skips tests you expect it to run | Collection is restricted to `tests/` | The `test_*.py` scripts at the repository root are manual probes, not suite members |
 
 Logs are written under `logs/`; the API and the bridge both log to stdout, which is what
 the container supervisor collects.
