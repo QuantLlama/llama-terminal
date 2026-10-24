@@ -13,4 +13,7 @@ pytest>=8.3,<10
 coverage>=7.6,<8
 # Readiness probes import requests directly (not supplied by httpx).
 requests>=2.31,<3
+# Runtime driver for per-user PostgreSQL storage (docs/DATA.md). The suite never
+# imports it: repository tests inject a fake DB-API connection.
+psycopg2-binary>=2.9,<3
 rich==13.7.1

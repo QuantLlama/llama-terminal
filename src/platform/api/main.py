@@ -80,10 +80,12 @@ from src.platform.api.services_api import router as services_router
 from src.platform.api.footprint_api import router as footprint_router
 from src.platform.api.backtesting_api import router as backtesting_router
 from src.platform.api.backtesting_api import router as backtesting_router
+from src.platform.api.seo_api import router as seo_router
 
 # Standard routers
 from src.platform.api.analysis_api import router as analysis_router
 from src.services.auth import get_current_user, check_subscription, security
+from src.services.auth import get_authenticated_user_id, extract_user_id
 from fastapi import Depends, Security
 from fastapi.security import HTTPAuthorizationCredentials
 from src.platform.api.utils import sanitize_float
@@ -94,7 +96,8 @@ from src.services.database import (
     get_algolab_state,
     get_last_active_workspace,
     get_all_workspaces,
-    delete_workspace
+    delete_workspace,
+    DatabaseNotConfigured,
 )
 from src.services.replication_service import replicate_to_nt8_background, replicate_to_nt8_sync, log_diag
 from src.services.database import (
@@ -194,7 +197,7 @@ async def lifespan(app: FastAPI):
     logger.info("Iniciando plataforma QuantumLlama...")
     try:
         init_db()
-        logger.info("Base de datos SQLite inicializada")
+        logger.info("Base de datos PostgreSQL (DATABASE_URL) inicializada")
         
         # --- NUEVO: Limpieza automática de logs al iniciar ---
         try:
@@ -219,6 +222,12 @@ app = FastAPI(
     version=PRODUCT_VERSION,
     lifespan=lifespan,
 )
+
+@app.exception_handler(DatabaseNotConfigured)
+async def database_not_configured(request: Request, exc: DatabaseNotConfigured):
+    """Per-user storage is PostgreSQL-only: say so instead of serving stale sqlite data."""
+    logger.error(f"[DATABASE] {exc}")
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 @app.middleware("http")
 async def log_not_found(request: Request, call_next):
@@ -1488,8 +1497,8 @@ async def switch_platform(platform: str = Body(..., embed=True)):
         logger.error(f"Error switching market data engine to {platform}: {e}")
     return {"status": "success", "active_platform": platform}
 @app.get("/api/config")
-async def get_config():
-    db_settings = db_get_settings()
+async def get_config(user_id: str = Depends(get_authenticated_user_id)):
+    db_settings = db_get_settings(user_id=user_id)
     trading_defaults = {
         "automation_enabled": False,
         "volume": 1.0,
@@ -1509,7 +1518,10 @@ async def get_config():
 
     return {**trading_defaults, **db_settings}
 @app.post("/api/config")
-async def update_config(config: Dict[str, Any] = Body(...)):
+async def update_config(
+    config: Dict[str, Any] = Body(...),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         ui_keys = {
             "platform",
@@ -1532,7 +1544,7 @@ async def update_config(config: Dict[str, Any] = Body(...)):
         ui_config = {k: v for k, v in config.items() if k in ui_keys}
         trading_config = {k: v for k, v in config.items() if k not in ui_keys}
         if ui_config:
-            db_save_settings(ui_config)
+            db_save_settings(ui_config, user_id=user_id)
         if trading_config:
             existing = {}
             if os.path.exists(CONFIG_FILE):
@@ -1542,6 +1554,8 @@ async def update_config(config: Dict[str, Any] = Body(...)):
             with open(CONFIG_FILE, "w") as f:
                 json.dump(existing, f, indent=4)
         return {"status": "ok", "message": "Configuración guardada"}
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
 
         raise HTTPException(status_code=500, detail=str(e))
@@ -1675,26 +1689,33 @@ async def get_market_session(
             "error": str(e),
         }
 @app.get("/api/workspace/last-active")
-async def get_last_active():
+async def get_last_active(user_id: str = Depends(get_authenticated_user_id)):
     try:
-        session_name = get_last_active_workspace()
-        workspace = db_get_workspace(session_name)
+        session_name = get_last_active_workspace(user_id=user_id)
+        workspace = db_get_workspace(session_name, user_id=user_id)
         return {"session": session_name, "workspace": workspace}
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
 
         return {"session": "session_mt5", "workspace": None}
 @app.post("/api/workspace/last-active")
-async def set_last_active(data: Dict[str, Any] = Body(...)):
+async def set_last_active(
+    data: Dict[str, Any] = Body(...),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         session_name = data.get("session", "session_mt5")
-        set_last_active_workspace(session_name)
+        set_last_active_workspace(session_name, user_id=user_id)
         return {"status": "ok", "session": session_name}
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/workspace/{session}")
-async def get_workspace(session: str):
+async def get_workspace(session: str, user_id: str = Depends(get_authenticated_user_id)):
     try:
-        workspace = db_get_workspace(session)
+        workspace = db_get_workspace(session, user_id=user_id)
         if workspace:
             return workspace
         if os.path.exists(CONFIG_FILE):
@@ -1703,40 +1724,52 @@ async def get_workspace(session: str):
             workspaces = config.get("workspaces", {})
             return workspaces.get(session, None)
         return None
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
 
         return None
 @app.post("/api/workspace/{session}")
-async def save_workspace(session: str, workspace: Dict[str, Any] = Body(...)):
+async def save_workspace(
+    session: str,
+    workspace: Dict[str, Any] = Body(...),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
 
-        db_save_workspace(session, workspace)
-        set_last_active_workspace(session)
+        db_save_workspace(session, workspace, user_id=user_id)
+        set_last_active_workspace(session, user_id=user_id)
         return {
             "status": "ok",
             "session": session,
             "saved_at": datetime.now().isoformat(),
         }
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/workspaces")
-async def list_workspaces():
+async def list_workspaces(user_id: str = Depends(get_authenticated_user_id)):
     try:
-        data = get_all_workspaces()
+        data = get_all_workspaces(user_id=user_id)
         logger.info(f"Retrieved {len(data)} workspaces from DB")
         return data
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
         logger.error(f"Error listing workspaces: {e}")
         return {}
 
 @app.delete("/api/workspace/{name}")
-async def remove_workspace(name: str):
+async def remove_workspace(name: str, user_id: str = Depends(get_authenticated_user_id)):
     try:
-        delete_workspace(name)
+        delete_workspace(name, user_id=user_id)
         return {"status": "ok"}
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
         logger.error(f"Error deleting workspace: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3614,11 +3647,11 @@ async def save_ai_settings(req: AISettingsRequest):
         json.dump(req.dict(), f, ensure_ascii=False, indent=4)
     return {"status": "success"}
 @app.get("/api/algolab/chat/history")
-async def get_algolab_chat_history():
-    return get_ai_chat_history()
+async def get_algolab_chat_history(user_id: str = Depends(get_authenticated_user_id)):
+    return get_ai_chat_history(user_id=user_id)
 @app.delete("/api/algolab/chat/history")
-async def delete_algolab_chat_history():
-    clear_ai_chat_history()
+async def delete_algolab_chat_history(user_id: str = Depends(get_authenticated_user_id)):
+    clear_ai_chat_history(user_id=user_id)
     return {"status": "success"}
 @app.post("/api/algolab/compile")
 async def compile_and_deploy(req: dict = Body(...)):
@@ -3780,8 +3813,8 @@ async def compile_and_deploy(req: dict = Body(...)):
         logger.error(f"Compile error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/algolab/state")
-async def get_algolab_editor_state():
-    return get_algolab_state()
+async def get_algolab_editor_state(user_id: str = Depends(get_authenticated_user_id)):
+    return get_algolab_state(user_id=user_id)
 @app.delete("/api/algolab/files")
 async def delete_algolab_file(path: str):
     try:
@@ -3833,8 +3866,11 @@ async def rename_algolab_file(req: dict):
         logger.error(f"Error al renombrar archivo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/api/algolab/state")
-async def save_algolab_editor_state(req: AlgolabStateRequest):
-    save_algolab_state(req.dict())
+async def save_algolab_editor_state(
+    req: AlgolabStateRequest,
+    user_id: str = Depends(get_authenticated_user_id),
+):
+    save_algolab_state(req.dict(), user_id=user_id)
     return {"status": "success"}
 @app.get("/api/algolab/models")
 async def get_ai_models(provider: str):
@@ -3971,7 +4007,10 @@ async def install_dependencies(req: dict):
         logger.error(f"Error installing dependencies: {e}")
         return {"success": False, "message": str(e)}
 @app.post("/api/algolab/chat")
-async def algolab_chat(req: AIChatRequest):
+async def algolab_chat(
+    req: AIChatRequest,
+    user_id: str = Depends(get_authenticated_user_id),
+):
     if not os.path.exists(AI_SETTINGS_FILE):
         raise HTTPException(
             status_code=400, detail="Configuración de IA no encontrada."
@@ -4024,7 +4063,7 @@ async def algolab_chat(req: AIChatRequest):
         elif req.skill.lower() == "genetic":
             system_prompt += "Nota: Diseña la estrategia con parámetros optimizables y usa 'run_genetic_optimization' para evolucionarla.\n"
     
-    history = get_ai_chat_history(limit=20)
+    history = get_ai_chat_history(user_id=user_id, limit=20)
     messages = [{"role": "system", "content": system_prompt}]
     for h in history:
         content = h["content"]
@@ -4036,7 +4075,12 @@ async def algolab_chat(req: AIChatRequest):
         if messages and messages[-1]["role"] == "user":
             messages.append({"role": "system", "content": "INSTRUCCIÓN: Optimiza o crea la estrategia usando herramientas. Si los resultados son malos, itera."})
 
-    save_ai_chat_message("user", req.messages[-1]["content"] if req.messages else "---", skill=req.skill)
+    save_ai_chat_message(
+        "user",
+        req.messages[-1]["content"] if req.messages else "---",
+        skill=req.skill,
+        user_id=user_id,
+    )
 
     TOOLS = [
         {
@@ -4211,11 +4255,15 @@ async def algolab_chat(req: AIChatRequest):
 
                 if not tool_calls:
                     # No more actions, end the loop
-                    save_ai_chat_message("assistant", full_content, skill=req.skill)
+                    save_ai_chat_message(
+                        "assistant", full_content, skill=req.skill, user_id=user_id
+                    )
                     break
                 else:
                     # Save intermediate assistant thinking/tool call
-                    save_ai_chat_message("assistant", full_content, skill=req.skill)
+                    save_ai_chat_message(
+                        "assistant", full_content, skill=req.skill, user_id=user_id
+                    )
 
                 # Execute Actions
                 current_messages.append({"role": "assistant", "tool_calls": tool_calls})
@@ -4319,7 +4367,9 @@ async def algolab_chat(req: AIChatRequest):
                     # Report result directly to the chat so the user sees it immediately
                     msg_content = "\n\n**[RESULTADO DE " + fn_name.upper() + "]**\n" + str(result) + "\n\n"
                     # PERSIST tool result so it remains in history
-                    save_ai_chat_message("assistant", msg_content, skill=req.skill)
+                    save_ai_chat_message(
+                        "assistant", msg_content, skill=req.skill, user_id=user_id
+                    )
                     
                     msg_data = json.dumps({'content': msg_content})
                     yield "data: " + msg_data + "\n\n"
@@ -4365,6 +4415,8 @@ os.makedirs(logs_dir, exist_ok=True)
 logger.info(f"Montando LOGS_DIR: {logs_dir}")
 app.mount("/logs", StaticFiles(directory=logs_dir), name="logs")
 app.include_router(version_router)
+# Crawler surface must stay ahead of the SPA catch-all that answers index.html.
+app.include_router(seo_router)
 @app.get("/api/auth/session")
 async def check_session(
     user: Any = Depends(get_current_user),
@@ -4372,27 +4424,16 @@ async def check_session(
 ):
     try:
         token = credentials.credentials
-        u_id = None
-        u_email = None
-        if hasattr(user, 'user') and user.user:
-            u_id = user.user.id
-            u_email = user.user.email
+        # One tenant-id contract for the whole API: no placeholder identity.
+        u_id = extract_user_id(user)
+        inner_user = getattr(user, 'user', None)
+        if inner_user is not None:
+            u_email = getattr(inner_user, 'email', None)
         elif isinstance(user, dict):
-            inner = user.get('user', {})
-            if isinstance(inner, dict):
-                u_id = inner.get('id') or user.get('id')
-                u_email = inner.get('email') or user.get('email')
-            else:
-                u_id = user.get('id')
-                u_email = user.get('email')
+            nested = user.get('user', {})
+            u_email = (nested.get('email') if isinstance(nested, dict) else None) or user.get('email')
         else:
-            u_id = getattr(user, 'id', None)
             u_email = getattr(user, 'email', None)
-        if not u_id:
-
-            u_id = "authenticated_user" if u_email else None
-            if not u_id:
-                raise ValueError(f"Unknown user object structure: {type(user)}")
         is_subscribed, reason = await check_subscription(u_id, token)
 
         return {

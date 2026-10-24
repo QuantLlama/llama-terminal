@@ -1,4 +1,5 @@
 import os
+from typing import Any, Optional
 from supabase import create_client, Client
 from fastapi import Request, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -23,6 +24,8 @@ except Exception as e:
     print(f"WARNING: Supabase client init failed: {e}. Auth features disabled.")
     supabase = None
 security = HTTPBearer()
+# Per-user endpoints must answer 401 (not 403) when the client sends no token.
+optional_security = HTTPBearer(auto_error=False)
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
@@ -34,6 +37,50 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
         return user
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+def extract_user_id(user: Any) -> str:
+    """Return the validated subject id carried by the Supabase token payload.
+
+    The id is the only accepted tenant key for per-user storage. There is no
+    fallback identifier: a payload without a subject is rejected.
+    """
+    user_id = None
+    inner = getattr(user, "user", None)
+    if inner is not None:
+        user_id = getattr(inner, "id", None)
+    elif isinstance(user, dict):
+        nested = user.get("user", {})
+        if isinstance(nested, dict):
+            user_id = nested.get("id") or user.get("id")
+        else:
+            user_id = user.get("id")
+    else:
+        user_id = getattr(user, "id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authenticated token does not identify a user",
+        )
+    return str(user_id)
+
+async def get_authenticated_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(optional_security),
+) -> str:
+    """FastAPI dependency: yield the tenant id of the validated bearer token.
+
+    Callers must depend on this instead of reading ``user_id`` from a body, query
+    string or header. Missing or invalid credentials never fall back to a shared
+    tenant.
+    """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not supabase:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication is not configured; per-user data is unavailable",
+        )
+    user = await get_current_user(credentials)
+    return extract_user_id(user)
 async def check_subscription(user_id: str, token: str = None):
     if not supabase:
         print("[Auth] Supabase client not initialized")

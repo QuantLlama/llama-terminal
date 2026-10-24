@@ -417,7 +417,7 @@ const SettingsModal = ({
     if (!isOpen) return;
     const loadSettings = async () => {
       try {
-        const res = await fetch("/api/config");
+        const res = await window.authFetch("/api/config");
         if (res.ok) {
           const data = await res.json();
           setConfig(data);
@@ -471,7 +471,7 @@ const SettingsModal = ({
       risk_locked_until: localStorage.getItem("platform_locked_until")
     };
     try {
-      await fetch("/api/config", {
+      await window.authFetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

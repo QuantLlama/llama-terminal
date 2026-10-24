@@ -964,7 +964,7 @@ const AlgoLab = ({ isOpen }) => {
   }, []);
   const fetchEditorState = async () => {
     try {
-      const resp = await fetch('/api/algolab/state');
+      const resp = await window.authFetch('/api/algolab/state');
       const data = await resp.json();
       if (data) {
         if (data.open_files && data.open_files.length > 0) {
@@ -993,7 +993,7 @@ const AlgoLab = ({ isOpen }) => {
   };
   const saveEditorState = useCallback(async (currentOpenFiles, currentContents, currentActive, chatOpen, currentChatWidth) => {
     try {
-      await fetch('/api/algolab/state', {
+      await window.authFetch('/api/algolab/state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1025,7 +1025,7 @@ const AlgoLab = ({ isOpen }) => {
   }, [openFiles, fileContents, activeFile, isChatOpen, chatWidth, saveEditorState]);
   const fetchChatHistory = async () => {
     try {
-      const resp = await fetch('/api/algolab/chat/history');
+      const resp = await window.authFetch('/api/algolab/chat/history');
       const data = await resp.json();
       if (data) setChatMessages(data);
     } catch (e) { console.error("Error fetching chat history:", e); }
@@ -1035,7 +1035,7 @@ const AlgoLab = ({ isOpen }) => {
   };
   const handleConfirmClearChat = async () => {
     try {
-      await fetch('/api/algolab/chat/history', { method: 'DELETE' });
+      await window.authFetch('/api/algolab/chat/history', { method: 'DELETE' });
       setChatMessages([]);
       setShowClearConfirm(false);
       window.dispatchEvent(new CustomEvent('platform-notif', {
@@ -1090,7 +1090,7 @@ const AlgoLab = ({ isOpen }) => {
     if (!inputMessage.trim() || isLoading) return;
     setIsLoading(true);
     try {
-      const resp = await fetch('/api/algolab/chat', {
+      const resp = await window.authFetch('/api/algolab/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1154,7 +1154,7 @@ const AlgoLab = ({ isOpen }) => {
     try {
       if (abortControllerRef.current) abortControllerRef.current.abort();
       abortControllerRef.current = new AbortController();
-      const resp = await fetch('/api/algolab/chat', {
+      const resp = await window.authFetch('/api/algolab/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortControllerRef.current.signal,

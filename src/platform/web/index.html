@@ -106,8 +106,46 @@
   </style>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Quantum Llama - Terminal de Trading Profesional." />
+  <!-- SEO / social metadata block: add further crawler, social or analytics tags in this region. -->
   <title>Quantum Llama - Professional Trading Terminal</title>
+  <meta name="description" content="Quantum Llama: terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado." />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#050505" />
+
+  <!--
+    Canonical and social URLs stay origin-relative on purpose: the public origin is resolved from
+    the incoming request in src/platform/api/seo_api.py and no production domain is invented here.
+    A fixed canonical origin belongs at the reverse proxy/CDN. See docs/SEO.md.
+  -->
+  <link rel="canonical" href="/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Quantum Llama" />
+  <meta property="og:title" content="Quantum Llama - Professional Trading Terminal" />
+  <meta property="og:description" content="Quantum Llama: terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado." />
+  <meta property="og:url" content="/" />
+  <meta property="og:image" content="/images/QuantumLLama.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Quantum Llama - Professional Trading Terminal" />
+  <meta name="twitter:description" content="Quantum Llama: terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado." />
+  <meta name="twitter:image" content="/images/QuantumLLama.png" />
+
+  <!-- Privacy-friendly, self-hosted analytics. Deferred so an unreachable
+       analytics host can never block the terminal from rendering. -->
+  <script defer src="https://umami.nbmsystemas.com/script.js" data-website-id="03f3d019-7a44-49b8-b4cd-c27ee7691c33"></script>
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Quantum Llama",
+      "applicationCategory": "FinanceApplication",
+      "applicationSubCategory": "Trading terminal",
+      "operatingSystem": "Web",
+      "url": "/",
+      "inLanguage": "es",
+      "description": "Terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado."
+    }
+  </script>
   <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
   <link rel="icon" href="/images/QuantumLLama.png" type="image/png" />
   <link rel="apple-touch-icon" href="/images/QuantumLLama.png" />
@@ -117,6 +155,7 @@
   <script src="/lib/babel.min.js"></script>
   <script src="/lib/lightweight-charts.standalone.production.js?v=4.2.1"></script>
   <script src="/lib/supabase-js.js"></script>
+  <script src="/lib/authFetch.js?v=1.0.0"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 
   <script src="components/VolumeProfileEngine.js?v=2.4.7"></script>
@@ -774,7 +813,7 @@
       },
       saveWorkspace: async (name, config) => {
         try {
-          const response = await fetch(`/api/workspace/${name}`, {
+          const response = await window.authFetch(`/api/workspace/${name}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(config)
@@ -795,7 +834,7 @@
       },
       loadWorkspace: async (name) => {
         try {
-          const response = await fetch(`/api/workspace/${name}`);
+          const response = await window.authFetch(`/api/workspace/${name}`);
           if (!response.ok) {
             console.warn(
               `No saved workspace for ${name} in DB`
@@ -1872,7 +1911,7 @@
                   if (window.fetchAvailableSymbols) {
                     window.fetchAvailableSymbols(newPlatform);
                   }
-                  fetch("/api/config", {
+                  window.authFetch("/api/config", {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json"
@@ -4708,6 +4747,7 @@
                     if (ts?.access_token) {
                       sessionToValidate = ts;
                       sessionFound = true;
+                      await window.supabase.auth.setSession(ts);
                       setTimeout(() => localStorage.removeItem("ql_transfer_session"), 5000);
                     }
                   }
@@ -4837,7 +4877,7 @@
       const fetchWorkspaces = async () => {
         try {
           console.log("[TerminalApp] Fetching workspaces...");
-          const res = await fetch("/api/workspaces");
+          const res = await window.authFetch("/api/workspaces");
           if (res.ok) {
             const data = await res.json();
             console.log("[TerminalApp] Received workspaces:", Object.keys(data || {}).length);
@@ -5652,7 +5692,7 @@
         refreshIndicators();
       }, [refreshIndicators]);
       useEffect(() => {
-        fetch("/api/config").
+        window.authFetch("/api/config").
           then((r) => r.json()).
           then((data) => {
             setConfig(data);
@@ -6136,7 +6176,7 @@
             window.dispatchEvent(new CustomEvent('save_status', { detail: 'saved' }));
             await fetchWorkspaces();
             if (name === "last-active") {
-              await fetch("/api/config", {
+              await window.authFetch("/api/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ workspace: workspaceData })
