@@ -121,7 +121,7 @@ from src.services.database import get_outputs_dir, get_logs_dir
 STATUS_FILE = os.path.join(get_outputs_dir(), "live_status.json")
 load_dotenv()
 from src.live.connector import get_mt5_connector
-from src.live.bridge_types import as_list, normalize, positions_to_web
+from src.live.bridge_types import as_list, normalize, positions_to_web, symbol_is_tradable
 GLOBAL_MT5_CONNECTOR = get_mt5_connector()
 from src.services.crypto_manager import get_crypto_manager
 from src.live.crypto_connector import get_connector
@@ -651,7 +651,7 @@ async def get_symbols(
                 if not name or name in seen_names: continue
                 expiration = getattr(symbol, "expiration_time", 0) or 0
                 if expiration > 0 and expiration < now_ts: continue
-                if (getattr(symbol, "trade_mode", 0) or 0) == 0: continue
+                if not symbol_is_tradable(symbol): continue
                 path = getattr(symbol, "path", "") or getattr(symbol, "description", "") or ""
                 all_detected.append({
                     "symbol": name,

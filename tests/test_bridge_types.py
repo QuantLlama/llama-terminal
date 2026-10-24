@@ -167,3 +167,20 @@ def test_as_list_accepts_tuples_from_native_connector():
     from src.live.bridge_types import as_list
 
     assert as_list(({"a": 1},)) == [{"a": 1}]
+
+
+def test_symbol_is_tradable_keeps_bridge_payloads():
+    from src.live.bridge_types import AttrDict, symbol_is_tradable
+
+    assert symbol_is_tradable(AttrDict({"name": "EURUSD", "trade_mode": 0})) is True
+
+
+def test_symbol_is_tradable_filters_disabled_native_symbols():
+    from src.live.bridge_types import symbol_is_tradable
+
+    class Native:
+        def __init__(self, mode):
+            self.trade_mode = mode
+
+    assert symbol_is_tradable(Native(4)) is True
+    assert symbol_is_tradable(Native(0)) is False
