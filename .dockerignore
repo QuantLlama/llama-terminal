@@ -50,7 +50,6 @@ pyarmor.error.log
 # Desktop packaging assets
 electron/
 nsis/
-images/
 legal/
 docs/
 openspec/
