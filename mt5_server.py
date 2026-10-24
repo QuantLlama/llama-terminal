@@ -152,6 +152,10 @@ def api_book_snapshot(symbol: str, limit: int = 100):
     book = connector.get_book_snapshot(symbol, limit)
     return book
 
+@app.get("/api/symbols")
+def api_symbols(group: Optional[str] = None, pattern: Optional[str] = None):
+    return connector.symbols_get(group=group, pattern=pattern)
+
 @app.get("/api/symbol_info/{symbol}")
 def api_symbol_info(symbol: str):
     info = connector.symbol_info(symbol)

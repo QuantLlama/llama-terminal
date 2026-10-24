@@ -206,6 +206,29 @@ class MT5ApiConnector:
             logger.error(f"API get_book_snapshot error: {e}")
         return None
 
+    def symbols_get(self, group=None, pattern=None):
+        """Fetch the broker symbol catalogue through the bridge.
+
+        ``group`` is a glob filter and ``pattern`` a substring filter, both
+        evaluated by the bridge. Failed calls answer with an error dict, so the
+        result is only returned when it really is a list.
+        """
+        params = {}
+        if group:
+            params["group"] = group
+        if pattern:
+            params["pattern"] = pattern
+        try:
+            with self._bridge_client() as client:
+                res = client.get("/api/symbols", params=params)
+                if res.status_code == 200:
+                    data = res.json()
+                    if isinstance(data, list):
+                        return data
+        except Exception as e:
+            logger.error(f"API symbols_get error: {e}")
+        return []
+
     def symbol_info(self, symbol):
         try:
             res = self._client.get(f"/api/symbol_info/{symbol}", timeout=3.0)

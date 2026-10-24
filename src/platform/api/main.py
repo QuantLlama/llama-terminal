@@ -628,67 +628,65 @@ async def get_symbols(
             logger.error(f"[SYMBOLS/CRYPTO] Error: {e}")
             return []
     try:
-        import MetaTrader5 as mt5
-        from src.services.mt5_launcher import get_launcher
-        launcher = get_launcher()
+        # The catalogue comes from the connector so the same handler serves the
+        # native (Windows/Wine) and bridge (cloud) flavours.
+        from src.live.connector import get_mt5_connector
+        connector = get_mt5_connector()
         if force:
-            mt5.shutdown()
-        mt5_online = mt5.initialize()
-        if not mt5_online and launcher.mt5_exe:
-            mt5_online = mt5.initialize(path=launcher.mt5_exe, timeout=3000)
-        if not mt5_online:
-            logger.error(f"MT5 INITIALIZATION FAILED: {mt5.last_error()}")
+            connector.shutdown()
+        if not getattr(connector, "connected", False) and not connector.connect():
+            logger.error("[SYMBOLS/MT5] MT5 CONNECTION FAILED")
             return []
-        patterns = ["*"]
-        if not query:
-            patterns = [
-                "*Futures*", "*FUT*", "*MNQ*", "*NQ*", "*MES*", "*ES*",
-                "*CFD*", "*Cash*", "*Index*", "*Forex*", "*Indices*", "*Metal*"
-            ]
-        else:
-            patterns = [f"*{query.strip()}*", f"{query.strip()}*"]
+        patterns = [
+            "*Futures*", "*FUT*", "*MNQ*", "*NQ*", "*MES*", "*ES*",
+            "*CFD*", "*Cash*", "*Index*", "*Forex*", "*Indices*", "*Metal*"
+        ]
         all_detected = []
         seen_names = set()
         now_ts = int(time.time())
-        for pattern in sorted(list(set(patterns))):
-            group_syms = mt5.symbols_get(group=pattern)
-            name_syms = mt5.symbols_get(pattern)
-            syms = (list(group_syms) if group_syms else []) + (list(name_syms) if name_syms else [])
-            for s in syms:
-                if s.name in seen_names: continue
-                if s.expiration_time > 0 and s.expiration_time < now_ts: continue
-                if s.trade_mode == 0: continue
+
+        def _collect(symbols, cap=None):
+            for symbol in normalize(as_list(symbols)):
+                name = getattr(symbol, "name", None)
+                if not name or name in seen_names: continue
+                expiration = getattr(symbol, "expiration_time", 0) or 0
+                if expiration > 0 and expiration < now_ts: continue
+                if (getattr(symbol, "trade_mode", 0) or 0) == 0: continue
+                path = getattr(symbol, "path", "") or getattr(symbol, "description", "") or ""
                 all_detected.append({
-                    "symbol": s.name,
-                    "description": s.path,
-                    "group": s.path.split("\\")[0] if "\\" in s.path else "MT5",
+                    "symbol": name,
+                    "description": path,
+                    "group": path.split("\\")[0] if "\\" in path else "MT5",
                 })
-                seen_names.add(s.name)
+                seen_names.add(name)
+                if cap is not None and len(all_detected) >= cap:
+                    return
+
+        if query:
+            # The previous "*q*" plus "q*" glob union is exactly "contains q".
+            needle = query.strip().strip("*").strip()
+            _collect(connector.symbols_get(pattern=needle) if needle else connector.symbols_get(group="*"))
+        else:
+            for pattern in sorted(list(set(patterns))):
+                _collect(connector.symbols_get(group=pattern))
         if force or (not query and len(all_detected) < 20):
-            global_syms = mt5.symbols_get("*") or mt5.symbols_get()
-            if global_syms:
-                for s in global_syms:
-                    if s.name in seen_names: continue
-                    if s.expiration_time > 0 and s.expiration_time < now_ts: continue
-                    if s.trade_mode == 0: continue
-                    all_detected.append({
-                        "symbol": s.name,
-                        "description": s.path,
-                        "group": s.path.split("\\")[0] if "\\" in s.path else "MT5",
-                    })
-                    seen_names.add(s.name)
-                    if len(all_detected) >= 2000: break
+            global_syms = as_list(connector.symbols_get(group="*")) or as_list(connector.symbols_get())
+            _collect(global_syms, cap=2000)
         if not query:
-            mw_symbols = mt5.symbols_get()
+            mw_symbols = normalize(as_list(connector.symbols_get()))
             if mw_symbols:
                 results = []
                 mw_names = set()
-                for s in mw_symbols:
-                    if s.expiration_time > 0 and s.expiration_time < now_ts: continue
-                    results.append({"symbol": s.name, "description": s.path, "group": "Market Watch"})
-                    mw_names.add(s.name)
-                for s in all_detected:
-                    if s["symbol"] not in mw_names: results.append(s)
+                for symbol in mw_symbols:
+                    name = getattr(symbol, "name", None)
+                    if not name: continue
+                    expiration = getattr(symbol, "expiration_time", 0) or 0
+                    if expiration > 0 and expiration < now_ts: continue
+                    path = getattr(symbol, "path", "") or getattr(symbol, "description", "") or ""
+                    results.append({"symbol": name, "description": path, "group": "Market Watch"})
+                    mw_names.add(name)
+                for entry in all_detected:
+                    if entry["symbol"] not in mw_names: results.append(entry)
                 return results[:2000]
         return all_detected[:1000]
     except Exception as e:
