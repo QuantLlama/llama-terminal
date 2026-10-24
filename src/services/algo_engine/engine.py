@@ -8,6 +8,9 @@ from enum import Enum
 from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
 try:
     # ── Try to add torch/lib to DLL path for Windows/Wine ──
     if sys.platform == "win32":
@@ -28,7 +31,6 @@ except (ImportError, OSError) as e:
 
 import numpy as np
 import pandas as pd
-logger = logging.getLogger(__name__)
 class AlgoStatus(str, Enum):
     STOPPED = "STOPPED"      
     RUNNING = "RUNNING"      

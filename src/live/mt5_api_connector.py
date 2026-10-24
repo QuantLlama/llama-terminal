@@ -2,9 +2,31 @@ import httpx
 import pandas as pd
 import numpy as np
 import logging
+import os
 import time
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_BRIDGE_URL = "http://127.0.0.1:8081"
+
+
+def resolve_bridge_url(explicit_url=None):
+    """Explicit argument wins, then MT5_BRIDGE_URL, then the local bridge."""
+    return explicit_url or os.getenv("MT5_BRIDGE_URL") or DEFAULT_BRIDGE_URL
+
+
+def auto_launch_enabled():
+    """Local Wine auto-launch stays on unless MT5_AUTO_LAUNCH disables it."""
+    value = os.getenv("MT5_AUTO_LAUNCH", "true").strip().lower()
+    return value not in {"false", "0", "no", "off"}
+
+
+def bridge_headers():
+    """Shared token header required by a network-exposed bridge."""
+    token = os.getenv("MT5_BRIDGE_TOKEN", "").strip()
+    return {"X-Bridge-Token": token} if token else None
+
 
 class MT5ApiConnector:
     _instance = None
@@ -25,21 +47,26 @@ class MT5ApiConnector:
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super(MT5ApiConnector, cls).__new__(cls)
-            cls._instance.base_url = kwargs.get("base_url", "http://127.0.0.1:8081")
+            cls._instance.base_url = resolve_bridge_url(kwargs.get("base_url"))
             cls._instance.connected = False
         return cls._instance
 
-    def __init__(self, base_url="http://127.0.0.1:8081"):
+    def __init__(self, base_url=None):
         if hasattr(self, 'initialized') and self.initialized: return
-        self.host = "127.0.0.1"
-        self.port = 8081
-        self.base_url = base_url
+        self.base_url = resolve_bridge_url(base_url)
+        parsed = urlparse(self.base_url)
+        self.host = parsed.hostname or "127.0.0.1"
+        self.port = parsed.port or (443 if parsed.scheme == "https" else 80)
         self._client = httpx.Client(
-            base_url=base_url,
+            base_url=self.base_url,
             timeout=httpx.Timeout(10.0, connect=5.0),
+            headers=bridge_headers(),
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
         )
-        self._ensure_server_running()
+        if auto_launch_enabled():
+            self._ensure_server_running()
+        else:
+            logger.info(f"MT5 bridge auto-launch disabled. Using {self.base_url}")
         self.initialized = True
 
     def _is_server_up(self):
