@@ -1,5 +1,6 @@
 from ..core.strategy_engine import StrategyEngine
 from ..core.risk_manager import RiskManager
+from ..risk_math import profit_factor
 from ..utils.logger import setup_logger
 import pandas as pd
 import numpy as np
@@ -155,7 +156,7 @@ class Backtester:
         total_pnl = sum(pnls)
         win_rate = len(winning_trades) / len(self.trades)
         
-        profit_factor = abs(sum(winning_trades) / sum(losing_trades)) if losing_trades else 0
+        pf = profit_factor(winning_trades, losing_trades)
         
         equity_series = pd.Series(self.equity_curve)
         max_drawdown = (equity_series.cummax() - equity_series).max() / self.initial_balance
@@ -169,7 +170,7 @@ class Backtester:
             'win_rate': win_rate,
             'sharpe_ratio': sharpe_ratio,
             'max_drawdown': max_drawdown,
-            'profit_factor': profit_factor,
+            'profit_factor': pf,
             'avg_win': np.mean(winning_trades) if winning_trades else 0,
             'avg_loss': np.mean(losing_trades) if losing_trades else 0
         }
