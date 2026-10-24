@@ -97,18 +97,26 @@ if [ ! -d "$VENV_PATH" ]; then
 fi
 valid_venv "$VENV_PATH" || unsafe "$VENV_PATH"
 
+# Buffer pip stdout until success so legacy message ordering is preserved
+# without announcing completion on failures. Keep stderr and exact exit codes.
+pip_output=
+pointer=
+cleanup() {
+    [ -z "$pip_output" ] || rm -f -- "$pip_output"
+    [ -z "$pointer" ] || rm -f -- "$pointer"
+}
+trap cleanup EXIT
 if [ -f requirements.txt ]; then
-    "$VENV_PATH/bin/python" -m pip install --upgrade pip || fail 'pip upgrade failed.' "$?"
-    "$VENV_PATH/bin/python" -m pip install -r requirements.txt || fail 'requirements installation failed.' "$?"
+    pip_output=$(mktemp .setup-pip.XXXXXX) || fail 'could not buffer installation output.'
+    "$VENV_PATH/bin/python" -m pip install --upgrade pip > "$pip_output" || fail 'pip upgrade failed.' "$?"
+    "$VENV_PATH/bin/python" -m pip install -r requirements.txt >> "$pip_output" || fail 'requirements installation failed.' "$?"
 fi
 
 # Atomic replacement avoids following an existing hard link when recording.
 if [ "$recorded" != "$VENV_PATH" ]; then
     pointer=$(mktemp .venv_linux_path.XXXXXX) || fail 'could not record environment path.'
-    trap 'rm -f -- "$pointer"' EXIT
     printf '%s\n' "$VENV_PATH" > "$pointer" && mv -f -- "$pointer" .venv_linux_path ||
         fail 'could not record environment path.'
-    trap - EXIT
 fi
 printf 'Setting up environment...\n'
 if "$created"; then
@@ -121,6 +129,7 @@ else
     printf 'Reusing virtual environment: %s\n' "$VENV_PATH"
 fi
 if [ -f requirements.txt ]; then
+    cat -- "$pip_output"
     printf 'Requirements installed.\n'
 else
     printf 'requirements.txt not found.\n'

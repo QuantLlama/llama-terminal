@@ -26,6 +26,7 @@ if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
     chmod +x "$3/bin/python"
 elif [ "$1" = "-m" ] && [ "$2" = pip ]; then
     printf 'pip:%s\n' "${*:3}" >> "$CALLS"
+    [ "${PIP_VERBOSE:-}" != 1 ] || printf 'PIP:%s\n' "${*:3}"
     [ "$PIP_FAIL" != "$3" ] || exit 7
 elif [ "$1" = "-c" ]; then
     exit "${INVALID_PYTHON:-0}"
@@ -89,6 +90,23 @@ def success(path="./venv_linux", requirements=True, reuse=True):
     return ("Setting up environment...\n" + message
             + ("Requirements installed.\n" if requirements else "requirements.txt not found.\n")
             + "Setup complete.\n")
+
+
+def test_verbose_pip_preserves_baseline_output_order(project):
+    _, env = project
+    env['PIP_VERBOSE'] = '1'
+    result = run(project)
+    assert (result.returncode, result.stdout, result.stderr) == (
+        0, 'Setting up environment...\n'
+        'Virtual environment creado localmente con éxito.\n'
+        'PIP:install --upgrade pip\nPIP:install -r requirements.txt\n'
+        'Requirements installed.\nSetup complete.\n', '')
+
+
+def test_verbose_pip_failure_emits_no_success_output(project):
+    _, env = project
+    env.update(PIP_VERBOSE='1', PIP_FAIL='install')
+    assert_error(run(project), 'Error: pip upgrade failed.', 7)
 
 
 def test_clean_local_setup_preserves_baseline_output(project):
