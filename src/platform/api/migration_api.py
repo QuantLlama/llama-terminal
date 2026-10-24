@@ -45,16 +45,22 @@ def _authorise(provided: str | None) -> None:
 async def desktop_import(
     request: Request,
     x_import_token: str | None = Header(default=None, alias="X-Import-Token"),
+    x_import_force: str | None = Header(default=None, alias="X-Import-Force"),
 ):
     """Store an uploaded desktop database and run the one-time import."""
     _authorise(x_import_token)
 
     destination = Path(database.get_db_path())
+    forced = (x_import_force or "").strip() == "1"
     if database.legacy_import_already_applied():
-        raise HTTPException(
-            status_code=409,
-            detail="The legacy import already ran; refusing to replace live data.",
-        )
+        if not forced:
+            raise HTTPException(
+                status_code=409,
+                detail="The legacy import already ran; refusing to replace live data.",
+            )
+        # A deliberate retry still never overwrites: the import inserts with
+        # DO NOTHING, so only missing rows are added.
+        database.clear_legacy_import_marker()
 
     payload = await request.body()
     if not payload:
