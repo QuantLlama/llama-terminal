@@ -1,4 +1,6 @@
 import ccxt
+
+from src.services.crypto_proxy import apply_proxy
 import logging
 import threading
 import os
@@ -112,6 +114,7 @@ class CryptoConnector:
         try:
             exchange_class = getattr(ccxt, self.exchange_id)
             self.exchange = exchange_class(config)
+            apply_proxy(self.exchange)
             
             # Suppress fetchOpenOrders warning for Binance
             if self.exchange_id == 'binance':
