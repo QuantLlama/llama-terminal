@@ -19,6 +19,12 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(module.database, "get_db_path", lambda: str(store["path"]))
     monkeypatch.setattr(module.database, "legacy_import_already_applied", lambda: store["applied"])
+    monkeypatch.setattr(module.database, "legacy_import_user_id", lambda: "user-a")
+    monkeypatch.setattr(
+        module.database,
+        "delete_user_rows",
+        lambda user_id: store.update(replaced=user_id) or {"workspaces": 1},
+    )
     monkeypatch.setattr(
         module.database,
         "clear_legacy_import_marker",
@@ -102,3 +108,17 @@ def test_force_runs_once_more_without_deleting_rows(client):
     assert response.status_code == 200
     assert store.get("cleared") is True
     assert store["path"].read_bytes() == SQLITE_HEADER
+
+
+def test_replace_clears_only_the_target_tenant_before_importing(client):
+    http, store, monkeypatch = client
+    monkeypatch.setenv(migration_api.TOKEN_ENV, "expected-token")
+    store["applied"] = True
+    response = http.post(
+        "/api/ops/desktop-import",
+        content=SQLITE_HEADER,
+        headers={"X-Import-Token": "expected-token", "X-Import-Replace": "1"},
+    )
+    assert response.status_code == 200
+    assert store["replaced"] == "user-a"
+    assert response.json()["replaced"] == {"workspaces": 1}

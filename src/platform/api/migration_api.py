@@ -46,12 +46,14 @@ async def desktop_import(
     request: Request,
     x_import_token: str | None = Header(default=None, alias="X-Import-Token"),
     x_import_force: str | None = Header(default=None, alias="X-Import-Force"),
+    x_import_replace: str | None = Header(default=None, alias="X-Import-Replace"),
 ):
     """Store an uploaded desktop database and run the one-time import."""
     _authorise(x_import_token)
 
     destination = Path(database.get_db_path())
-    forced = (x_import_force or "").strip() == "1"
+    replace = (x_import_replace or "").strip() == "1"
+    forced = (x_import_force or "").strip() == "1" or replace
     if database.legacy_import_already_applied():
         if not forced:
             raise HTTPException(
@@ -61,6 +63,11 @@ async def desktop_import(
         # A deliberate retry still never overwrites: the import inserts with
         # DO NOTHING, so only missing rows are added.
         database.clear_legacy_import_marker()
+    replaced = None
+    if replace:
+        # Destructive by design: only reachable with the operator token, and the
+        # rows are then restored from the uploaded file in the same request.
+        replaced = database.delete_user_rows(database.legacy_import_user_id())
 
     payload = await request.body()
     if not payload:
@@ -88,5 +95,6 @@ async def desktop_import(
     return {
         "status": result.get("status"),
         "imported": result.get("imported", {}),
+        "replaced": replaced,
         "bytes": len(payload),
     }

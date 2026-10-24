@@ -557,6 +557,28 @@ class PostgresUserRepository:
         finally:
             connection.close()
 
+    def delete_user_rows(self, user_id: str) -> Dict[str, int]:
+        """Remove one tenant's rows before a deliberate replace import."""
+        if not user_id:
+            raise ValueError("user_id is required")
+        removed: Dict[str, int] = {}
+        connection, cursor_factory = _open_connection(self.url)
+        try:
+            cursor = connection.cursor(cursor_factory=cursor_factory)
+            for table in ("ai_chat_history", "workspaces", "algolab_state", "user_settings"):
+                cursor.execute(
+                    f"DELETE FROM {table} WHERE user_id = %(user_id)s",
+                    {"user_id": user_id},
+                )
+                removed[table] = cursor.rowcount
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+        return removed
+
     def legacy_import_applied(self, marker: str = LEGACY_IMPORT_MARKER) -> bool:
         """True when the one-time import marker is already recorded."""
         connection, cursor_factory = _open_connection(self.url)
