@@ -42,6 +42,9 @@ python-dotenv==1.0.1
 # No requiere instalación adicional para persistencia de configuraciones
 ccxt==4.2.52
 supabase==2.4.3
+# Per-user storage driver. Rows live in PostgreSQL behind DATABASE_URL; see
+# docs/DATA.md. Tests use a fake driver and never import this module.
+psycopg2-binary==2.9.9
 PyInstaller==6.5.0
 pyinstaller-hooks-contrib
 pyarmor

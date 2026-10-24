@@ -53,3 +53,53 @@ The independent verifier failed without a verdict. The writer's tests and CI are
 No credential was revoked or rotated, per the owner's instruction. A functioning credential is not evidence that no one copied it. The Supabase anon key is public browser configuration by design; that is distinct from an administrative key, signing secret, broker password or exchange API secret. Strict database access policies remain necessary.
 
 The pattern-based secret guard and the known-value historical scan have different scopes and neither proves the absence of every possible secret. Keep the repository private until the remaining boundaries above are resolved.
+
+## Tenant isolation for per-user storage (security item 2)
+
+### What was broken
+
+`src/services/database.py` stored per-user rows in SQLite at
+`config/quantum_llama.db`. Its functions accepted a `user_id` and filtered by it,
+but every caller in `src/platform/api/main.py` omitted the argument, so all rows
+landed under the default `'default_user'`. The endpoints that used those rows —
+`/api/config`, `/api/workspace/*`, AlgoLab editor state and AlgoLab chat history —
+also had no authentication dependency: only `/api/auth/session` used
+`Depends(get_current_user)`. Any visitor could read and overwrite every workspace
+and UI setting, and every logged-in user shared one namespace.
+
+### What changed
+
+- Per-user storage now runs on PostgreSQL through `DATABASE_URL`
+  (`src/services/user_repository.py`, documented in [DATA.md](DATA.md)). Every
+  statement is parameterized and tenant-filtered; the schema enforces
+  `user_id TEXT NOT NULL`, `UNIQUE (user_id)` on `user_settings` and
+  `algolab_state`, `UNIQUE (user_id, session_name)` on `workspaces`, and an index
+  on `user_id` for each table. SQLite is no longer a system of record.
+- One dependency, `get_authenticated_user_id`, derives the tenant id only from a
+  validated Supabase token. All per-user endpoints require it: `GET`/`POST
+  /api/config`, `GET`/`POST /api/workspace/last-active`, `GET`/`POST
+  /api/workspace/{session}`, `GET /api/workspaces`, `DELETE /api/workspace/{name}`,
+  `GET`/`POST /api/algolab/state`, `GET`/`DELETE /api/algolab/chat/history` and
+  `POST /api/algolab/chat`. Missing or invalid credentials return 401 and never
+  reach storage.
+- `user_id` supplied in a request body, query string or header is ignored; only the
+  token subject is used.
+- With `DATABASE_URL` unset, those endpoints fail with 503 and an explicit reason
+  instead of silently writing to SQLite. The decision not to keep two sources of
+  truth is recorded in [DATA.md](DATA.md).
+- Pre-existing SQLite rows are copied once into PostgreSQL under `default_user`
+  by an idempotent, marker-guarded import that never overwrites PostgreSQL rows and
+  can be disabled with `QL_DISABLE_LEGACY_SQLITE_IMPORT=1`.
+
+### Residual boundaries for this item
+
+- `src/platform/api/services_api.py` exposes `GET`/`POST /api/v2/config`, which
+  still calls the storage facade without a tenant. Because the facade now requires
+  `user_id`, those two routes fail rather than serving shared data, but they are
+  not yet authenticated and are outside the edit surface of this change.
+- Browser clients must send `Authorization: Bearer <token>` on every per-user call
+  listed above; unauthenticated calls now return 401 by design.
+- Ground truth for isolation and migration behaviour is the offline suite
+  (`tests/test_tenant_isolation.py`, `tests/test_database_postgres.py`). It is not a
+  substitute for the independent security review that this remediation still
+  requires.
