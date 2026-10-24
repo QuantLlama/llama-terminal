@@ -200,33 +200,37 @@ class _CatalogueClient:
     def get(self, path, *args, **kwargs):
         _CatalogueClient.calls.append((path, kwargs.get("params")))
 
+        catalogue = [
+            {"name": "EURUSD", "path": "Forex\\EURUSD", "description": "Euro"},
+            {"name": "NAS100", "path": "Indices\\NAS100", "description": "Nasdaq"},
+        ]
+        params = kwargs.get("params") or {}
+
         class _Response:
             status_code = 200
 
             @staticmethod
             def json():
-                if path == "/api/symbols" and kwargs.get("params", {}).get("group") == "*":
-                    return [
-                        {"name": "EURUSD", "path": "Forex\\EURUSD", "description": "Euro"},
-                        {"name": "NAS100", "path": "Indices\\NAS100", "description": "Nasdaq"},
-                    ]
-                return [{"name": "EURUSD", "path": "Forex\\EURUSD", "description": "Euro"}]
+                needle = (params.get("pattern") or "").lower()
+                if needle:
+                    return [s for s in catalogue if needle in s["name"].lower()]
+                return catalogue
 
         return _Response()
 
 
-def test_symbols_get_caches_the_full_catalogue(monkeypatch):
+def test_symbols_get_forwards_filters_and_caches_identical_calls(monkeypatch):
     module, _ = _fresh_connector(monkeypatch, {"MT5_AUTO_LAUNCH": "false"})
     connector = module.MT5ApiConnector()
     _CatalogueClient.calls = []
     monkeypatch.setattr(module.httpx, "Client", _CatalogueClient)
 
-    all_symbols = connector.symbols_get(group="*")
-    nas = connector.symbols_get(pattern="NAS")
-    eur = connector.symbols_get(group="*EUR*")
+    first = connector.symbols_get(pattern="NAS")
+    second = connector.symbols_get(pattern="NAS")
+    other = connector.symbols_get(group="*")
 
-    assert len(all_symbols) == 2
-    assert [s["name"] for s in nas] == ["NAS100"]
-    assert [s["name"] for s in eur] == ["EURUSD"]
-    wildcard_fetches = [c for c in _CatalogueClient.calls if c[1] and c[1].get("group") == "*"]
-    assert len(wildcard_fetches) == 1, f"expected one catalogue fetch, got {_CatalogueClient.calls}"
+    assert [s["name"] for s in first] == ["NAS100"]
+    assert second == first
+    assert len(other) == 2
+    nas_calls = [c for c in _CatalogueClient.calls if c[1] and c[1].get("pattern") == "NAS"]
+    assert len(nas_calls) == 1, f"identical lookups must be cached: {_CatalogueClient.calls}"

@@ -206,58 +206,36 @@ class MT5ApiConnector:
             logger.error(f"API get_book_snapshot error: {e}")
         return None
 
-    _CATALOGUE_TTL_SECONDS = 60.0
-
-    def _bridge_symbol_catalogue(self):
-        """Full catalogue, cached briefly: it can be megabytes over a tunnel."""
-        now = time.monotonic()
-        cached = getattr(self, "_symbols_cache", None)
-        if cached is not None and (now - cached[0]) < self._CATALOGUE_TTL_SECONDS:
-            return cached[1]
-        try:
-            with self._bridge_client(timeout=30.0) as client:
-                res = client.get("/api/symbols", params={"group": "*"})
-                data = res.json() if res.status_code == 200 else []
-        except Exception as exc:
-            logger.error(f"Symbol catalogue error: {exc}")
-            return cached[1] if cached else []
-        catalogue = [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
-        self._symbols_cache = (now, catalogue)
-        return catalogue
+    _SYMBOLS_TTL_SECONDS = 60.0
 
     def symbols_get(self, group=None, pattern=None):
-        """Return matching symbols without re-downloading the whole catalogue.
+        """Return symbols, filtered by the bridge and cached briefly.
 
-        An unfiltered call keeps asking the bridge for the Market Watch list,
-        which is small. Filtered calls are answered from a short-lived cached
-        snapshot so the UI does not pull megabytes per request.
+        The catalogue can be ~1 MB over a tunnel, so filters are evaluated by
+        the bridge and identical lookups are reused for a short window.
         """
-        if not group and not pattern:
-            try:
-                with self._bridge_client() as client:
-                    res = client.get("/api/symbols")
-                    if res.status_code == 200:
-                        data = res.json()
-                        return [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
-            except Exception as exc:
-                logger.error(f"Symbol list error: {exc}")
-            return []
+        cache = getattr(self, "_symbols_cache", None)
+        key = (group, pattern)
+        now = time.monotonic()
+        if cache and cache[0] == key and (now - cache[1]) < self._SYMBOLS_TTL_SECONDS:
+            return cache[2]
 
-        catalogue = self._bridge_symbol_catalogue()
+        params = {}
+        if group:
+            params["group"] = group
         if pattern:
-            needle = pattern.strip("*").lower()
-            return [
-                s for s in catalogue
-                if needle in str(s.get("name", "")).lower() or needle in str(s.get("path", "")).lower()
-            ]
-        if group and group != "*":
-            import fnmatch
-            return [
-                s for s in catalogue
-                if fnmatch.fnmatch(str(s.get("name", "")), group)
-                or fnmatch.fnmatch(str(s.get("path", "")), group)
-            ]
-        return catalogue
+            params["pattern"] = pattern
+        try:
+            with self._bridge_client(timeout=90.0) as client:
+                res = client.get("/api/symbols", params=params)
+                data = res.json() if res.status_code == 200 else []
+        except Exception as exc:
+            logger.error(f"Symbol list error: {exc}")
+            return cache[2] if cache and cache[0] == key else []
+
+        symbols = [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
+        self._symbols_cache = (key, now, symbols)
+        return symbols
 
     def symbol_select(self, symbol, enable=True):
         try:
