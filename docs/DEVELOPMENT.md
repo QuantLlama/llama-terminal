@@ -122,6 +122,38 @@ pip install -r requirements.txt
 For the container/web surface only, `requirements.deploy.txt` installs a much smaller set
 (no torch, no training stack). For the test suite only, use `requirements.ci.txt`.
 
+### Training dependency scope
+
+The shipped trainer uses PyTorch LSTM/MSE and scikit-learn RandomForest diagnostics,
+not Hugging Face `transformers` or `xgboost`. Those two direct requirements have been
+removed, together with the GPU bootstrap's XGBoost install and PyInstaller's XGBoost
+hidden imports/data/binary collection. Other versions, bootstrap install/fallback
+policy, command flags and package identities are unchanged. Existing environments,
+package caches and saved model artifacts are not cleaned or rewritten.
+
+The source audit covers `train.py`, API and live consumers, all Python files under
+`src/` (including dynamically discovered algorithms/indicators), bootstrap and build
+scripts, and repository dependency manifests. `src/algorithms/__init__.py` and
+`src/indicators/__init__.py` load local plugin files dynamically; none of the shipped
+plugins imports either removed package. AlgoLab's dependency check/install endpoints
+remain available for user-authored plugins. No documented active plugin requires
+either package. Custom plugins outside this audited source set, or user-supplied
+pickles referencing those packages, still need their own dependencies installed;
+this is not a promise to load arbitrary third-party artifacts without them.
+
+`src.models.gan.WGAN_GP`, `src.models.discriminator.Discriminator` and historical
+`src.config.Config` members remain importable compatibility/experimental surfaces.
+They are not the standard trainer's adversarial training path. The shipped saver
+writes a Generator state dictionary and scikit-learn scaler; live/API inference
+reconstructs Generator and loads weights only. Historical import paths and saved
+files have not been removed. See [`ML-PIPELINE.md`](ML-PIPELINE.md) for model semantics.
+
+Isolated stub tests validate declarations, bootstrap policy and the synthetic
+packaging graph, not wheel resolution or installer contents. A clean install of the
+pinned requirements, real desktop build/installer checks and hosted dependency CI
+remain pending. Removing direct declarations does not prove that existing Python
+environments shrank or that every transitive/optional dependency graph is smaller.
+
 ### Node environment
 
 ```bash

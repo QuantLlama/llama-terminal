@@ -5,28 +5,10 @@ Targets: backend.exe (Server), Trainer.exe (CLI), BrowserMode.exe (GUI)
 import subprocess
 import sys
 import os
-import shutil
-from PyInstaller.utils.hooks import collect_all
+from pathlib import Path
+from check_build_inputs import check, new_output, parser
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-def get_venv_python():
-    is_win = sys.platform == "win32"
-    executable = "python.exe" if is_win else "python"
-    subfolder = "Scripts" if is_win else "bin"
-    if not is_win:
-        # Comprobar si hay una ruta alternativa guardada
-        path_file = os.path.join(ROOT, '.venv_linux_path')
-        if os.path.exists(path_file):
-            with open(path_file, 'r', encoding='utf-8') as f:
-                alt_path = f.read().strip()
-                if alt_path and os.path.exists(alt_path):
-                    return os.path.join(alt_path, subfolder, executable)
-        venv_name = "venv_linux"
-    else:
-        venv_name = "venv"
-    return os.path.join(ROOT, venv_name, subfolder, executable)
-
-VENV_PYTHON = get_venv_python()
 OBF_DIR = os.path.join(ROOT, 'build', 'obf_src')
 
 # ── Full hidden imports for backend.exe and Trainer.exe ──
@@ -43,8 +25,7 @@ FULL_HIDDEN_IMPORTS = [
     'dotenv', 'supabase', 'gotrue', 'postgrest', 'httpx',
     'aiohttp', 'certifi', 'psutil', 'GPUtil', 'pandas', 'numpy',
     'MetaTrader5', 'pytz', 'dateutil', 'requests', 'websockets',
-    'sqlite3', 'talib', 'talib.stream', 'ccxt', 'torch', 'vectorbt', 'numba', 'xgboost',
-    'xgboost.training', 'xgboost.core', 'xgboost.libpath', 'xgboost.callback',
+    'sqlite3', 'talib', 'talib.stream', 'ccxt', 'torch', 'vectorbt', 'numba',
     'statsmodels', 'statsmodels.tsa.arima.model', 'yfinance',
     'sklearn', 'sklearn.utils._cython_blas', 'sklearn.utils._typedefs',
     'sklearn.neighbors._partition_nodes', 'sklearn.neighbors._quad_tree',
@@ -74,22 +55,9 @@ FULL_HIDDEN_IMPORTS = [
 # ── Minimal imports for BrowserMode.exe (just a launcher) ──
 BROWSER_HIDDEN_IMPORTS = ['requests']
 
-# Collect everything for xgboost
-xg_datas, xg_binaries, xg_hidden = collect_all('xgboost')
-FULL_HIDDEN_IMPORTS.extend(xg_hidden)
-FULL_DATA_ITEMS = [
-    (os.path.join(OBF_DIR, '.env'), '.'),
-    (os.path.join(OBF_DIR, 'src'), 'src'),
-    (os.path.join(OBF_DIR, 'train.py'), '.'),
-    (os.path.join(OBF_DIR, 'run.py'), '.'),
-    (os.path.join(ROOT, 'images'), 'images'),
-]
-
-FULL_DATA_ITEMS.extend(xg_datas)
-
-FULL_BINARY_ITEMS = list(xg_binaries)
-
-PATHS = [OBF_DIR, ROOT]
+FULL_DATA_ITEMS = []
+FULL_BINARY_ITEMS = []
+PATHS = [OBF_DIR]
 
 def build_target(script_name, exe_name, hide_console=False,
                  hidden_imports=None, data_items=None, binary_items=None, icon_path=None):
@@ -109,7 +77,7 @@ def build_target(script_name, exe_name, hide_console=False,
         '--icon', icon_path,
         '--distpath', os.path.join(ROOT, 'build', 'pyinstaller_dist'),
         '--workpath', os.path.join(ROOT, 'build', 'pyinstaller_work'),
-        '--specpath', os.path.join(ROOT, 'build'),
+        '--specpath', os.path.join(ROOT, 'build', 'specs'),
         '--noconfirm',
         '--clean',
     ]
@@ -155,68 +123,18 @@ def build_target(script_name, exe_name, hide_console=False,
         print(f"\nERROR: PyInstaller failed for {exe_name}{ext}")
         sys.exit(1)
 
-def generate_all_icons():
-    print("Generating high-quality ICO files...")
-    try:
-        from PIL import Image, ImageDraw
-        base_img_path = os.path.join(ROOT, 'images', 'QuantumLLama.png')
-        if not os.path.exists(base_img_path):
-            print(f"Warning: {base_img_path} not found. Skipping icon generation.")
-            return
-
-        base = Image.open(base_img_path).convert("RGBA")
-        size = base.size
-        icon_sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-
-        # 1. Main Icon
-        base.save(os.path.join(ROOT, 'images', 'QuantumLLama.ico'), format='ICO', sizes=icon_sizes)
-        
-        # 2. Browser Icon
-        browser_img = base.copy()
-        draw = ImageDraw.Draw(browser_img)
-        r = size[0] // 4
-        center = (size[0] - r - 10, size[1] - r - 10)
-        draw.ellipse([center[0]-r, center[1]-r, center[0]+r, center[1]+r], fill=(0, 122, 255, 255), outline=(255, 255, 255, 255), width=5)
-        draw.line([center[0]-r+10, center[1], center[0]+r-10, center[1]], fill=(255, 255, 255, 255), width=3)
-        draw.line([center[0], center[1]-r+10, center[0], center[1]+r-10], fill=(255, 255, 255, 255), width=3)
-        browser_img.save(os.path.join(ROOT, 'images', 'QuantumLLama_Browser.ico'), format='ICO', sizes=icon_sizes)
-
-        # 3. Trainer Icon
-        trainer_img = base.copy()
-        draw = ImageDraw.Draw(trainer_img)
-        r = size[0] // 4
-        center = (size[0] - r - 10, size[1] - r - 10)
-        draw.ellipse([center[0]-r, center[1]-r, center[0]+r, center[1]+r], fill=(255, 170, 0, 255), outline=(255, 255, 255, 255), width=5)
-        draw.line([center[0]-r+15, center[1]+r-15, center[0]-5, center[1], center[0]+r-15, center[1]-r+15], fill=(255, 255, 255, 255), width=5)
-        trainer_img.save(os.path.join(ROOT, 'images', 'QuantumLLama_Trainer.ico'), format='ICO', sizes=icon_sizes)
-        
-        print("[OK] Icons generated successfully.")
-    except Exception as e:
-        print(f"Warning: Could not generate icons automatically: {e}")
-
 def build():
-    generate_all_icons()
-    subprocess.run([VENV_PYTHON, os.path.join(ROOT, 'scripts', 'obfuscate.py')], check=True)
-
-    FULL_DATA_ITEMS = [
-        (os.path.join(OBF_DIR, '.env'), '.'),
-        (os.path.join(OBF_DIR, 'src'), 'src'),
-        (os.path.join(OBF_DIR, 'train.py'), '.'),
-        (os.path.join(OBF_DIR, 'run.py'), '.'),
-        (os.path.join(ROOT, 'images'), 'images'),
-    ]
-    FULL_DATA_ITEMS.extend(xg_datas)
-
-    # Add PyArmor Runtime folders after they are generated by obfuscate.py
-    if os.path.exists(OBF_DIR):
-        for item in os.listdir(OBF_DIR):
-            if item.startswith('pyarmor_runtime'):
-                rt_path = os.path.join(OBF_DIR, item)
-                if os.path.isdir(rt_path):
-                    FULL_DATA_ITEMS.append((rt_path, item))
-                    print(f"Adding PyArmor runtime: {item}")
-
-    shutil.copy2(os.path.join(ROOT, 'browser_launcher.py'), os.path.join(OBF_DIR, 'browser_launcher.py'))
+    global FULL_DATA_ITEMS, FULL_BINARY_ITEMS
+    root = Path(ROOT)
+    check(root)
+    for directory in ('build/obf_src', 'build/pyinstaller_dist',
+                      'build/pyinstaller_work', 'build/specs'):
+        new_output(root, directory)
+    subprocess.run([sys.executable, str(root / 'scripts/obfuscate.py')], check=True)
+    FULL_DATA_ITEMS = [(str(root / 'build/obf_src' / name), dest) for name, dest in
+                       [('src', 'src'), ('images', 'images'), ('train.py', '.'),
+                        ('run.py', '.'), ('package.json', '.')]]
+    FULL_BINARY_ITEMS = []
 
     # Build Target 1: backend.exe (full stack) - Uses main icon
     build_target('start_api.py', 'backend', hide_console=True, 
@@ -235,4 +153,12 @@ def build():
     print("\n[SUCCESS] All production targets built.")
 
 if __name__ == '__main__':
-    build()
+    args = parser(__doc__).parse_args()
+    ROOT = str(args.project_root.resolve())
+    OBF_DIR = os.path.join(ROOT, 'build', 'obf_src')
+    PATHS = [OBF_DIR]
+    try:
+        build()
+    except (ValueError, KeyError, OSError) as exc:
+        print(f'Packaging error: {exc}', file=sys.stderr)
+        sys.exit(1)
