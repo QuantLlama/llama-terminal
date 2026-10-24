@@ -10,12 +10,8 @@ import socket
 
 def find_running_backend():
     for port in range(8050, 8060):
-        try:
-            response = requests.get(f"http://127.0.0.1:{port}/api/health", timeout=0.2)
-            if response.status_code == 200:
-                return port
-        except:
-            continue
+        if is_backend_running(port, timeout=0.2):
+            return port
     return None
 
 def get_free_port(start_port=8050, max_port=8100):
@@ -25,19 +21,20 @@ def get_free_port(start_port=8050, max_port=8100):
                 return port
     return start_port
 
-API_PORT = find_running_backend()
-if not API_PORT:
-    API_PORT = get_free_port(8050)
+API_PORT = 8050
 
 API_URL = f"http://127.0.0.1:{API_PORT}"
 
-def is_backend_running(port=None):
+def is_backend_running(port=None, timeout=1):
     if port is None:
         port = API_PORT
     try:
-        response = requests.get(f"http://127.0.0.1:{port}/api/health", timeout=1)
-        return response.status_code == 200
-    except:
+        response = requests.get(f"http://127.0.0.1:{port}/api/health", timeout=timeout)
+        if response.status_code != 200:
+            return False
+        health = response.json()
+        return isinstance(health, dict) and health.get("ready_for_ui") is True
+    except (requests.RequestException, ValueError):
         return False
 
 def launch_browser():
@@ -70,6 +67,9 @@ def launch_browser():
         webbrowser.open(API_URL)
 
 def main():
+    global API_PORT, API_URL
+    API_PORT = find_running_backend() or get_free_port(8050)
+    API_URL = f"http://127.0.0.1:{API_PORT}"
     # If we are in the packaged app, the backend might be in the same folder as this launcher
     # or in the resources folder.
     if not is_backend_running():
@@ -91,6 +91,12 @@ def main():
                 if is_backend_running():
                     break
                 time.sleep(1)
+            else:
+                print("Backend readiness timed out; browser was not opened.")
+                return
+        else:
+            print("Backend is not ready; browser was not opened.")
+            return
 
     launch_browser()
 

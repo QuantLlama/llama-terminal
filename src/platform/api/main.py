@@ -1177,6 +1177,14 @@ async def update_mapping(platform: str = Query("mt5"), data: dict = Body(...)):
 async def health_check():
     return get_platform_health()
 
+@app.get("/api/health")
+async def readiness_check():
+    health = get_platform_health()
+    return JSONResponse(
+        content=health,
+        status_code=200 if health.get("ready_for_ui") is True else 503,
+    )
+
 @app.get("/api/license/check")
 async def check_license_endpoint(
     user_id: Optional[str] = Query(None),

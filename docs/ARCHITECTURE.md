@@ -115,7 +115,8 @@ Routers are registered in `src/platform/api/main.py`.
 | `/api/backtest` | `backtesting_api.py` | Strategy catalogue, data load/upload/validate, run, optimize, results, PDF export, logs |
 | `/api/analysis` | `analysis_api.py` | Technical analysis endpoint |
 | `/ws`, `/ws/terminal` | `main.py` | Terminal-level streaming routes |
-| `/health` | `main.py` | Liveness probe used by the container health check |
+| `/health` | `main.py` | Liveness probe used by the container health check (unchanged health body, HTTP 200) |
+| `/api/health` | `main.py` | JSON readiness for Electron and browser launchers; HTTP 200 only when `ready_for_ui` is true, otherwise 503 |
 | `/api/license/check` | `main.py` | License gate queried by the Electron supervisor |
 | `/api/system/telemetry` | `main.py` | CPU/GPU/memory telemetry for the UI |
 | `/api/algo/*` | `main.py` | Start, stop, live, status, clean and logs for the algorithm runtime |
@@ -123,6 +124,15 @@ Routers are registered in `src/platform/api/main.py`.
 Serving order matters: the SPA catch-all is registered **after** every API route, so a
 new router added later must be registered before it, or its paths will be swallowed by
 the `index.html` fallback.
+
+Both health routes reuse `get_platform_health()`. Readiness preserves its fields
+(`ready_for_ui`, `mt5_status`, `services`, `timestamp`); it does not require a broker
+connection beyond the existing UI-readiness policy. Launchers accept only HTTP 200
+with valid JSON and a boolean `ready_for_ui: true`, never the SPA HTML fallback.
+Electron uses the stdlib HTTP helper in `electron/health.js` for discovery and its
+30-second startup wait. Browser mode validates the same contract during discovery
+and its existing 30-attempt startup wait. Neither opens the application on readiness
+failure. Importing `browser_launcher.py` does not probe ports or launch processes.
 
 ---
 
@@ -242,7 +252,6 @@ Recorded deliberately: this is what a maintainer should know before touching the
 
 | # | Observation | Consequence |
 | --- | --- | --- |
-| 1 | The readiness probe used by the Electron supervisor and `browser_launcher.py` is `/api/health`, but only `/health` exists. | The SPA catch-all answers `200` with `index.html`, so the probe passes even when the backend is not ready. |
 | 2 | Two live-trading paths: the legacy CLI loop (`src/live/live_trade.py`) and the platform path (MarketDataEngine → OrderGateway → AlgoEngine). | Fixes applied to one do not reach the other. |
 | 3 | Two backtesting engines (`src/analysis/backtester.py`, `src/engine/backtesting/backtester.py`) and two risk implementations. | Results and limits can disagree between the trainer and the platform. |
 | 4 | `src/platform/api/main.py` is ~4,600 lines and mixes routing, startup, licensing, telemetry and static serving. | Hard to review, easy to create import cycles. |

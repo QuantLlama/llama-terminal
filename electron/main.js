@@ -4,7 +4,7 @@ const fs = require('fs');
 const { spawn, exec } = require('child_process');
 const http = require('http');
 const treeKill = require('tree-kill');
-const waitOn = require('wait-on');
+const { findRunningBackend, waitForReadiness } = require('./health');
 
 function getFreePort(startPort) {
   return new Promise((resolve) => {
@@ -21,29 +21,6 @@ function getFreePort(startPort) {
         resolve(startPort);
       }
     });
-  });
-}
-
-function findRunningBackend() {
-  return new Promise((resolve) => {
-    const http = require('http');
-    let found = false;
-    let pending = 10;
-    for (let p = 8050; p < 8060; p++) {
-      const req = http.get(`http://127.0.0.1:${p}/api/health`, (res) => {
-        if (res.statusCode === 200 && !found) {
-          found = true;
-          resolve(p);
-        }
-        if (--pending === 0 && !found) resolve(null);
-      });
-      req.on('error', () => {
-        if (--pending === 0 && !found) resolve(null);
-      });
-      req.setTimeout(200, () => {
-        req.abort();
-      });
-    }
   });
 }
 
@@ -332,11 +309,7 @@ if (!gotTheLock) {
 
     try {
         console.log(`Waiting for backend at http://127.0.0.1:${API_PORT}/api/health...`);
-        // Use waitOn to make sure backend is up
-        await waitOn({
-            resources: [`http://127.0.0.1:${API_PORT}/api/health`],
-            timeout: 30000, // Wait 30s
-        });
+        await waitForReadiness(`http://127.0.0.1:${API_PORT}/api/health`, 30000);
 
         console.log(`Backend started and healthy at 127.0.0.1:${API_PORT}`);
         
@@ -372,8 +345,8 @@ if (!gotTheLock) {
         }
     } catch (err) {
         console.error('Backend failed to start or timeout:', err);
-        // Fallback: still show window so user can see something is wrong
-        createWindow();
+        // Do not load the SPA when the readiness contract has not passed.
+        app.quit();
     }
   });
 }
