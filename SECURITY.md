@@ -70,6 +70,31 @@ Out of scope:
   (`src/services/crypto_proxy.py`).
 - The cloud image runs as a non-root user with a health check (`Dockerfile`).
 
+## Credentials in the repository
+
+Nothing that authenticates anything may be committed: exchange API keys, broker logins,
+Fernet keys, session tokens, the bridge token, or the Supabase anon key. Three mechanisms
+enforce it:
+
+1. **`.gitignore`** keeps `.env`, `*.key`, `.crypto_key`, `.mt5_key`, `*.db` and the runtime
+   account stores out of the index.
+2. **`scripts/check_secrets.py`** runs in CI on every push and pull request and fails on a
+   credential-shaped literal, a broker account field or a personal absolute path. Run it
+   locally before pushing.
+3. **Environment-only configuration.** `SUPABASE_URL` / `SUPABASE_ANON_KEY`,
+   `MT5_BRIDGE_TOKEN` and `CRYPTO_HTTP_PROXY` are read from the environment; the application
+   has no built-in credential defaults. Without them, that feature reports itself disabled
+   instead of falling back to a committed value.
+
+### If a credential reaches a commit
+
+Deleting it in a later commit is not a fix: it stays in the history and in every clone.
+
+1. **Rotate the credential first.** Treat it as compromised the moment it was pushed.
+2. Remove it from the working tree and load it from the environment.
+3. Decide the history: rewrite it before publishing, or publish a clean history. The
+   repository owner makes that call; it is destructive and never automatic.
+
 ## Safe harbour
 
 We will not pursue legal action against researchers who act in good faith, stay within

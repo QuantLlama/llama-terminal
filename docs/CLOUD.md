@@ -133,7 +133,7 @@ Only CCXT traffic is affected. MT5, Supabase and yfinance keep their normal path
 | `CRYPTO_HTTP_PROXY` | `http://10.0.0.1:3128` | — | Regional block on the exchange (problem 4) |
 | `QUANTUM_LLAMA_KEY_DIR` | `/app/config/keys` | unset | Container user cannot write the project root |
 | `TZ` | `America/Argentina/Buenos_Aires` | same | Sessions and chart time |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | compiled defaults | — | Override only when the project changes |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | required | — | No compiled defaults; without them authentication is disabled |
 
 ---
 

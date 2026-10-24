@@ -9,7 +9,18 @@ Release notes with full detail live in [`docs/RELEASES/`](docs/RELEASES/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- **Credentials removed from the tracked tree.** `encrypt_key.py` (plaintext exchange key
+  and secret) is deleted, the MT5 and crypto account stores are emptied, and the Supabase
+  URL and anon key are no longer compiled into `src/services/auth.py`: they are read from
+  `SUPABASE_URL` / `SUPABASE_ANON_KEY`, and authentication reports itself disabled when they
+  are absent. **Rotate any credential that was ever committed** — removing it in a later
+  commit does not remove it from history.
+- **`scripts/check_secrets.py`** runs in CI and fails on credential-shaped literals, broker
+  account fields and personal absolute paths.
+- The agent tooling trees, local `scratch/` and machine-specific path files are no longer
+  tracked, and `.dockerignore` stops shipping runtime account stores into the image.
 
 ## [1.9.0] - 2026-10-24
 

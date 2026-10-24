@@ -343,10 +343,14 @@
   <div id="vix-portal-root"
     style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2000000; pointer-events: none;">
   </div>
+  <script src="/api/public-auth-config.js"></script>
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
-    const SUPABASE_URL = "";
-    const SUPABASE_ANON_KEY = "REDACTED";
+    if (!window.PUBLIC_AUTH_CONFIG) {
+      document.getElementById("root").textContent = "Public authentication configuration unavailable. Contact the administrator.";
+      throw new Error("Public authentication configuration unavailable.");
+    }
+    const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.PUBLIC_AUTH_CONFIG;
     const isPopoutMode = new URLSearchParams(window.location.search).get("popout") === "true";
     window.supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {

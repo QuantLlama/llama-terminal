@@ -88,6 +88,9 @@ message, update the documentation that describes it:
   keep functions small enough to test.
 - Do not commit credentials, tokens, account numbers or logs containing them. `.env`,
   `*.key`, `.crypto_key`, `.mt5_key`, `*.db` and `*.log` are ignored for a reason.
+- Read secrets from the environment. There are no built-in credential defaults in the code.
+- Run `python scripts/check_secrets.py` before pushing. CI runs the same guard and fails the
+  build; a credential that reached a commit is compromised even if a later commit removes it.
 
 ## Trading-specific rules
 

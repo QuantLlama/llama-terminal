@@ -76,3 +76,17 @@ quantum_llama.db
 src/config/quantum_llama.db
 # Local Pi runtime state
 .atl/
+
+# Agent tooling, local scratch and machine-specific paths (never part of the product)
+.agents/
+.claude/
+.junie/
+.openclaw/
+scratch/
+.venv_linux_path
+
+# Runtime credential stores: accounts are configured through the UI and live in the
+# deployment volume, never in the repository
+src/config/*accounts.json
+src/config/default_account.json
+mt5_debug.json

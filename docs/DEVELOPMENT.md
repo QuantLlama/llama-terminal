@@ -53,8 +53,24 @@ Create a `.env` file in the repository root with the variables you need. Nothing
 | `USE_MT5_API` | no | `auto` (default), `true` (HTTP bridge), `false` (native package) |
 | `CRYPTO_HTTP_PROXY` | only when a venue is geo-blocked | Proxy for CCXT traffic |
 | `QUANTUM_LLAMA_KEY_DIR` | containers | Writable directory for key material |
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | only for cloud auth | Session validation in the cloud build |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | for authentication | Session validation. There are no compiled defaults: without both, auth-dependent routes answer `500 Supabase not configured` |
 | `APP_PORT` | no | Container listen port, default `8050` |
+
+### Browser authentication configuration
+
+Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the runtime environment (Coolify for
+containers); do not embed project values in frontend files. The browser synchronously
+loads `/api/public-auth-config.js` before the Babel app starts. This script exposes
+only these two public fields and is served with `Cache-Control: no-store`.
+
+The anon key is visible in the browser **by design**, not an administrative secret.
+Use the legacy Supabase JWT with `role=anon` and `alg=HS256`; unknown formats,
+missing/malformed values and administrative/service-role keys are rejected with
+HTTP 503 and a nonsecret configuration error. Decoding classifies the role only;
+Supabase still verifies signatures and sessions. Never set `SUPABASE_ANON_KEY` to
+an administrative key. Keep Row Level Security policies enabled: hiding an anon key
+is not access control. Popout windows retain their existing non-persistent,
+non-refreshing session behavior.
 
 ### Python environment
 
@@ -146,6 +162,13 @@ python mt5_server.py            # listens on 127.0.0.1:8081 by default
   documented option) as described in [`../deploy/MT5_BRIDGE.md`](../deploy/MT5_BRIDGE.md).
 
 ---
+
+### Before you push
+
+```bash
+python scripts/check_secrets.py    # the same guard CI runs
+python -m pytest -q
+```
 
 ## 5. Tests
 

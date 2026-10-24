@@ -29,7 +29,7 @@ MetaTrader 5 cannot run inside a Linux container; see "MT5 bridge" below.
 | Application | `quantum-llama-web` (`zzkdpzudy7gp42gfxcffday4`) |
 | Server | `localhost` (`nkirbxo6kjkkoiywkqdsesr9`) |
 | Domain | `https://llama.nbmsystemas.com` |
-| Branch | `feature/coolify-deploy` (switch to `main` after the v1.9.0 release) |
+| Branch | `main` |
 | Build pack | Dockerfile (`/Dockerfile`) |
 | Exposed port | `8050` |
 | Health check | `GET /health` on port `8050` |
@@ -46,11 +46,16 @@ so Coolify can clone but never push.
 | `MT5_AUTO_LAUNCH` | `false` | There is no Wine/MT5 inside the container; never try to boot it |
 | `MT5_BRIDGE_URL` | *(unset)* | Set it to the tunnel URL when the local MT5 bridge is exposed |
 | `TZ` | `America/Argentina/Buenos_Aires` | Market session / chart time handling |
+| `SUPABASE_URL` | from the Supabase project | Required for authentication; no code default |
+| `SUPABASE_ANON_KEY` | from the Supabase project | Required for authentication; no code default |
 | `QUANTUM_LLAMA_KEY_DIR` | `/app/config/keys` | Writable location for the credential encryption keys (the container user cannot write the project root) |
 | `PYTHONUNBUFFERED` | `1` | Live container logs |
 
-`SUPABASE_URL` and `SUPABASE_ANON_KEY` fall back to the values compiled into
-`src/services/auth.py`; override them only if the Supabase project changes.
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are **required** when authentication is used: the
+application has no compiled defaults, and without both variables the Supabase client stays
+disabled (auth-dependent routes answer `500 Supabase not configured`). Set them in the
+application's environment before deploying a build that includes this change. They live in
+the deployment secret store, never in the repository.
 
 ## Persistent volumes
 
@@ -67,16 +72,14 @@ volume, so the shipped default configuration files are preserved.
 
 ## Deploying a new version
 
-1. Push the commit to the tracked branch (`feature/coolify-deploy`).
+1. Push the reviewed commit to the tracked branch (`main`).
 2. Redeploy from Coolify:
    - UI: *Application → quantum-llama-web → Deploy*.
    - API: `POST /api/v1/deploy` with body `{"uuid":"zzkdpzudy7gp42gfxcffday4"}`.
 3. Watch the deployment until `status: finished` and confirm
    `https://llama.nbmsystemas.com/health` returns `200`.
 
-Automatic deployment on push is intentionally disabled; enable
-`is_auto_deploy_enabled` and add the GitHub webhook when the branch becomes
-`main`.
+Automatic deployment was confirmed enabled on `main`, then paused during the authorized history purge. Keep `is_auto_deploy_enabled=false` until the runtime authentication migration in PR #28 has completed its required security review. The running container was not restarted. See [`../docs/SECURITY-REMEDIATION.md`](../docs/SECURITY-REMEDIATION.md) before any manual redeployment.
 
 ## Verifying a deployment
 

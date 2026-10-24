@@ -64,6 +64,7 @@ from pydantic import BaseModel, ConfigDict
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 from src.live.connector import MT5Connector
 from src.platform.api.accounts_api import router as accounts_router
+from src.platform.api.public_auth_config import router as public_auth_config_router
 from src.platform.api.services_api import (
     get_platform_health,
     register_connection,
@@ -447,6 +448,7 @@ async def modify_position(req: ModifyRequest):
 
 
 # ── APP INITIALIZATION ──────────────────────────────────────────────
+app.include_router(public_auth_config_router)
 app.include_router(services_router)
 app.include_router(accounts_router)
 app.include_router(footprint_router)

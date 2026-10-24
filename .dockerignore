@@ -54,3 +54,10 @@ legal/
 docs/
 openspec/
 NinjaTrader/
+
+# Runtime account stores: credentials must never be baked into an image
+src/config/*accounts.json
+src/config/live_config.json
+src/config/default_account.json
+.venv_linux_path
+mt5_debug.json
