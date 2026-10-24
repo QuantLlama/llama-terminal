@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  tests:
+    name: pytest (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.ci.txt
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.ci.txt
+
+      - name: Run the test suite
+        run: python -m pytest -q
+
+  static:
+    name: Syntax, conflict markers and documentation links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Byte-compile the Python entry points
+        run: |
+          python -m compileall -q run.py train.py mt5_server.py src tests scripts
+          echo "python sources compile"
+
+      - name: Reject merge conflict markers
+        run: |
+          if git grep -nE '^(<<<<<<<|>>>>>>>|=======$)' -- '*.py' '*.js' '*.jsx' '*.md' '*.json' '*.yml' '*.yaml'; then
+            echo "::error::Merge conflict markers found"
+            exit 1
+          fi
+          echo "no conflict markers"
+
+      - name: Check documentation links
+        run: python scripts/check_docs_links.py
+
+  commit-hygiene:
+    name: Conventional Commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate pull request title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          if ! printf '%s' "$PR_TITLE" | grep -qE "$pattern"; then
+            echo "::error::Pull request title must follow Conventional Commits: $PR_TITLE"
+            exit 1
+          fi
+          echo "title ok: $PR_TITLE"

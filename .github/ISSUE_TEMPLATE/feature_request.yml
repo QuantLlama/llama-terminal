@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a capability, an improvement or a change in behavior.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A feature request is a proposal, not a commitment. Describe the problem
+        before the solution so the maintainer can evaluate alternatives.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is blocked or painful today? Who hits it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, workarounds, or existing tools.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Market data (MT5 / crypto / yfinance)
+        - Order execution and risk
+        - Charting and order flow
+        - Machine learning and training
+        - Backtesting and optimization
+        - API / WebSocket
+        - Desktop packaging
+        - Deployment and operations
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Expected impact
+      description: What changes for the user if this ships? Any risk to live trading?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

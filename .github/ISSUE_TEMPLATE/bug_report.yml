@@ -1,0 +1,112 @@
+name: Bug report
+description: Something is broken or behaves differently from what the documentation says.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a defect. Please do **not** paste API keys, account
+        credentials, broker logins or full log files — redact them first.
+        Security issues must follow [SECURITY.md](../blob/main/SECURITY.md) instead of this form.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: One or two sentences describing the defect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch the terminal with `python run.py`
+        2. Select symbol MNQ and timeframe 1m
+        3. Open the footprint chart
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error message or traceback when there is one.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      description: Where did you hit the defect?
+      options:
+        - Desktop app (Electron)
+        - Browser mode (FastAPI + SPA)
+        - Trainer CLI
+        - REST API / WebSocket
+        - Build or packaging
+        - Documentation
+    validations:
+      required: true
+
+  - type: dropdown
+    id: data-source
+    attributes:
+      label: Market data source
+      options:
+        - MetaTrader 5 bridge
+        - Crypto (CCXT)
+        - yfinance
+        - NinjaTrader / Tradovate
+        - Backtest / offline data
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag or commit SHA (`git rev-parse --short HEAD`).
+      placeholder: "v1.8.1 / 931172a"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, Python version, Node version.
+      placeholder: "Windows 11 23H2 · Python 3.11.9 · Node 20.11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redacted excerpts only. Long logs belong in a gist or a file attachment.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed credentials, tokens and personal data from this report.
+          required: true
