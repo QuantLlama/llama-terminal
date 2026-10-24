@@ -121,6 +121,7 @@ from src.services.database import get_outputs_dir, get_logs_dir
 STATUS_FILE = os.path.join(get_outputs_dir(), "live_status.json")
 load_dotenv()
 from src.live.connector import get_mt5_connector
+from src.live.bridge_types import normalize, positions_to_web
 GLOBAL_MT5_CONNECTOR = get_mt5_connector()
 from src.services.crypto_manager import get_crypto_manager
 from src.live.crypto_connector import get_connector
@@ -158,6 +159,18 @@ def symbols_match(symbol1: str, symbol2: str) -> bool:
     return normalize_symbol_for_comparison(symbol1) == normalize_symbol_for_comparison(
         symbol2
     )
+def _number(value, default=0.0):
+    """Coerce connector values (including pandas/numpy scalars) to a plain float."""
+    if value is None:
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    # NaN/inf would break JSON encoding and int() conversions downstream.
+    if not math.isfinite(number):
+        return default
+    return number
 def detect_platform_for_symbol(symbol: str) -> str:
     if not symbol:
         return "mt5"
@@ -2383,24 +2396,16 @@ async def get_positions(
             connector = MT5Connector()
             if not connector.connect():
                 raise HTTPException(status_code=500, detail="Could not connect to MT5")
-            positions = connector.get_positions(actual_symbol)
+            # normalize() turns bridge dicts into attribute objects and leaves
+            # native MetaTrader5 positions untouched.
+            positions = normalize(connector.get_positions(actual_symbol))
             connector.shutdown()
-            result = []
-            for pos in positions:
-                result.append({
-                    "ticket": pos.ticket,
-                    "symbol": pos.symbol,
-                    "type": "BUY" if pos.type == 0 else "SELL",
-                    "volume": pos.volume,
-                    "entry_price": pos.price_open,
-                    "current_price": pos.price_current if hasattr(pos, "price_current") else 0,
-                    "sl": pos.sl,
-                    "tp": pos.tp,
-                    "profit": pos.profit,
-                    "swap": pos.swap if hasattr(pos, "swap") else 0,
-                    "comment": pos.comment if hasattr(pos, "comment") else "",
-                })
-            return sanitize_float(result)
+            if isinstance(positions, dict):
+                # The bridge answered with an error payload instead of a list.
+                raise HTTPException(status_code=502, detail=str(positions))
+            return sanitize_float(positions_to_web(positions or []))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Positions Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2445,25 +2450,27 @@ async def get_account(
             connector = MT5Connector()
             if not connector.connect():
                 raise HTTPException(status_code=503, detail="Could not connect to MT5")
-            balance = connector.get_balance()
-            equity = connector.get_equity()
-            import MetaTrader5 as mt5
-            account_info = mt5.account_info()
+            # Both connectors expose get_account_info(); the bridge returns a
+            # dict, the native connector returns a dict too.
+            account_info = normalize(connector.get_account_info())
+            balance = getattr(account_info, "balance", None)
+            equity = getattr(account_info, "equity", None)
+            if balance is None:
+                balance = connector.get_balance()
+            if equity is None:
+                equity = connector.get_equity()
             result = {
                 "balance": balance,
                 "equity": equity,
-                "profit": account_info.profit if account_info else (equity - balance),
-                "margin": account_info.margin if account_info else 0,
-                "margin_free": account_info.margin_free if account_info else balance,
-                "margin_level": account_info.margin_level if account_info else 0,
-                "currency": account_info.currency if account_info else "USD",
+                "profit": getattr(account_info, "profit", equity - balance),
+                "margin": getattr(account_info, "margin", 0),
+                "margin_free": getattr(account_info, "margin_free", balance),
+                "margin_level": getattr(account_info, "margin_level", 0),
+                "currency": getattr(account_info, "currency", "USD"),
             }
             return sanitize_float(result)
     except Exception as e:
         logger.error(f"Account Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-
         raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/tick/{symbol:path}")
 async def get_tick(symbol: str):
@@ -2472,29 +2479,34 @@ async def get_tick(symbol: str):
         connector = MT5Connector()
         if not connector.connect():
             raise HTTPException(status_code=500, detail="Could not connect to MT5")
-        import MetaTrader5 as mt5
-        tick = mt5.symbol_info_tick(actual_symbol)
-        if tick is None:
-            connector.shutdown()
+        # Neither connector exposes symbol_info_tick(); get_recent_ticks() is
+        # the method both provide, and its last row is the current tick.
+        ticks = connector.get_recent_ticks(actual_symbol, 1)
+        connector.shutdown()
+        if ticks is None or len(ticks) == 0:
             raise HTTPException(
                 status_code=404, detail=f"No tick data for {actual_symbol}"
             )
+        tick = normalize(ticks.iloc[-1].to_dict())
+        bid = _number(getattr(tick, "bid", 0.0))
+        ask = _number(getattr(tick, "ask", 0.0))
+        last = _number(getattr(tick, "last", 0.0))
+        time_sec = int(_number(getattr(tick, "time", 0)))
         result = {
             "symbol": actual_symbol,
-            "bid": tick.bid,
-            "ask": tick.ask,
-            "last": tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2,
-            "volume": tick.volume,
-            "time": tick.time,
-            "time_msc": getattr(tick, "time_msc", int(tick.time * 1000)),
-            "spread": round((tick.ask - tick.bid) * 4, 2),  
+            "bid": bid,
+            "ask": ask,
+            "last": last if last > 0 else (bid + ask) / 2,
+            "volume": int(_number(getattr(tick, "volume", 0))),
+            "time": time_sec,
+            "time_msc": int(_number(getattr(tick, "time_msc", time_sec * 1000))),
+            "spread": round((ask - bid) * 4, 2),
         }
-        connector.shutdown()
         return sanitize_float(result)
     except HTTPException:
         raise
     except Exception as e:
-
+        logger.error(f"Tick Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 _realtime_cache: Dict[str, Any] = {}  
 _REALTIME_CACHE_TTL = 3.0  
@@ -2589,19 +2601,15 @@ async def get_realtime_batch(
                 asyncio.to_thread(connector.get_daily_pnl)
             )
             
+            account_info = normalize(account_info)
             if account_info:
                 account_info["realized_today"] = daily_pnl
                 account_info["daily_pnl"] = daily_pnl + account_info.get("profit", 0.0)
             
-            pos_list = []
-            if positions:
-                for pos in positions:
-                    pos_list.append({
-                        "ticket": pos.ticket, "type": "BUY" if pos.type == 0 else "SELL",
-                        "volume": pos.volume, "entry_price": pos.price_open,
-                        "current_price": pos.price_current, "sl": pos.sl, "tp": pos.tp,
-                        "profit": pos.profit, "symbol": pos.symbol,
-                    })
+            if isinstance(positions, dict):
+                # The bridge answered with an error payload instead of a list.
+                positions = []
+            pos_list = positions_to_web(positions) if positions else []
             pending_list = []
             if orders:
                 for o in orders:
@@ -2655,17 +2663,25 @@ async def get_realtime_batch(
                         }
                     return {}
                 else:
-                    import MetaTrader5 as mt5
                     def sync_get_data(sym_name):
-                        with GLOBAL_MT5_CONNECTOR._lock:
-                            return mt5.symbol_info_tick(sym_name), mt5.symbol_info(sym_name)
+                        # Both connectors expose get_recent_ticks() and
+                        # symbol_info(); neither exposes symbol_info_tick().
+                        ticks = GLOBAL_MT5_CONNECTOR.get_recent_ticks(sym_name, 1)
+                        rows = [] if ticks is None else ticks.tail(1).to_dict("records")
+                        tick = normalize(rows[-1]) if rows else None
+                        return tick, normalize(GLOBAL_MT5_CONNECTOR.symbol_info(sym_name))
                     t, si = await asyncio.to_thread(sync_get_data, actual)
                     if not t: return {}
+                    bid = _number(getattr(t, "bid", 0.0))
+                    ask = _number(getattr(t, "ask", 0.0))
+                    last = _number(getattr(t, "last", 0.0))
                     return {
-                        "symbol": sym, "bid": t.bid, "ask": t.ask,
-                        "last": t.last if t.last > 0 else (t.bid + t.ask)/2,
-                        "volume": t.volume, "time": t.time,
-                        "point": si.point if si else 0.0001, "digits": si.digits if si else 5
+                        "symbol": sym, "bid": bid, "ask": ask,
+                        "last": last if last > 0 else (bid + ask)/2,
+                        "volume": _number(getattr(t, "volume", 0)),
+                        "time": int(_number(getattr(t, "time", 0))),
+                        "point": _number(getattr(si, "point", 0.0001)) if si else 0.0001,
+                        "digits": int(_number(getattr(si, "digits", 5))) if si else 5,
                     }
             except Exception as e:
                 logger.debug(f"Error fetching tick for {sym}: {e}")
