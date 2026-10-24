@@ -53,3 +53,22 @@ def test_absent_override_keeps_the_historical_default(monkeypatch, value):
     else:
         monkeypatch.setenv(user_repository.LEGACY_IMPORT_TARGET_ENV, value)
     assert user_repository.legacy_import_user_id() == user_repository.DEFAULT_USER_ID
+
+
+def test_legacy_values_use_the_configured_target_not_the_default(monkeypatch):
+    """The insert mapping must not overwrite the identity set by the option."""
+    target = "0bc8f372-83ee-4ba7-bc33-97a518e5b029"
+    monkeypatch.setenv(user_repository.LEGACY_IMPORT_TARGET_ENV, target)
+    values = user_repository._legacy_values(
+        {"user_id": "default_user", "session_name": "s1"},
+        ("user_id", "session_name"),
+        {},
+    )
+    assert values["user_id"] == target
+    assert values["session_name"] == "s1"
+
+
+def test_legacy_values_fall_back_to_the_default_without_the_option(monkeypatch):
+    monkeypatch.delenv(user_repository.LEGACY_IMPORT_TARGET_ENV, raising=False)
+    values = user_repository._legacy_values({"user_id": "x"}, ("user_id",), {})
+    assert values["user_id"] == user_repository.DEFAULT_USER_ID

@@ -660,11 +660,11 @@ class PostgresUserRepository:
 def _legacy_values(
     row: Dict[str, Any], columns: Tuple[str, ...], defaults: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Map a legacy row onto target columns, forcing the compatibility tenant id."""
+    """Map a legacy row onto target columns under the configured identity."""
     values: Dict[str, Any] = {}
     for column in columns:
         if column == "user_id":
-            values[column] = DEFAULT_USER_ID
+            values[column] = legacy_import_user_id()
             continue
         values[column] = row[column] if column in row else defaults.get(column)
     return values
