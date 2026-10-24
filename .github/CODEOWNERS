@@ -1,0 +1,22 @@
+# CODEOWNERS — https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Every path requires the maintainer's review until the team grows.
+*                       @QuantLlama
+
+# Security-sensitive surfaces: credential storage, key material and auth.
+/.github/               @QuantLlama
+/SECURITY.md            @QuantLlama
+/src/services/security.py        @QuantLlama
+/src/services/crypto_proxy.py    @QuantLlama
+/mt5_server.py                   @QuantLlama
+
+# Trading execution and risk: a defect here reaches real money.
+/src/services/order_gateway/     @QuantLlama
+/src/engine/core/risk_manager.py @QuantLlama
+/src/live/                       @QuantLlama
+
+# Delivery and infrastructure.
+/.github/workflows/     @QuantLlama
+/Dockerfile             @QuantLlama
+/deploy/                @QuantLlama
+/scripts/               @QuantLlama

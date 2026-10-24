@@ -1,0 +1,43 @@
+# Git attributes — line-ending and binary handling.
+# Text files are normalized to LF in the repository; Windows scripts keep CRLF.
+* text=auto eol=lf
+
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+*.sh            text eol=lf
+*.service       text eol=lf
+*.py            text eol=lf
+*.js            text eol=lf
+*.jsx           text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# Binaries — never diffed or normalized.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.ico           binary
+*.gif           binary
+*.webp          binary
+*.mp3           binary
+*.ttf           binary
+*.so            binary
+*.jsc           binary
+*.exe           binary
+*.dll           binary
+*.pacman        binary
+*.deb           binary
+*.AppImage      binary
+*.db            binary
+
+# Linguist: keep documentation and configuration out of the language statistics.
+docs/**         linguist-documentation
+odd/**          linguist-documentation
+openspec/**     linguist-documentation
+deploy/**       linguist-documentation
+images/**       linguist-documentation
+terminalmagen/** linguist-documentation
+legal/**        linguist-documentation

@@ -1,0 +1,29 @@
+name: Documentation issue
+description: Report missing, wrong or outdated documentation.
+title: "docs: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Document
+      description: Path or URL of the page that is wrong.
+      placeholder: "docs/ARCHITECTURE.md#order-execution"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong?
+      description: Missing section, stale command, broken link, wrong value…
+    validations:
+      required: true
+
+  - type: textarea
+    id: correction
+    attributes:
+      label: Suggested correction
+      description: Quote the current text and the text it should say.
+    validations:
+      required: false
