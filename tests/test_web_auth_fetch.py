@@ -403,3 +403,29 @@ def test_helper_never_persists_logs_or_puts_the_token_in_the_url(helper_scenario
         assert token_writes == [], f"{name} leaked the token: {token_writes}"
         assert scenario["url"] == "https://terminal.example/terminal"
         assert "test-access-token-value" not in str(scenario["calls"][0]["input"])
+
+
+def test_every_transferred_session_is_hydrated_into_the_client():
+    """A session used for API validation must reach the browser client.
+
+    Per-user routes now require a bearer token that the shared helper reads from
+    `supabase.auth.getSession()`. A boot path that validates the transferred
+    session but never calls `setSession` leaves that window unable to
+    authenticate, so every such branch must hydrate the client.
+    """
+    source = (ROOT / "src/platform/web/index.html").read_text()
+    lines = source.splitlines()
+    missing = []
+    for index, line in enumerate(lines):
+        if "sessionToValidate = ts;" not in line:
+            continue
+        window = "\n".join(lines[index:index + 12])
+        if "setSession(ts)" not in window and "setSession(tsession" not in window:
+            missing.append(index + 1)
+    assert len([l for l in lines if "sessionToValidate = ts;" in l]) >= 2, (
+        "expected both boot paths to consume a transferred session"
+    )
+    assert missing == [], (
+        "transferred session validated without hydrating the client at line(s) "
+        + ", ".join(str(n) for n in missing)
+    )

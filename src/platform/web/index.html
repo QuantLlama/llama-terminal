@@ -4743,6 +4743,7 @@
                     if (ts?.access_token) {
                       sessionToValidate = ts;
                       sessionFound = true;
+                      await window.supabase.auth.setSession(ts);
                       setTimeout(() => localStorage.removeItem("ql_transfer_session"), 5000);
                     }
                   }
