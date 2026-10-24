@@ -1,0 +1,15 @@
+[Unit]
+Description=Quantum Llama MT5 local bridge (Wine)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/run/media/pabloezm/Respalados/Pltaforma_Terminal_Llama
+Environment=MT5_BRIDGE_BIND=0.0.0.0
+ExecStart=/bin/bash -lc 'exec ./scripts/start_mt5_bridge.sh'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

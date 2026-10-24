@@ -1,0 +1,14 @@
+[Unit]
+Description=Quantum Llama crypto egress proxy (tailnet CONNECT proxy)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/run/media/pabloezm/Respalados/Pltaforma_Terminal_Llama
+ExecStart=/usr/bin/python3 scripts/local_crypto_proxy.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

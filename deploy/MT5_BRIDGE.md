@@ -144,3 +144,36 @@ curl -s https://llama.nbmsystemas.com/api/symbols      # symbols resolved from M
   application.
 - The bridge has no per-user accounts: anyone with the URL and token has full
   trading access to the logged-in terminal.
+
+## Running the local pieces as services
+
+The MT5 bridge and the crypto egress proxy run on the operator machine. Install
+both as user services so they survive terminal closes and reboots:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/local/*.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now qllama-mt5-bridge.service qllama-crypto-proxy.service
+sudo loginctl enable-linger "$USER"   # keep them running without an active login
+```
+
+Check them with `systemctl --user status qllama-mt5-bridge qllama-crypto-proxy`
+and follow logs with `journalctl --user -u qllama-mt5-bridge -f`.
+
+## Crypto egress when the venue blocks the server region
+
+Binance answers `HTTP 451 (restricted location)` to this deployment's AWS
+region while the operator connection is allowed. The crypto traffic is routed
+through a CONNECT proxy on the operator machine instead of moving the server:
+
+```
+container (CRYPTO_HTTP_PROXY=http://10.0.0.1:3128)
+   -> socat relay on the VPS
+   -> <operator-tailnet-ip>:3128 CONNECT proxy
+   -> venue
+```
+
+Install the relay on the VPS with `sudo ./deploy/vps/setup-crypto-proxy-relay.sh`
+and set `CRYPTO_HTTP_PROXY` on the application. Only crypto traffic uses it, so
+MT5, Supabase auth and market data keep their normal path.
