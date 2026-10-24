@@ -81,6 +81,16 @@ def clear_legacy_import_marker() -> None:
     get_repository().clear_legacy_import_marker()
 
 
+def legacy_table_counts(sqlite_path: Optional[str] = None) -> Dict[str, int]:
+    """Row counts the importer would see, without exposing any row.
+    """
+    from src.services.user_repository import _read_legacy_rows
+    rows = _read_legacy_rows(sqlite_path or get_db_path())
+    if rows is None:
+        return {}
+    return {table: len(values) for table, values in rows.items()}
+
+
 def legacy_import_already_applied() -> bool:
     """Whether the one-time desktop import has already been recorded."""
     return get_repository().legacy_import_applied()

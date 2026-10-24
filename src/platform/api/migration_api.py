@@ -41,6 +41,25 @@ def _authorise(provided: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid import token")
 
 
+@router.get("/desktop-import/status")
+async def desktop_import_status(
+    x_import_token: str | None = Header(default=None, alias="X-Import-Token"),
+):
+    """Report what the importer sees, without exposing any row content."""
+    _authorise(x_import_token)
+    path = Path(database.get_db_path())
+    info = {
+        "path": str(path),
+        "exists": path.exists(),
+        "marker_applied": database.legacy_import_already_applied(),
+        "target_user": database.legacy_import_user_id(),
+    }
+    if path.exists():
+        info["size"] = path.stat().st_size
+        info["tables"] = database.legacy_table_counts(str(path))
+    return info
+
+
 @router.post("/desktop-import")
 async def desktop_import(
     request: Request,

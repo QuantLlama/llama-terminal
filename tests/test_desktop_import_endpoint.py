@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.platform.api import migration_api
+from src.services import database as module_counts
 
 SQLITE_HEADER = b"SQLite format 3\x00" + b"payload"
 
@@ -122,3 +123,20 @@ def test_replace_clears_only_the_target_tenant_before_importing(client):
     assert response.status_code == 200
     assert store["replaced"] == "user-a"
     assert response.json()["replaced"] == {"workspaces": 1}
+
+
+def test_status_reports_counts_without_row_content(client):
+    http, store, monkeypatch = client
+    monkeypatch.setenv(migration_api.TOKEN_ENV, "expected-token")
+    store["path"].write_bytes(SQLITE_HEADER)
+    monkeypatch.setattr(
+        module_counts, "legacy_table_counts", lambda _p: {"workspaces": 6, "user_settings": 1}
+    )
+    response = http.get(
+        "/api/ops/desktop-import/status", headers={"X-Import-Token": "expected-token"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tables"] == {"workspaces": 6, "user_settings": 1}
+    assert body["size"] == len(SQLITE_HEADER)
+    assert body["target_user"] == "user-a"
