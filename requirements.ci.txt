@@ -4,8 +4,8 @@
 # The separate Python 3.11 CPU seam lane installs pinned sklearn, yfinance and
 # torch without adding the desktop/native/training stack to this dependency set.
 # Keep optional-dependency degradation tests in the minimal lane.
-fastapi==0.110.0
-httpx==0.27.0
+fastapi==0.158.1
+httpx==0.28.1
 cryptography>=42,<46
 numpy==1.26.4
 pandas==2.2.2
