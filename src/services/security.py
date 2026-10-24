@@ -6,9 +6,22 @@ from src.utils.paths import get_data_path
 
 class CredentialManager:
     def __init__(self, key_file: str = ".mt5_key"):
-        self.key_file = get_data_path(key_file)
+        self.key_file = self._resolve_key_path(key_file)
         self.key = self._load_or_create_key()
         self.cipher = Fernet(self.key)
+
+    @staticmethod
+    def _resolve_key_path(key_file: str) -> str:
+        """QUANTUM_LLAMA_KEY_DIR overrides the default project-root location.
+
+        Cloud deployments run as a non-root user with a read-only project
+        root, so the encryption keys must live in a writable mounted volume.
+        """
+        key_dir = os.getenv("QUANTUM_LLAMA_KEY_DIR")
+        if key_dir:
+            os.makedirs(key_dir, exist_ok=True)
+            return os.path.join(key_dir, key_file)
+        return get_data_path(key_file)
     def _load_or_create_key(self) -> bytes:
         if os.path.exists(self.key_file):
             with open(self.key_file, 'rb') as f:
