@@ -128,3 +128,35 @@ schema, parameterization and tenant filters are asserted without a real database
 Supabase client and the same fake store to assert 401s, cross-tenant isolation and
 client-supplied `user_id` rejection on HTTP responses. No test opens a socket or a
 real database connection.
+
+## Migrating a desktop installation to one hosted account
+
+The desktop app stored workspaces and settings in `config/quantum_llama.db`
+(SQLite). The hosted platform imports that file once at startup, and by default
+the rows land under the historical `default_user` placeholder.
+
+An owner who wants their existing local data attached to their own web identity
+sets one variable before the import runs:
+
+```
+QL_LEGACY_IMPORT_USER_ID=<their Supabase user id>
+```
+
+Validation: the value must be a single identifier of at most 128 characters with
+no whitespace or path separators; an empty value keeps the default, and an
+invalid one fails loudly rather than writing rows under a wrong tenant.
+
+Procedure:
+
+1. Copy the desktop `quantum_llama.db` into the deployed container's persistent
+   data directory (`/app/config/quantum_llama.db`). It is the same path the
+   desktop build used, so nothing is renamed.
+2. Set `QL_LEGACY_IMPORT_USER_ID` to the account that should own the data.
+3. Restart the application. The import runs once inside a transaction guarded by
+   a marker row, inserts with `ON CONFLICT DO NOTHING`, and never overwrites
+   existing Postgres rows.
+4. Remove `QL_LEGACY_IMPORT_USER_ID` afterwards; the marker makes a second run a
+   no-op, and `QL_DISABLE_LEGACY_SQLITE_IMPORT=1` disables it entirely.
+
+The file contains broker credentials, so it must be placed by the operator and
+must never be committed, uploaded to a third party or pasted into a chat.

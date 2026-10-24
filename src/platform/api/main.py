@@ -236,6 +236,15 @@ async def log_not_found(request: Request, call_next):
         logger.warning(f"[404] {request.method} {request.url.path}")
     return response
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Advertise HTTPS-only transport without changing any response body."""
+    response = await call_next(request)
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 # ── PYDANTIC MODELS ────────────────────────────────────────────────
 class OrderRequest(BaseModel):
     platform: str  
@@ -536,6 +545,18 @@ dashboard_path = os.path.join(get_outputs_dir(), "dashboard.html")
 # These remain EXTERNAL because they are persistent or user-modifiable metadata
 ALGOLAB_REGISTRY_FILE = get_data_path("algolab_registry.json")
 CONFIG_FILE = sync_config(os.path.join("src", "config", "live_config.json"))
+
+
+def owner_user_id():
+    """Identity allowed to change platform-wide trading settings.
+
+    Engine-wide risk limits are not a per-user preference: one authenticated
+    user must never be able to change the daily loss limit for everybody. The
+    owner is configured explicitly, and when no owner is configured those keys
+    are refused entirely rather than silently written to the shared file.
+    """
+    value = os.environ.get("QL_OWNER_USER_ID", "").strip()
+    return value or None
 from src.platform.api.utils import sanitize_float, resolve_symbol
 ALGO_PROCESS = None
 ALGO_TYPE = "idle"  
@@ -1541,11 +1562,28 @@ async def update_config(
             "chart_candle_border_visible",
             "chart_candle_border_color",
         }
-        ui_config = {k: v for k, v in config.items() if k in ui_keys}
-        trading_config = {k: v for k, v in config.items() if k not in ui_keys}
-        if ui_config:
-            db_save_settings(ui_config, user_id=user_id)
+        personal_keys = ui_keys | {
+            "commissions",
+            "chart_history_limits",
+            "risk_max_daily_loss",
+            "risk_max_contracts",
+            "risk_emotional_guard",
+            "risk_locked_until",
+        }
+        personal_config = {k: v for k, v in config.items() if k in personal_keys}
+        trading_config = {k: v for k, v in config.items() if k not in personal_keys}
+        if personal_config:
+            db_save_settings(personal_config, user_id=user_id)
         if trading_config:
+            if owner_user_id() != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "These settings affect the whole platform and only the "
+                        "configured owner may change them: "
+                        + ", ".join(sorted(trading_config))
+                    ),
+                )
             existing = {}
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, "r") as f:
@@ -1555,6 +1593,8 @@ async def update_config(
                 json.dump(existing, f, indent=4)
         return {"status": "ok", "message": "Configuración guardada"}
     except DatabaseNotConfigured:
+        raise
+    except HTTPException:
         raise
     except Exception as e:
 

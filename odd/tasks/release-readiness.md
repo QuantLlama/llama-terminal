@@ -125,3 +125,15 @@ The owner asked to finish everything except the installer. Order chosen to prote
 One real defect surfaced only on a hosted runner: `test_node_public_probes_and_wait_loop` used a 50 ms probe timeout, which a loaded CI machine can exceed. The assertion was about response semantics, not speed, so the semantic probes now use a generous timeout while the dedicated timeout-mode probe keeps its tight one; the timing bound for rejection was widened to a value that still proves it does not hang.
 
 Final state: `main` at `de3a218`, `scripts/check_secrets.py` clean over 467 files, downstream `src/product_version.py` reporting `1.9.0`. No installer was built. No deployment was performed and auto-deploy stays paused. Existing clones, stashes and unreachable objects may still hold pre-rewrite data; GitHub's cached PR references still need provider-side removal through the owner's support channel.
+
+### L12 — production hardening delivered
+
+Delivered to `main` as PR #44 (merge `27965910`) and deployed to `llama.nbmsystemas.com`.
+
+**Verified against production after the deploy:** `/api/health` 200 JSON with `ready_for_ui: true` and MT5 connected; `/api/config`, `/api/workspaces` and `/api/v2/config` all answer **401 `{"detail":"Not authenticated"}`** without a token; `/api/platform/version` reports 1.9.0; `/robots.txt` is `text/plain` with an absolute sitemap line and the API/debug disallows; `/sitemap.xml` is valid XML with the request-derived origin; the head carries the title, description and the deferred Umami tracker.
+
+**Tenant isolation.** `src/services/database.py` filtered by `user_id` but all 13 call sites dropped it, so every row collapsed into `default_user`, and those endpoints had no auth dependency at all. `user_id` now comes only from the validated Supabase token, storage is PostgreSQL behind `DATABASE_URL`, `user_id` is a required keyword-only argument, and a marker-guarded import preserves the old SQLite rows. `/api/v2/config` was protected in a follow-up after the backend unit flagged it. The browser sends the bearer token through one helper on 17 call sites and popout windows hydrate their transferred session.
+
+**Infrastructure.** `qllama-postgres` (postgres:16-alpine) runs with a daily 03:00 backup configuration (`yquklfzmujzgcy7qg4cjv231`). Umami runs healthy as a Coolify service with the website `Quantum Llama` (`03f3d019-…`) for `llama.nbmsystemas.com`.
+
+**Known gaps, stated plainly.** The Umami service domain cannot be set through the Coolify API (service `domains`, `fqdn` and `docker_compose` are all rejected), so `umami.nbmsystemas.com` needs one field set in the UI; until then the tracker's script never loads and no visits are recorded. The `order_gateway` service reports `stopped` in production health while MT5 is connected. Backups cover the database only, not the `/app/config`, `/app/outputs` or `/app/logs` volumes. No installer was built.

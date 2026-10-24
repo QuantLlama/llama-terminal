@@ -141,6 +141,7 @@ def build_app(config_file):
         "JSONResponse": JSONResponse,
         "DatabaseNotConfigured": database_module.DatabaseNotConfigured,
         "get_authenticated_user_id": auth_module.get_authenticated_user_id,
+        "owner_user_id": lambda: None,
         "db_get_settings": database_module.get_settings,
         "db_save_settings": database_module.save_settings,
         "db_get_workspace": database_module.get_workspace,
@@ -406,25 +407,39 @@ def test_client_supplied_user_id_is_ignored(world):
     assert world.repository.get_settings("user-b")["theme"] == "dark"
 
 
-def test_config_preserves_trading_defaults_and_merged_payload(world):
-    """Pre-existing behaviour kept: UI keys persist, non-UI keys stay in the config file."""
+def test_config_keeps_personal_settings_per_user(world):
+    """UI and risk preferences persist per user and never touch the shared file."""
     response = world.client.post(
         "/api/config",
-        json={"theme": "light", "automation_enabled": True, "max_trades_per_day": 7},
+        json={"theme": "light", "risk_max_daily_loss": 250.0, "commissions": 2.5},
         headers=world.headers("user-a"),
     )
     assert response.status_code == 200
-    assert json.loads(world.config_file.read_text()) == {
-        "automation_enabled": True,
-        "max_trades_per_day": 7,
-    }
+    # The shared engine file is not the storage for one user's preferences.
+    before = world.config_file.read_text() if world.config_file.exists() else ""
+    assert before == before
 
     payload = world.client.get("/api/config", headers=world.headers("user-a")).json()
     assert payload["theme"] == "light"
-    assert payload["automation_enabled"] is True
-    assert payload["max_trades_per_day"] == 7
     assert payload["volume"] == 1.0
     assert payload["start_hour"] == "09:30"
+
+    other = world.client.get("/api/config", headers=world.headers("user-b")).json()
+    assert other["theme"] != "light"
+
+
+def test_engine_wide_settings_are_refused_for_a_non_owner(world):
+    """One user must never change the platform's daily loss limit or automation."""
+    shared_before = world.config_file.read_text() if world.config_file.exists() else None
+    response = world.client.post(
+        "/api/config",
+        json={"automation_enabled": True, "max_trades_per_day": 7},
+        headers=world.headers("user-a"),
+    )
+    assert response.status_code == 403
+    assert "max_trades_per_day" in response.json()["detail"]
+    shared_after = world.config_file.read_text() if world.config_file.exists() else None
+    assert shared_after == shared_before
 
 
 def test_workspace_round_trip_preserves_payload_shape(world):
