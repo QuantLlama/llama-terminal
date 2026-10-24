@@ -35,7 +35,8 @@ Built by `preprocess_data`:
 3. infinite/NaN removal, then missing columns filled with `0`,
 4. scaling to `[-1, 1]` with a `MinMaxScaler` that is persisted with the model.
 
-Two additional representations are computed for analysis and for optional inclusion:
+Two additional representations are computed upstream for analysis, but are not selected
+by the current fixed eight-column preprocessing contract:
 
 - **Fourier components** — `apply_fourier_transform` keeps the lowest 3, 6 and 9 harmonics
   of the close series (`src/features/fourier.py`).
@@ -88,14 +89,15 @@ only** — they are not part of the trading signal.
 
 ## 3. Artefacts and the naming contract
 
-`train.py` writes to `outputs/models/`:
+`train.py` writes through `get_outputs_dir()` (repository `outputs/` in development,
+`~/Documents/Quantum Llama/outputs` in frozen builds). Model files live in its `models/` subdirectory:
 
 | File | Content |
 | --- | --- |
 | `<TICKER>_<timeframe>_generator.pth` | LSTM state dict |
 | `<TICKER>_<timeframe>_scaler.pkl` | Fitted `MinMaxScaler` (joblib) |
 | `<TICKER>_<timeframe>_config.json` | Architecture, timeframes, ordered `feature_cols`, `input_dim` |
-| `<TICKER>_<timeframe>_training_history.json` | Epoch losses |
+| `outputs/history.json` | Comparative run summaries; legacy `mape` field stores directional accuracy |
 | `outputs/plots/*.png` | Training and diagnostics plots |
 | `outputs/dashboard.html` | Generated HTML report served by the Trainer CLI |
 
@@ -149,13 +151,19 @@ secrets:
 
 | Claim to avoid | Reality |
 | --- | --- |
-| "Transformer models" | `transformers` is pinned in `requirements.txt` but no module imports it |
-| "XGBoost signals" | `xgboost` is pinned but unused; random forest replaced it |
-| "Generative adversarial training" | `src/models/gan.py` and `src/models/discriminator.py` exist but nothing trains them; `train.py` is supervised LSTM only |
-| "Evolutionary GAN" | `src/doctecnicaalgos/EvolutionaryGAN.md` describes a design that is not implemented end to end; the evolutionary loop that does exist is the live population in `src/services/big_llama/` |
-| "Walk-forward validation" | The backtester walks bars, but the training split is a single chronological holdout |
+| "Attention/BCE classifier" | The shipped Generator uses LSTM → Linear → Tanh and supervised MSE, not attention or BCE |
+| "XGBoost signals" | The standard trainer uses RandomForest for diagnostic feature importance; dependency/build cleanup is separate pending work |
+| "Generative adversarial training" | Experimental `src/models/gan.py` and `src/models/discriminator.py` are not run by the shipped `train.py` entrypoint |
+| "Evolutionary GAN" | Historical UI/filename label; the rendered [model reference](../src/doctecnicaalgos/EvolutionaryGAN.md) describes the current supervised trainer, not every repository strategy |
+| "Independent holdout validation" | The last 20% is evaluated after the full dataset has already been used for training and scaling |
 | "Deterministic training" | No global seed is set |
 | "Experiment tracking" | Artefacts are files on disk; there is no run registry |
+
+The Generator output is a scaled feature estimate, not a calibrated probability.
+In the trainer report, inverse-scaled return predictions select long above zero, short
+below zero, and retain the position at zero. BUY/SELL marks a position change; HOLD
+can retain an open position. No 0.6/0.4 confidence threshold or Kelly sizing is used here.
+Live filters and the active legacy live adapter remain separate, unchanged consumers.
 
 ### Artifact regression checks
 
@@ -168,9 +176,42 @@ venv_linux/bin/python -m pytest -q tests/test_model_artifact_contract.py tests/t
 They cover both public loaders, generic fallback, historical NumPy-scaler bundles, incompatible
 orders/widths, read-only rejection, service inference and optional-Torch imports.
 
+The rendered documentation contract can be checked with synthetic metrics and temporary
+outputs, without training or loading saved models:
+
+```sh
+venv_linux/bin/python -m pytest -q tests/test_dashboard_model_documentation.py
+```
+
+It exercises the real development and frozen documentation loaders and embedded chart assets.
+It does not exercise browser rendering or fetch external logo/font assets.
+
 ---
 
 ## 6. Evaluation guidance
+
+### What current reports actually measure
+
+`train.py` computes RMSE on close log returns (despite the dashboard's legacy "Error Pts"
+label) and directional accuracy as matching return signs. Backtest Win Rate and Total
+Return % are simulated results, not predictive profitability evidence. Although code
+comments call the last 20% "held out", the shuffled training loader uses the entire
+dataset, and preprocessing fits the scaler before evaluation. This is not an independent
+out-of-sample test; early stopping also monitors training loss, not validation loss.
+
+The trainer backtester uses price percentage returns and round-trip cost fractions
+on closure: Futures 0.0008, Stocks 0.0010, Crypto 0.0020, ETF 0.0006, Forex 0.0003,
+fallback 0.0005. These are simplified assumptions, not measured slippage or venue fills.
+Reported Total Return % uses the equity curve, which excludes the final liquidation
+update; the separately returned final capital may differ. Platform contract/tick
+accounting is distinct and is not replaced by this report.
+
+Dashboard stop/take-profit suggestions use recent price standard deviation times 1.5
+and 2.5, not confidence or guaranteed risk protection. Some surrounding UI captions
+retain historical wording. Neither charts nor training loss establish calibrated
+probabilities or validated profitability.
+
+### Required independent evaluation
 
 When you evaluate a model, report all four of these or the number means nothing:
 

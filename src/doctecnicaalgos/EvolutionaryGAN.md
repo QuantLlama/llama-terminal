@@ -1,243 +1,106 @@
-# Estrategia Evolutionary GAN
-
-**Algoritmo de Predicción Basado en Redes Generativas Antagónicas Evolutivas**
-
----
-
-## Descripción General
-
-La estrategia **Evolutionary GAN** es un sistema de trading algorítmico avanzado que utiliza Redes Generativas Antagónicas (GANs) combinadas con técnicas de optimización evolutiva para predecir movimientos de precio en mercados financieros.
-
-A diferencia de los modelos tradicionales de machine learning, las GANs aprenden la distribución subyacente de los datos del mercado mediante un proceso competitivo entre dos redes neuronales:
-
-- **Generador (LSTM)**: Crea predicciones de secuencias de precios futuras
-- **Discriminador (CNN)**: Evalúa si las predicciones son realistas comparándolas con datos históricos reales
-
-Este enfoque permite al sistema capturar patrones complejos y no lineales que otros algoritmos no pueden detectar.
-
----
-
-## Arquitectura del Modelo
-
-### 1. Generador - LSTM (Long Short-Term Memory)
-
-El generador utiliza una red neuronal recurrente LSTM para:
-
-- **Memoria de largo plazo**: Recuerda patrones importantes de cientos de períodos anteriores
-- **Predicción secuencial**: Genera secuencias de precios futuros basadas en el contexto histórico
-- **Adaptación dinámica**: Ajusta sus pesos mediante el feedback del discriminador
-
-**Características clave:**
-- Capas LSTM apiladas para mayor profundidad
-- Dropout para prevenir sobreajuste
-- Activación GELU para mejor convergencia
-
-### 2. Discriminador - CNN (Convolutional Neural Network)
-
-El discriminador actúa como "crítico" del sistema:
-
-- **Reconocimiento de patrones**: Identifica formaciones gráficas y microestructuras del mercado
-- **Validación de realismo**: Determina si las predicciones del generador son plausibles
-- **Entrenamiento adversarial**: Fuerza al generador a mejorar continuamente
-
-**Características clave:**
-- Convoluciones 1D para análisis de series temporales
-- Batch Normalization para estabilidad
-- Arquitectura profunda para capturar patrones complejos
-
----
-
-## Proceso de Entrenamiento
-
-### Fase 1: Entrenamiento Adversarial
-
-1. El **Generador** crea predicciones de precios
-2. El **Discriminador** evalúa si son reales o generadas
-3. Ambas redes compiten y mejoran iterativamente
-4. El proceso continúa hasta alcanzar equilibrio (Nash Equilibrium)
-
-### Fase 2: Optimización Evolutiva
-
-- **Selección de características**: XGBoost identifica los indicadores técnicos más relevantes
-- **Ajuste de hiperparámetros**: Optimización bayesiana encuentra la configuración óptima
-- **Validación cruzada**: Previene sobreajuste mediante validación en datos no vistos
-
----
-
-## Indicadores Técnicos Utilizados
-
-El modelo se alimenta de múltiples fuentes de información:
-
-### Indicadores de Tendencia
-- **EMAs** (Exponential Moving Averages): 9, 21, 50, 200 períodos
-- **MACD** (Moving Average Convergence Divergence)
-- **ADX** (Average Directional Index)
-
-### Indicadores de Momentum
-- **RSI** (Relative Strength Index)
-- **Stochastic Oscillator**
-- **Williams %R**
-
-### Indicadores de Volatilidad
-- **Bandas de Bollinger**
-- **ATR** (Average True Range)
-- **Keltner Channels**
-
-### Indicadores de Volumen
-- **OBV** (On-Balance Volume)
-- **Volume Profile**
-- **VWAP** (Volume Weighted Average Price)
-
----
-
-## Señales de Trading
-
-### Señal de COMPRA (BUY)
-Se genera cuando:
-- Probabilidad del modelo > 0.6
-- Predicción de precio futuro > precio actual
-- Confirmación de indicadores técnicos
-- Volumen creciente
-
-### Señal de VENTA (SELL)
-Se genera cuando:
-- Probabilidad del modelo < 0.4
-- Predicción de precio futuro < precio actual
-- Divergencias bajistas en indicadores
-- Volumen decreciente
-
-### Señal de ESPERA (HOLD)
-Se mantiene cuando:
-- Probabilidad entre 0.4 y 0.6 (incertidumbre)
-- Señales mixtas de indicadores
-- Baja volatilidad o consolidación
-
----
-
-## Gestión de Riesgo
-
-### Stop Loss Dinámico
-- Basado en ATR (Average True Range)
-- Ajuste automático según volatilidad del mercado
-- Protección contra movimientos adversos
-
-### Take Profit Adaptativo
-- Múltiples niveles de toma de ganancias
-- Trailing stop para maximizar beneficios
-- Ajuste según fuerza de la tendencia
-
-### Tamaño de Posición
-- Calculado mediante Kelly Criterion
-- Ajustado por volatilidad del activo
-- Límite máximo de riesgo por operación
-
----
-
-## Configuración Recomendada
-
-### Timeframes Óptimos
-
-| Timeframe | Uso Recomendado | Frecuencia de Reentrenamiento |
-|-----------|-----------------|-------------------------------|
-| **1m - 5m** | Scalping | Diario |
-| **15m - 1h** | Intraday | Semanal |
-| **4h - 1d** | Swing Trading | Mensual |
-
-### Parámetros de Entrenamiento
-
-- **Épocas**: 100-200 (balance entre aprendizaje y sobreajuste)
-- **Datos históricos**: Mínimo 6 meses, recomendado 2 años
-- **Batch size**: 32-64 (según memoria GPU disponible)
-- **Learning rate**: 0.0001-0.001 (con decay adaptativo)
-
----
-
-## Ventajas del Sistema
-
-✅ **Captura patrones no lineales** que modelos tradicionales no detectan  
-✅ **Adaptación continua** mediante reentrenamiento periódico  
-✅ **Gestión de riesgo integrada** con stops dinámicos  
-✅ **Múltiples fuentes de información** (precio, volumen, indicadores)  
-✅ **Validación robusta** mediante discriminador adversarial  
-
----
-
-## Limitaciones y Consideraciones
-
-⚠️ **Requiere datos de calidad**: Garbage in, garbage out  
-⚠️ **Computacionalmente intensivo**: Necesita GPU para entrenamiento eficiente  
-⚠️ **No es infalible**: Ningún modelo predice el futuro con 100% de certeza  
-⚠️ **Requiere mantenimiento**: Reentrenamiento periódico es esencial  
-⚠️ **Sensible a eventos extremos**: Cisnes negros pueden afectar rendimiento  
-
----
-
-## Mejores Prácticas
-
-### 1. Reentrenamiento Regular
-- Mantén el modelo actualizado con datos recientes
-- Ajusta la frecuencia según el timeframe operativo
-- Monitorea la degradación del rendimiento
-
-### 2. Backtesting Riguroso
-- Valida en datos fuera de muestra (out-of-sample)
-- Considera costos de transacción y slippage
-- Prueba en diferentes condiciones de mercado
-
-### 3. Monitoreo en Vivo
-- Supervisa las señales en tiempo real
-- Compara predicciones vs. resultados reales
-- Ajusta parámetros si es necesario
-
-### 4. Diversificación
-- No dependas de un solo algoritmo
-- Combina con otras estrategias
-- Opera múltiples activos y timeframes
-
----
-
-## Interpretación de Resultados
-
-### Dashboard en Vivo
-
-El **Live Dashboard** muestra:
-
-- **Gráfico de velas**: Precio en tiempo real
-- **Señal actual**: BUY / SELL / HOLD
-- **Predicción de precio**: Estimación del modelo para el próximo período
-- **Probabilidad**: Confianza del modelo (0-100%)
-- **Indicadores técnicos**: Valores actuales de EMAs, RSI, etc.
-
-### Métricas de Rendimiento
-
-- **Accuracy**: Porcentaje de predicciones correctas
-- **Sharpe Ratio**: Retorno ajustado por riesgo
-- **Max Drawdown**: Pérdida máxima desde un pico
-- **Win Rate**: Porcentaje de operaciones ganadoras
-- **Profit Factor**: Ratio de ganancias vs. pérdidas
-
----
-
-## Soporte y Recursos
-
-### Documentación Adicional
-- Guía de instalación y configuración
-- Tutoriales de entrenamiento
-- FAQs y troubleshooting
-
-### Comunidad
-- Foro de usuarios
-- Canal de Discord
-- Actualizaciones y mejoras
-
----
-
-## Descargo de Responsabilidad
-
-⚠️ **AVISO IMPORTANTE**: El trading de instrumentos financieros conlleva un alto nivel de riesgo y puede no ser adecuado para todos los inversores. El rendimiento pasado no garantiza resultados futuros. Este sistema es una herramienta de apoyo a la toma de decisiones, no un asesor financiero. Opere solo con capital que pueda permitirse perder. Consulte con un asesor financiero profesional antes de tomar decisiones de inversión.
-
----
-
-**Versión**: 2.0  
-**Última actualización**: Febrero 2026  
-**Autor**: Quantum Llama AI Lab
+# Shipped model: supervised LSTM
+
+Evolutionary GAN is a historical UI and filename label, not the architecture
+trained by the current standard train.py entrypoint. This report describes that
+path only, not every strategy or algorithm elsewhere in the repository.
+The filename EvolutionaryGAN.md is retained for dashboard and packaging compatibility.
+
+## Architecture and objective
+
+The Generator in src/models/generator.py is a stacked LSTM followed by a
+Linear projection and Tanh activation at every time step. Default train_model
+arguments are hidden_dim=128, num_layers=2 and seq_length=60; LSTM dropout is 0.2.
+There is no multihead attention in this Generator and no BCE classification loss.
+Inputs and outputs have shape (batch, sequence length, eight features).
+
+* Training minimizes MSELoss against the next shifted feature window.
+* Adam updates the Generator; gradients are clipped to max_norm=1.0.
+* ReduceLROnPlateau halves the learning rate after 10 non-improving epochs.
+* Early stopping uses average training loss, with patience 15, not validation loss.
+* The best training-loss state is restored before saving.
+
+The Tanh output is a scaled feature estimate, not a calibrated probability.
+Neither a 0.6/0.4 confidence rule nor probability-based sizing is implemented
+by this training/report path.
+
+## Eight ordered inputs
+
+src/models/artifacts.py defines the canonical order:
+
+* 1. Log_Ret_Close
+* 2. Log_Ret_High
+* 3. Log_Ret_Low
+* 4. Log_Vol
+* 5. RSI
+* 6. ADX
+* 7. ATR
+* 8. EMA
+
+src/data/loader.py computes close/high/low log returns, log1p volume and
+technical indicators, then fits MinMaxScaler to the selected eight columns
+with range [-1, 1]. Its EMA fallback uses span 20.
+FuturesDataset pairs each input window with the window shifted one step forward.
+Fourier components and autoencoder latents are computed upstream, but are not
+additional inputs to this fixed eight-column model. RandomForest feature
+importance is a separate diagnostic, not Bayesian feature selection or XGBoost signals.
+ARIMA and Gaussian-process forecasts are also diagnostic plots, not an ensemble head.
+
+## Saved artifacts and compatibility
+
+train.py saves the Generator state, fitted scaler and JSON configuration with
+ordered feature_cols and input_dim=8. Paths use the persistent outputs directory
+and a ticker/timeframe prefix; the existing filenames and Python interfaces remain.
+src/models/artifacts.py validates metadata before saving and is shared by loaders.
+
+* Explicit feature order must equal the canonical list above.
+* Config input_dim, scaler width/names and checkpoint input/output widths must agree.
+* Historical unnamed scalers without ordered metadata use canonical-eight compatibility
+  only when the validated widths agree; arbitrary external order cannot be proven.
+* Seven-feature or conflicting bundles require retraining, not silent column reassignment.
+
+Only load trusted checkpoints and scalers; serialized model artifacts are not safe
+untrusted interchange files. Existing saved files are not rewritten by this documentation.
+
+## Predictions, actions and costs
+
+The report extracts the final time step's first output, inverse-scales it to a
+close log-return estimate, and shifts Predicted_Return by -1 for Signal_Prediction.
+The trainer calls src/analysis/backtester.py with is_return=True and default threshold=0.
+Positive predictions select long; negative predictions select short; zero keeps the
+existing position. BUY or SELL appears on a position change; otherwise the row is HOLD.
+HOLD therefore does not necessarily mean flat or uncertain. These are report simulation
+rules, not a replacement for the live engine's separate filters and order gateway.
+
+The trainer backtester compounds capital using price percentage changes and deducts
+one round-trip cost fraction when closing a position. Defaults are Futures 0.0008,
+Stocks 0.0010, Crypto 0.0020, ETF 0.0006 and Forex 0.0003 (fallback 0.0005).
+These are simplified spread/commission assumptions, not measured fills or a full
+slippage/liquidity model. They do not implement Kelly sizing or contract/tick accounting.
+The dashboard's stop/take-profit suggestions use recent price standard deviation
+multipliers (1.5 and 2.5), not model confidence or guaranteed protection.
+
+## Reading the reported metrics
+
+* RMSE compares predicted and observed close log returns, not price points,
+  despite the dashboard's legacy Error Pts label.
+* Accuracy is the fraction of matching return signs; the dashboard displays a percentage.
+* Win Rate and Total Return % come from the trainer backtester, not live account results.
+* Total Return % uses its recorded equity curve; final liquidation is not appended to
+  that curve, so it need not match the separately returned final capital.
+
+Although train.py labels the last 20% evaluation as held out, the shuffled training
+loader already uses the full dataset and the scaler is fitted on the full series.
+Those metrics are not an independent out-of-sample profitability validation.
+Overlapping windows, prediction alignment and cost assumptions require independent
+chronological evaluation before any claim of predictive skill.
+
+## Limits and non-goals
+
+Experimental adversarial code in src/models/gan.py and src/models/discriminator.py
+is not run by the shipped train.py entrypoint. That path does not train a CNN critic,
+perform adversarial/evolutionary optimization, or tune Bayesian hyperparameters.
+This does not remove dependencies, experimental modules or the active legacy live path.
+Some surrounding dashboard captions retain historical wording; this document does not
+change those consumers. Diagnostic charts and training convergence are not proof of skill.
+There is no validated predictive profitability or calibrated probability guarantee here.
+Trading can lose capital; research metrics are not investment advice or execution assurance.
