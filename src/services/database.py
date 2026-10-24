@@ -65,6 +65,17 @@ def init_db():
     result = repository.import_legacy_sqlite(get_db_path())
     print(f"[DATABASE] PostgreSQL schema ready; legacy SQLite import: {result['status']}")
 
+def legacy_import_user_id() -> str:
+    """Identity the legacy import writes to."""
+    from src.services.user_repository import legacy_import_user_id as resolve
+    return resolve()
+
+
+def delete_user_rows(user_id: str) -> Dict[str, int]:
+    """Destructive helper for an explicit replace import."""
+    return get_repository().delete_user_rows(user_id)
+
+
 def clear_legacy_import_marker() -> None:
     """Allow one further import at the operator's explicit request."""
     get_repository().clear_legacy_import_marker()
