@@ -73,6 +73,7 @@ jobs:
     name: CPU model and simulation seams (Python 3.11)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
       CUDA_VISIBLE_DEVICES: ""
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"

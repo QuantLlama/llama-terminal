@@ -113,3 +113,26 @@ def test_job_level_env_never_uses_the_runner_context():
         if line.startswith('      ') and not line.startswith('        ') and 'runner.' in line:
             offenders.append(f'line {line_no}: {line.strip()}')
     assert offenders == [], 'runner context is invalid in job-level env: ' + '; '.join(offenders)
+
+
+def test_no_orphaned_mapping_entries_in_workflow():
+    # A six-space entry must belong to the nearest shallower key, and that key must
+    # open a block. Deleting a parent key while keeping its children makes GitHub
+    # reject the whole workflow before any job is created.
+    orphans = []
+    for index, line in enumerate(workflow().splitlines()):
+        if not line.startswith('      ') or line.startswith('        '):
+            continue
+        if line.lstrip().startswith('- '):
+            continue
+        parent = ''
+        for earlier in reversed(workflow().splitlines()[:index]):
+            if not earlier.strip():
+                continue
+            indent = len(earlier) - len(earlier.lstrip())
+            if indent < 6:
+                parent = earlier
+                break
+        if not parent.rstrip().endswith(':'):
+            orphans.append(f'line {index + 1}: {line.strip()}')
+    assert orphans == [], 'orphaned mapping entries: ' + '; '.join(orphans)
