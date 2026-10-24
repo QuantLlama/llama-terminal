@@ -106,8 +106,42 @@
   </style>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Quantum Llama - Terminal de Trading Profesional." />
+  <!-- SEO / social metadata block: add further crawler, social or analytics tags in this region. -->
   <title>Quantum Llama - Professional Trading Terminal</title>
+  <meta name="description" content="Quantum Llama: terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado." />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#050505" />
+
+  <!--
+    Canonical and social URLs stay origin-relative on purpose: the public origin is resolved from
+    the incoming request in src/platform/api/seo_api.py and no production domain is invented here.
+    A fixed canonical origin belongs at the reverse proxy/CDN. See docs/SEO.md.
+  -->
+  <link rel="canonical" href="/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Quantum Llama" />
+  <meta property="og:title" content="Quantum Llama - Professional Trading Terminal" />
+  <meta property="og:description" content="Quantum Llama: terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado." />
+  <meta property="og:url" content="/" />
+  <meta property="og:image" content="/images/QuantumLLama.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Quantum Llama - Professional Trading Terminal" />
+  <meta name="twitter:description" content="Quantum Llama: terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado." />
+  <meta name="twitter:image" content="/images/QuantumLLama.png" />
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Quantum Llama",
+      "applicationCategory": "FinanceApplication",
+      "applicationSubCategory": "Trading terminal",
+      "operatingSystem": "Web",
+      "url": "/",
+      "inLanguage": "es",
+      "description": "Terminal de trading profesional con Order Flow, Footprint, DOM y análisis técnico multi-mercado."
+    }
+  </script>
   <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
   <link rel="icon" href="/images/QuantumLLama.png" type="image/png" />
   <link rel="apple-touch-icon" href="/images/QuantumLLama.png" />
