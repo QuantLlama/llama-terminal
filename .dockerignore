@@ -1,0 +1,57 @@
+# Version control and local tooling
+.git/
+.gitignore
+.atl/
+.codegraph/
+.claude/
+.agents/
+.junie/
+.openclaw/
+.antigravitycli/
+.agent/
+
+# Python environments and caches
+venv/
+venv_linux/
+venv_agent/
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+node_modules/
+.pytest_cache/
+scratch/
+
+# Logs and large diagnostics
+*.log
+*.db
+*.db-journal
+*.backup
+dist/
+outputs/
+logs/
+mt5_instances/
+mirror_diagnostics.txt
+dom_debug.log
+out.txt
+optimization_summary.txt
+pyarmor.bug.log
+pyarmor.error.log
+
+# Secrets
+.env
+*.key
+.crypto_key
+.mt5_key
+.nt8_key
+.tradovate_key
+
+# Desktop packaging assets
+electron/
+nsis/
+images/
+legal/
+docs/
+openspec/
+NinjaTrader/
