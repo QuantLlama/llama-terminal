@@ -37,24 +37,51 @@ def is_backend_running(port=None, timeout=1):
     except (requests.RequestException, ValueError):
         return False
 
+def backend_executable(current_dir):
+    """Resolve the packaged backend name for this platform.
+
+    The PyInstaller builder emits ``backend.exe`` on Windows and ``backend``
+    elsewhere, so the launcher must not assume the Windows suffix.
+    """
+    name = "backend.exe" if os.name == "nt" else "backend"
+    path = os.path.join(current_dir, name)
+    if not os.path.isfile(path):
+        return None
+    if os.name != "nt" and not os.access(path, os.X_OK):
+        return None
+    return path
+
+
+def spawn_backend(backend_path, port, current_dir):
+    """Start the backend with platform-appropriate process options."""
+    argv = [backend_path, "--port", str(port)]
+    if os.name == "nt":
+        return subprocess.Popen(
+            argv, creationflags=subprocess.CREATE_NO_WINDOW, cwd=current_dir
+        )
+    return subprocess.Popen(argv, cwd=current_dir)
+
+
 def launch_browser():
     """
     Launch the browser in 'app mode' to hide the URL bar if using Chrome/Edge.
     Fallback to standard browser if app mode fails.
     """
-    # Common browsers and their app mode flags
-    # We prioritize Chrome/Edge for the 'app' flag which gives a clean terminal look
+    # The Windows registry lookup is the only app-mode path; other platforms
+    # have no equivalent and must fall back without reporting a fake error.
+    if os.name != "nt":
+        webbrowser.open(API_URL)
+        return
     try:
-        # Try to find Chrome
         import winreg
         chrome_path = None
         try:
             key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe")
             chrome_path, _ = winreg.QueryValueEx(key, "")
             winreg.CloseKey(key)
-        except:
+        except Exception:
             pass
-            
+
         if chrome_path:
             # Launch in App Mode: hides address bar, tabs, etc.
             subprocess.Popen([chrome_path, f"--app={API_URL}"])
@@ -79,12 +106,10 @@ def main():
             current_dir = os.path.dirname(sys.executable)
         else:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-        backend_exe = os.path.join(current_dir, "backend.exe")
-        
-        if os.path.exists(backend_exe):
-            subprocess.Popen([backend_exe, "--port", str(API_PORT)], 
-                             creationflags=subprocess.CREATE_NO_WINDOW,
-                             cwd=current_dir)
+        backend_exe = backend_executable(current_dir)
+
+        if backend_exe:
+            spawn_backend(backend_exe, API_PORT, current_dir)
             
             # Wait for backend to be ready
             for _ in range(30):

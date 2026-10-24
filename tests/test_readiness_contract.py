@@ -81,7 +81,7 @@ def test_browser_startup_never_opens_before_ready(launcher, monkeypatch, eventua
     monkeypatch.setattr(launcher, "get_free_port", lambda *args: 8050)
     states = iter([False, False] + ([True] if eventually_ready else [False] * 30))
     monkeypatch.setattr(launcher, "is_backend_running", lambda *args: next(states, False))
-    monkeypatch.setattr(launcher.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(launcher, "backend_executable", lambda current_dir: "backend")
     monkeypatch.setattr(launcher.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
     spawn = Mock()
     monkeypatch.setattr(launcher.subprocess, "Popen", spawn)
