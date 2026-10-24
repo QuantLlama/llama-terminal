@@ -46,8 +46,27 @@ fi
 
 cd "$ROOT_DIR"
 
-if command -v wine >/dev/null 2>&1 && [[ -x "./venv/Scripts/python.exe" ]]; then
-    exec wine ./venv/Scripts/python.exe -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
+# Prefer the Windows Python that lives inside the Wine prefix: it is the only
+# interpreter that can import the Windows-only MetaTrader5 package.
+find_wine_python() {
+    local candidates=(
+        "${MT5_PYTHON:-}"
+        "${WINEPREFIX:-$HOME/.wine}/drive_c/users/${USER}/AppData/Local/Programs/Python/Python310/python.exe"
+        "${WINEPREFIX:-$HOME/.wine}/drive_c/Python310/python.exe"
+    )
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if wine_python="$(find_wine_python)"; then
+    echo "Using Wine Python: $wine_python"
+    exec wine "$wine_python" -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
 elif [[ -x "./venv_linux/bin/python" ]]; then
     exec ./venv_linux/bin/python -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
 else
