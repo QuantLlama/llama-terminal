@@ -65,6 +65,11 @@ def init_db():
     result = repository.import_legacy_sqlite(get_db_path())
     print(f"[DATABASE] PostgreSQL schema ready; legacy SQLite import: {result['status']}")
 
+def clear_legacy_import_marker() -> None:
+    """Allow one further import at the operator's explicit request."""
+    get_repository().clear_legacy_import_marker()
+
+
 def legacy_import_already_applied() -> bool:
     """Whether the one-time desktop import has already been recorded."""
     return get_repository().legacy_import_applied()

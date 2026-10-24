@@ -21,6 +21,11 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(module.database, "legacy_import_already_applied", lambda: store["applied"])
     monkeypatch.setattr(
         module.database,
+        "clear_legacy_import_marker",
+        lambda: store.update(applied=False, cleared=True),
+    )
+    monkeypatch.setattr(
+        module.database,
         "import_legacy_sqlite",
         lambda path=None: store.update(imported=path) or {"status": "applied", "imported": {"workspaces": 2}},
     )
@@ -83,3 +88,17 @@ def test_refuses_once_the_import_marker_exists(client):
     )
     assert response.status_code == 409
     assert not store["path"].exists()
+
+
+def test_force_runs_once_more_without_deleting_rows(client):
+    http, store, monkeypatch = client
+    monkeypatch.setenv(migration_api.TOKEN_ENV, "expected-token")
+    store["applied"] = True
+    response = http.post(
+        "/api/ops/desktop-import",
+        content=SQLITE_HEADER,
+        headers={"X-Import-Token": "expected-token", "X-Import-Force": "1"},
+    )
+    assert response.status_code == 200
+    assert store.get("cleared") is True
+    assert store["path"].read_bytes() == SQLITE_HEADER

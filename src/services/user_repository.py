@@ -544,6 +544,19 @@ class PostgresUserRepository:
 
     # ── legacy SQLite compatibility import ────────────────────────
 
+    def clear_legacy_import_marker(self, marker: str = LEGACY_IMPORT_MARKER) -> None:
+        """Drop the marker so a deliberate re-import can run once more."""
+        connection, cursor_factory = _open_connection(self.url)
+        try:
+            cursor = connection.cursor(cursor_factory=cursor_factory)
+            cursor.execute(
+                "DELETE FROM migration_state WHERE name = %(name)s",
+                {"name": marker},
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
     def legacy_import_applied(self, marker: str = LEGACY_IMPORT_MARKER) -> bool:
         """True when the one-time import marker is already recorded."""
         connection, cursor_factory = _open_connection(self.url)
