@@ -100,3 +100,16 @@ def test_existing_static_lane_checks_both_electron_entry_points():
     lane = jobs()['static']
     assert 'node --check electron/main.js' in lane
     assert 'node --check electron/health.js' in lane
+
+
+def test_job_level_env_never_uses_the_runner_context():
+    # `runner` is unavailable in a job-level `env:` block, and GitHub rejects the
+    # whole workflow at dispatch time when it appears there. Job-level env sits at
+    # four-space indent with six-space entries; step-level env is deeper and legal.
+    offenders = []
+    for line_no, line in enumerate(workflow().splitlines(), 1):
+        if line == '    env:':
+            continue
+        if line.startswith('      ') and not line.startswith('        ') and 'runner.' in line:
+            offenders.append(f'line {line_no}: {line.strip()}')
+    assert offenders == [], 'runner context is invalid in job-level env: ' + '; '.join(offenders)
