@@ -81,6 +81,7 @@ from src.platform.api.footprint_api import router as footprint_router
 from src.platform.api.backtesting_api import router as backtesting_router
 from src.platform.api.backtesting_api import router as backtesting_router
 from src.platform.api.seo_api import router as seo_router
+from src.platform.api.migration_api import router as migration_router
 
 # Standard routers
 from src.platform.api.analysis_api import router as analysis_router
@@ -4457,6 +4458,7 @@ app.mount("/logs", StaticFiles(directory=logs_dir), name="logs")
 app.include_router(version_router)
 # Crawler surface must stay ahead of the SPA catch-all that answers index.html.
 app.include_router(seo_router)
+app.include_router(migration_router)
 @app.get("/api/auth/session")
 async def check_session(
     user: Any = Depends(get_current_user),
