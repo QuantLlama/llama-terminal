@@ -81,6 +81,12 @@ async def ensure_order_gateway():
         mde = await ensure_market_data_engine()
         _order_gateway.set_market_data_engine(mde)
         _order_gateway.start()
+    elif not _order_gateway.is_running:
+        # Startup may have failed transiently; recover on first use instead of
+        # leaving the gateway stopped for the life of the process.
+        mde = await ensure_market_data_engine()
+        _order_gateway.set_market_data_engine(mde)
+        _order_gateway.start()
     return _order_gateway
 async def ensure_algo_engine():
     global _algo_engine
@@ -654,14 +660,13 @@ async def startup_services(platform: str = "mt5"):
             # pero no la forzará a abrir bloqueando la experiencia o forzando su uso (importante para usuarios que operan full Crypto).
             
             print("INFO: Conectando motor de mercado al broker actual...")
-            loop = asyncio.get_event_loop()
-            success_mde = await loop.run_in_executor(None, _market_data_engine.start)
-            if success_mde:
-                _order_gateway.start()
+            from src.services.startup_retry import connect_with_retry
+            connected = await connect_with_retry(_market_data_engine, _order_gateway)
+            if connected:
                 print("INFO: Conexión establecida y servicios operativos.")
             else:
                 print(
-                    "WARNING: Motor de mercado no pudo conectar inicialmente. Reintentando en bucle interno."
+                    "ERROR: Motor de mercado sin conexión tras los reintentos; el gateway queda detenido."
                 )
         except Exception as e:
             print(f"ERROR CRÍTICO en la inicialización de fondo: {e}")
