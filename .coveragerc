@@ -1,0 +1,8 @@
+[run]
+source = src
+
+[report]
+show_missing = True
+skip_covered = False
+# No percentage gate until measured runs establish a reviewed baseline.
+# Do not omit native, broker or training modules to inflate this report.
