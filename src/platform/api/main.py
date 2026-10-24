@@ -121,7 +121,7 @@ from src.services.database import get_outputs_dir, get_logs_dir
 STATUS_FILE = os.path.join(get_outputs_dir(), "live_status.json")
 load_dotenv()
 from src.live.connector import get_mt5_connector
-from src.live.bridge_types import normalize, positions_to_web
+from src.live.bridge_types import as_list, normalize, positions_to_web
 GLOBAL_MT5_CONNECTOR = get_mt5_connector()
 from src.services.crypto_manager import get_crypto_manager
 from src.live.crypto_connector import get_connector
@@ -2602,13 +2602,16 @@ async def get_realtime_batch(
             )
             
             account_info = normalize(account_info)
+            daily_pnl = 0.0 if isinstance(daily_pnl, dict) else (daily_pnl or 0.0)
             if account_info:
                 account_info["realized_today"] = daily_pnl
                 account_info["daily_pnl"] = daily_pnl + account_info.get("profit", 0.0)
-            
+
             if isinstance(positions, dict):
                 # The bridge answered with an error payload instead of a list.
                 positions = []
+            positions = as_list(positions)
+            orders = as_list(orders)
             pos_list = positions_to_web(positions) if positions else []
             pending_list = []
             if orders:

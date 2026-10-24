@@ -100,6 +100,13 @@ class MT5ApiConnector:
             except Exception as e:
                 logger.error(f"Error launching wine server: {e}")
         
+    def _bridge_client(self, timeout=None):
+        """Bridge connection that always carries the shared token."""
+        kwargs = {"base_url": self.base_url, "headers": bridge_headers()}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return httpx.Client(**kwargs)
+
     def connect(self, path=None):
         try:
             res = self._client.post("/api/connect", json={"path": path})
@@ -249,7 +256,7 @@ class MT5ApiConnector:
             url = "/api/deals?"
             if date_from: url += f"date_from={date_from.isoformat()}&"
             if date_to: url += f"date_to={date_to.isoformat()}"
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 res = client.get(url)
                 if res.status_code == 200:
                     data = res.json()
@@ -267,7 +274,7 @@ class MT5ApiConnector:
             url = "/api/positions?"
             if symbol: url += f"symbol={symbol}&"
             if ticket: url += f"ticket={ticket}"
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 return client.get(url).json()
         except:
             return []
@@ -276,7 +283,7 @@ class MT5ApiConnector:
         try:
             url = "/api/pending_orders?"
             if symbol: url += f"symbol={symbol}"
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 return client.get(url).json()
         except:
             return []
@@ -285,7 +292,7 @@ class MT5ApiConnector:
         side = kwargs.get('side')
         amount = kwargs.get('amount')
         try:
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 res = client.post("/api/place_order", json={
                     "symbol": symbol, "order_type": order_type, "volume": volume,
                     "sl": sl, "tp": tp, "price": price, "mode": mode,
@@ -306,7 +313,7 @@ class MT5ApiConnector:
             url = f"/api/close_position/{ticket}?"
             if symbol: url += f"symbol={symbol}&"
             if volume: url += f"volume={volume}"
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 res = client.post(url)
                 if res.status_code == 200:
                      return True
@@ -316,7 +323,7 @@ class MT5ApiConnector:
 
     def modify_position(self, ticket, sl, tp, symbol=None):
         try:
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 res = client.post(f"/api/modify_position/{ticket}", json={
                     "sl": sl, "tp": tp, "symbol": symbol
                 })
@@ -331,7 +338,7 @@ class MT5ApiConnector:
 
     def modify_order(self, ticket, price=0.0, sl=0.0, tp=0.0):
         try:
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 res = client.post(f"/api/modify_order/{ticket}", json={
                     "price": price, "sl": sl, "tp": tp
                 })
@@ -346,14 +353,14 @@ class MT5ApiConnector:
 
     def get_daily_pnl(self):
         try:
-            with httpx.Client(base_url=self.base_url) as client:
+            with self._bridge_client() as client:
                 return client.get("/api/daily_pnl").json().get("pnl", 0.0)
         except:
             return 0.0
 
     def get_symbol_details(self, symbol):
         try:
-             with httpx.Client(base_url=self.base_url) as client:
+             with self._bridge_client() as client:
                 res = client.get(f"/api/symbol_details/{symbol}")
                 if res.status_code == 200:
                     return res.json()

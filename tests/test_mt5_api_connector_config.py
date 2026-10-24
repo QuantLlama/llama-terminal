@@ -141,3 +141,43 @@ def test_shutdown_bridge_is_explicit(monkeypatch):
     connector.shutdown_bridge()
 
     assert recorder.posts == ["/api/shutdown"]
+
+
+def test_every_bridge_call_carries_the_token(monkeypatch):
+    module, _ = _fresh_connector(
+        monkeypatch, {"MT5_BRIDGE_TOKEN": "s3cret", "MT5_AUTO_LAUNCH": "false"}
+    )
+    connector = module.MT5ApiConnector()
+
+    seen_headers = []
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            seen_headers.append(kwargs.get("headers"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
+
+    connector.get_positions()
+    connector.get_pending_orders()
+
+    assert seen_headers, "expected the connector to open bridge connections"
+    assert all(h and h.get("X-Bridge-Token") == "s3cret" for h in seen_headers), seen_headers
