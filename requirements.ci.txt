@@ -10,3 +10,4 @@ cryptography>=42,<46
 numpy==1.26.4
 pandas==2.2.2
 pytest>=8.3,<10
+rich==13.7.1
