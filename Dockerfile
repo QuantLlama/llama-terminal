@@ -38,7 +38,7 @@ COPY . .
 # Writable runtime directories (mount volumes over these in production).
 RUN mkdir -p config outputs logs images \
     && useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser ${APP_HOME}/config ${APP_HOME}/outputs ${APP_HOME}/logs ${APP_HOME}/images
+    && chown -R appuser:appuser ${APP_HOME}
 
 USER appuser
 
