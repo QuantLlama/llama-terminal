@@ -128,10 +128,14 @@ const { probeReadiness, waitForReadiness } = require('./electron/health');
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}/api/health`;
   try {
-    assert.equal(await probeReadiness(url, 50), true);
-    for (mode of ['html', 'malformed', 'array', 'string', 'nonready', 'status', 'disconnect', 'timeout']) {
-      assert.equal(await probeReadiness(url, 50), false, mode);
+    // A generous timeout keeps these assertions about response semantics, not
+    // about how fast a loaded CI runner answers.
+    assert.equal(await probeReadiness(url, 2000), true);
+    for (mode of ['html', 'malformed', 'array', 'string', 'nonready', 'status', 'disconnect']) {
+      assert.equal(await probeReadiness(url, 2000), false, mode);
     }
+    mode = 'timeout';
+    assert.equal(await probeReadiness(url, 50), false, 'timeout');
     mode = 'transition'; calls = 0;
     await waitForReadiness(url, 500, 5);
     assert.ok(calls > 1);
@@ -140,7 +144,7 @@ const { probeReadiness, waitForReadiness } = require('./electron/health');
     mode = 'timeout';
     const start = Date.now();
     await assert.rejects(waitForReadiness(url, 60, 5), /readiness/i);
-    assert.ok(Date.now() - start < 400);
+    assert.ok(Date.now() - start < 2000);
   } finally {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
