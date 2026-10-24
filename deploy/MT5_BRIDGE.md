@@ -85,16 +85,36 @@ nft add rule inet filter input iifname "tailscale0" tcp dport 8081 accept
 
 ## 3. Cloud side (Coolify application)
 
+Because Tailscale drops traffic that reaches a tailnet address from a
+non-tailnet interface, the container cannot dial `100.x.y.z` directly. The VPS
+runs a small relay from the Docker bridge gateway to the tailnet peer:
+
+```
+container -> 10.0.0.1:8081 -> socat -> <local-tailnet-ip>:8081
+```
+
+Install or update it on the VPS (auto-discovers the single online peer):
+
+```bash
+sudo ./deploy/vps/setup-mt5-relay.sh
+# or explicitly
+sudo ./deploy/vps/setup-mt5-relay.sh 100.101.102.103
+```
+
+The script installs `socat`, writes `/etc/default/qllama-mt5-relay`, enables
+`qllama-mt5-relay.service` and opens `10.0.0.1:8081` to the Docker subnet only
+(`ufw allow from 10.0.0.0/24`). Re-run it whenever the peer address changes.
+
 Set these on the `quantum-llama-web` application and redeploy:
 
 | Variable | Value |
 | --- | --- |
-| `MT5_BRIDGE_URL` | `http://<local-tailnet-ip>:8081` |
+| `MT5_BRIDGE_URL` | `http://10.0.0.1:8081` |
 | `MT5_BRIDGE_TOKEN` | the same token used locally |
 | `MT5_AUTO_LAUNCH` | `false` (already set) |
 
-The container reaches the tailnet address through the host, so no extra
-routing is required when Tailscale runs on the VPS.
+Do not point `MT5_BRIDGE_URL` at a tailnet address: the container has no route
+to it and the request times out.
 
 ## 4. Verify end to end
 
@@ -113,6 +133,7 @@ curl -s https://llama.nbmsystemas.com/api/symbols      # symbols resolved from M
 | `401 invalid bridge token` | `MT5_BRIDGE_TOKEN` differs between bridge and application |
 | `503 Could not connect to MT5` in the cloud | Bridge down, MT5 terminal not logged in, or `MT5_BRIDGE_URL` unreachable from the container |
 | Bridge reachable locally but not over Tailscale | Bridge bound to `127.0.0.1`; set `MT5_BRIDGE_BIND=0.0.0.0` |
+| Container gets `HTTP 000` / timeout against `10.0.0.1:8081` | Relay stopped, peer offline, or ufw rule missing: re-run `deploy/vps/setup-mt5-relay.sh` |
 | Orders rejected (`Invalid volume`/`Invalid stops`) | Broker symbol rules; check the sizing values shown in the order panel |
 
 ## Security notes
