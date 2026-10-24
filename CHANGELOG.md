@@ -9,6 +9,12 @@ Release notes with full detail live in [`docs/RELEASES/`](docs/RELEASES/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.9.0] - 2026-10-24
+
+**Cloud mode.** Full notes: [`docs/RELEASES/v1.9.0.md`](docs/RELEASES/v1.9.0.md).
+
 ### Added
 
 - **Repository foundation** — English README, architecture / development / testing / ML
@@ -29,6 +35,10 @@ Release notes with full detail live in [`docs/RELEASES/`](docs/RELEASES/).
   state.
 - **Order flow overlays** — large-trade overlays that realign on timeframe change and
   resize.
+- **Repository foundation** — English documentation (`README`, architecture, development,
+  testing, ML pipeline, cloud mode, roadmap, ADRs), contribution governance (issue forms, PR
+  template, `CODEOWNERS`, contributing, code of conduct, security policy) and CI (test suite on
+  3.11/3.12, byte-compile, conflict markers, documentation links, Conventional Commits).
 
 ### Changed
 
@@ -80,5 +90,6 @@ See [`docs/RELEASES/v1.8.1.md`](docs/RELEASES/v1.8.1.md) for the full release no
 Releases before 1.8.1 predate this changelog. The repository history and
 [`docs/RELEASES/`](docs/RELEASES/) are the source of truth for them.
 
-[Unreleased]: https://github.com/QuantLlama/llama-terminal/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/QuantLlama/llama-terminal/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/QuantLlama/llama-terminal/releases/tag/v1.9.0
 [1.8.1]: https://github.com/QuantLlama/llama-terminal/releases/tag/v1.8.1

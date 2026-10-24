@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="docs/RELEASES/v1.9.0.md"><img src="https://img.shields.io/badge/what's%20new-v1.9.0%20%C2%B7%20cloud%20mode-f5a623" alt="What's new in v1.9.0" /></a>
   <a href="https://github.com/QuantLlama/llama-terminal/actions/workflows/ci.yml"><img src="https://github.com/QuantLlama/llama-terminal/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/version-1.8.1-blue" alt="Version 1.8.1" />
   <img src="https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11" />
@@ -190,6 +191,9 @@ Three properties make the shape deliberate:
 
 ### Operations
 
+- **Cloud mode** — the same platform runs as a web application on a server while the MT5
+  terminal stays on your machine. One container, three volumes, HTTPS in front —
+  see [`docs/CLOUD.md`](docs/CLOUD.md).
 - **Container image** (non-root user, health check, volumes) for the web/API surface.
 - **Coolify deployment** documented end to end, including the MT5 relay and the crypto
   egress proxy — see [`deploy/COOLIFY.md`](deploy/COOLIFY.md).
@@ -314,8 +318,11 @@ validates every relative documentation link. Strategy and coverage guidance:
 
 ## Deployment
 
-The desktop and the cloud are separate deliverables. The container image ships the
-web/API surface only:
+The desktop and the cloud are separate deliverables. The cloud shape is documented in
+[`docs/CLOUD.md`](docs/CLOUD.md): topology, request paths, security model, operations and the
+integration problems that had to be solved to reach MetaTrader 5 from a container.
+
+The container image ships the web/API surface only:
 
 ```bash
 docker build -t llama-terminal .
@@ -339,8 +346,10 @@ docker run --rm -p 8050:8050 --env-file .env llama-terminal
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Environment setup, running modes, debugging, troubleshooting |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy, suites, fixtures, what must be tested |
 | [`docs/ML-PIPELINE.md`](docs/ML-PIPELINE.md) | Features, models, training loop, evaluation |
+| [`docs/CLOUD.md`](docs/CLOUD.md) | Cloud mode: topology, request paths, security, operations, integration problems |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is planned and what is explicitly out of scope |
-| [`docs/RELEASES/v1.8.1.md`](docs/RELEASES/v1.8.1.md) | Release notes |
+| [`docs/RELEASES/v1.9.0.md`](docs/RELEASES/v1.9.0.md) | Release notes for the current version |
+| [`docs/RELEASES/v1.8.1.md`](docs/RELEASES/v1.8.1.md) | Previous release notes |
 | [`docs/adr/`](docs/adr) | Architecture decision records |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch, commit and review workflow |
 | [`CHANGELOG.md`](CHANGELOG.md) | Change history |
