@@ -112,3 +112,16 @@ Hosted outcome after the repair: run `40122042215` on `ci/coverage-model-seam` c
 Human selected "Conservarlo y continuar aislado — recomendado" (exact token `preserve_current_continue_isolated`). Accept current environment/staging with unreconstructible prior impact, preserve all current owner artifacts, and continue future builds only in a fresh isolated copy. This does not authorize cleanup, restore, reinstall of owner environment, credential changes, deployment or replacing PR28 proof.
 
 Independent verifier mvmos1vl-i-2bpw PASS:39tests2.66s,17HTTPstatus/body/allheader samples+completeOpenAPI, expanded whole-main AST equality, actual version-router synthetic frozen3.2.1, mixedlongloss/shortwin balance10006/PF2.0 and separate trainer10480/PFinfinity.12-file overlay matched workspace; originalruntime/config untouched. Commits: operationalrouters9a3a34d (227changedlines), equivalentplatformmetrics8c24d2c (304lines), modeldocs7d39ea2 (500lines replacement-heavy passive reference plus renderingtests). Native assessment of exact docs unit base8c24d2c→7d39ea2:medium/reviewDuefalse; selfchecks stand. Remaining API-domain decomposition, dependency cleanup and CI/distribution proof are not closed.
+
+### L11 — delivery: merged to main
+
+The owner asked to finish everything except the installer. Order chosen to protect reviewability: the small focused security PR went first, then the readiness backlog, so neither diff swallowed the other.
+
+- `#28` merged at `045b78d`; push CI `40123149884` passed.
+- `#29` retargeted from `fix/secrets-hygiene` to `main` and merged at `de3a218`; push CI `40123681142` passed, and the pre-merge PR run `40123454889` was green on all five checks.
+- Tracker `Closes` closed only `#1` automatically; the remaining resolved issues were closed explicitly with per-issue evidence. `#4`, `#5`, `#7` and `#14` are recorded as **corrected premises**, not as completed removals: the legacy live path stays, the backtesters stay distinct, dead modules stay importable, and the stale-`so` claim was disproved.
+- `#6` deliberately stays open: `main.py` is still 4,448 lines with 72 route decorators and the remainder is live-trading control surface. A bulk move would risk trading endpoints for a code-organization gain. The issue now carries the delivered slices and the ordered next boundaries.
+
+One real defect surfaced only on a hosted runner: `test_node_public_probes_and_wait_loop` used a 50 ms probe timeout, which a loaded CI machine can exceed. The assertion was about response semantics, not speed, so the semantic probes now use a generous timeout while the dedicated timeout-mode probe keeps its tight one; the timing bound for rejection was widened to a value that still proves it does not hang.
+
+Final state: `main` at `de3a218`, `scripts/check_secrets.py` clean over 467 files, downstream `src/product_version.py` reporting `1.9.0`. No installer was built. No deployment was performed and auto-deploy stays paused. Existing clones, stashes and unreachable objects may still hold pre-rewrite data; GitHub's cached PR references still need provider-side removal through the owner's support channel.
