@@ -4,6 +4,9 @@ This document describes how the Quantum Llama Terminal web/API runs on the
 Coolify VPS and how to operate it. The desktop/Electron build is not part of
 this deployment.
 
+For the architecture, request paths, security model and the integration problems
+behind this setup, read [`../docs/CLOUD.md`](../docs/CLOUD.md).
+
 ## Topology
 
 ```
@@ -26,7 +29,7 @@ MetaTrader 5 cannot run inside a Linux container; see "MT5 bridge" below.
 | Application | `quantum-llama-web` (`zzkdpzudy7gp42gfxcffday4`) |
 | Server | `localhost` (`nkirbxo6kjkkoiywkqdsesr9`) |
 | Domain | `https://llama.nbmsystemas.com` |
-| Branch | `feature/coolify-deploy` |
+| Branch | `feature/coolify-deploy` (switch to `main` after the v1.9.0 release) |
 | Build pack | Dockerfile (`/Dockerfile`) |
 | Exposed port | `8050` |
 | Health check | `GET /health` on port `8050` |
@@ -102,10 +105,15 @@ where the broker terminal lives and the cloud app talks to it over HTTP:
    `https://mt5.internal.example.com`.
 4. Redeploy so the container picks up the variable.
 
-Security requirements for the bridge: keep it off the public internet without
-authentication. The current `mt5_server.py` has no auth layer, so the tunnel
-must be the only path to it and must require credentials, a VPN, or an IP
-allowlist.
+Security requirements for the bridge: `mt5_server.py` requires an
+`X-Bridge-Token` header on every request and refuses to serve a non-loopback
+bind without a configured token, so set `MT5_BRIDGE_TOKEN` to the same value on
+both sides. The bridge still has a single shared secret and no per-user
+authorization: keep it off the public internet and reach it only through a
+private network (tailnet, VPN) or an authenticated tunnel.
+
+The full topology, security model and the problems solved during the rollout are
+documented in [`../docs/CLOUD.md`](../docs/CLOUD.md).
 
 Until `MT5_BRIDGE_URL` is configured, the container runs with
 `MT5_AUTO_LAUNCH=false`, the MT5 connector reports a connection error, and the
