@@ -47,8 +47,6 @@ SKIP_GLOBS = (
     "skills-lock.json",
 )
 
-MAX_BYTES = 400_000
-
 # (name, severity, pattern)
 PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ("private-key", "critical", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
@@ -92,11 +90,7 @@ def candidate_files(root: Path, all_files: bool) -> list[Path]:
 def scan_file(path: Path, root: Path) -> list[tuple[str, str, int, str]]:
     if path.suffix.lower() in SKIP_EXTENSIONS or not path.is_file():
         return []
-    try:
-        if path.stat().st_size > MAX_BYTES:
-            return []
-    except OSError:
-        return []
+    # Large first-party files (including the HTML entry point) are not exempt.
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:

@@ -17,7 +17,7 @@ FAKE_SECRETS = {
     "github.txt": "token: ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8\n",
     "openai.txt": "OPENAI_KEY=sk-" + "A" * 32 + "\n",
     "supabase.txt": "key = eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJlLXZhbHVl\n",
-    "accounts.json": '{"REDACTED": {"login": "REDACTED", "password": "S3cr3t-Passw0rd-2026"}}\n',
+    "accounts.json": '{"testacct": {"login": "987654321", "password": "S3cr3t-Passw0rd-2026"}}\n',
     "path.sh": "VENV=/home/someuser/.local/share/venv\n",
 }
 
@@ -68,6 +68,22 @@ def test_guard_does_not_print_the_secret(tmp_path):
     assert result.returncode == 1
     assert secret not in result.stderr, "the report leaked the credential it flagged"
     assert "ghp_ZZ" in result.stderr, "the masked prefix should still identify the value"
+
+
+def test_guard_detects_secret_in_large_first_party_file(tmp_path):
+    secret = "ghp_" + "Q" * 36
+    content = "x" * 400_001 + "\n" + secret + "\n"
+    source = tmp_path / "index.html"
+    source.write_text(content)
+
+    result = run_guard(tmp_path)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "index.html:2" in result.stderr
+    assert "github-token" in result.stderr
+    assert secret not in result.stderr
+    assert source.read_text() == content
 
 
 def test_guard_skips_binary_assets(tmp_path):
