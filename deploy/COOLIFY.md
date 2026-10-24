@@ -29,7 +29,7 @@ MetaTrader 5 cannot run inside a Linux container; see "MT5 bridge" below.
 | Application | `quantum-llama-web` (`zzkdpzudy7gp42gfxcffday4`) |
 | Server | `localhost` (`nkirbxo6kjkkoiywkqdsesr9`) |
 | Domain | `https://llama.nbmsystemas.com` |
-| Branch | `feature/coolify-deploy` (switch to `main` after the v1.9.0 release) |
+| Branch | `main` |
 | Build pack | Dockerfile (`/Dockerfile`) |
 | Exposed port | `8050` |
 | Health check | `GET /health` on port `8050` |
@@ -72,16 +72,14 @@ volume, so the shipped default configuration files are preserved.
 
 ## Deploying a new version
 
-1. Push the commit to the tracked branch (`feature/coolify-deploy`).
+1. Push the reviewed commit to the tracked branch (`main`).
 2. Redeploy from Coolify:
    - UI: *Application → quantum-llama-web → Deploy*.
    - API: `POST /api/v1/deploy` with body `{"uuid":"zzkdpzudy7gp42gfxcffday4"}`.
 3. Watch the deployment until `status: finished` and confirm
    `https://llama.nbmsystemas.com/health` returns `200`.
 
-Automatic deployment on push is intentionally disabled; enable
-`is_auto_deploy_enabled` and add the GitHub webhook when the branch becomes
-`main`.
+Automatic deployment was confirmed enabled on `main`, then paused during the authorized history purge. Keep `is_auto_deploy_enabled=false` until the runtime authentication migration in PR #28 has completed its required security review. The running container was not restarted. See [`../docs/SECURITY-REMEDIATION.md`](../docs/SECURITY-REMEDIATION.md) before any manual redeployment.
 
 ## Verifying a deployment
 

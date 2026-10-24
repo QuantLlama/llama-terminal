@@ -305,9 +305,9 @@ python -m pytest -q                     # full suite
 python -m pytest tests/test_mt5_bridge_auth.py -q   # one module
 ```
 
-Current state: **53 tests**, covering the MT5 bridge (authentication, session reuse,
+Current state: **85 tests**, covering the MT5 bridge (authentication, session reuse,
 symbol catalogue, API connector configuration), position normalization, credential
-storage, the crypto egress proxy, optional-torch degradation and the SPA favicon route.
+storage, the crypto egress proxy, optional-torch degradation, the SPA favicon route, the secret guard and the anon-only browser runtime configuration.
 
 CI runs the suite on Python 3.11 and 3.12 with a deliberately minimal dependency set
 (`requirements.ci.txt`), byte-compiles the sources, rejects merge-conflict markers and

@@ -38,7 +38,7 @@ nothing else. Three rules follow from that:
 
 ## 2. What is covered today
 
-53 tests across nine modules.
+85 tests across eleven modules.
 
 | Module | Tests | What it pins |
 | --- | --- | --- |
@@ -51,6 +51,8 @@ nothing else. Three rules follow from that:
 | `test_credential_manager_key_dir.py` | 3 | `QUANTUM_LLAMA_KEY_DIR` override and key creation |
 | `test_web_favicon.py` | 2 | The SPA does not serve itself as the favicon |
 | `test_algo_engine_torch_optional.py` | 1 | The algo engine imports with `torch` blocked |
+| `test_secrets_guard.py` | 5 | Pattern detection, masked reports, binary exclusion and large first-party files |
+| `test_public_auth_config.py` | 27 | Runtime anon-only settings, privileged/missing/malformed rejection, escaping, caching and frontend startup |
 
 The common thread: the connector boundary and the credential boundary. Both are places
 where a regression is invisible in the UI and expensive in production.
@@ -118,7 +120,7 @@ Every push to `main` and every pull request runs `.github/workflows/ci.yml`:
 | Job | Gate |
 | --- | --- |
 | `pytest (3.11, 3.12)` | Full suite on a minimal dependency set |
-| `static` | `compileall` over entry points, no merge-conflict markers, every relative documentation link resolves |
+| `static` | `compileall` over entry points, no merge-conflict markers, secret-pattern guard, every relative documentation link resolves |
 | `commit-hygiene` (PRs) | The pull request title follows Conventional Commits |
 
 A red gate is a stop, not a warning. If a check is flaky, fix the check; do not retry it
