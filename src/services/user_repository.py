@@ -544,6 +544,19 @@ class PostgresUserRepository:
 
     # ── legacy SQLite compatibility import ────────────────────────
 
+    def legacy_import_applied(self, marker: str = LEGACY_IMPORT_MARKER) -> bool:
+        """True when the one-time import marker is already recorded."""
+        connection, cursor_factory = _open_connection(self.url)
+        try:
+            cursor = connection.cursor(cursor_factory=cursor_factory)
+            cursor.execute(
+                "SELECT 1 FROM migration_state WHERE name = %(name)s",
+                {"name": marker},
+            )
+            return cursor.fetchone() is not None
+        finally:
+            connection.close()
+
     def import_legacy_sqlite(
         self, sqlite_path: Optional[str], marker: str = LEGACY_IMPORT_MARKER
     ) -> Dict[str, Any]:

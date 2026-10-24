@@ -65,6 +65,11 @@ def init_db():
     result = repository.import_legacy_sqlite(get_db_path())
     print(f"[DATABASE] PostgreSQL schema ready; legacy SQLite import: {result['status']}")
 
+def legacy_import_already_applied() -> bool:
+    """Whether the one-time desktop import has already been recorded."""
+    return get_repository().legacy_import_applied()
+
+
 def import_legacy_sqlite(sqlite_path: Optional[str] = None) -> Dict[str, Any]:
     """Expose the compatibility import for operators and tests."""
     return get_repository().import_legacy_sqlite(sqlite_path or get_db_path())
