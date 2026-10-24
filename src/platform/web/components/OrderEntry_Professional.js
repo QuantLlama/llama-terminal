@@ -858,7 +858,7 @@ const OrderEntry_Professional = (props) => {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ platform: newPlatform })
             }).catch((err) => console.error("Engine switch failed:", err));
-            fetch("/api/config", {
+            window.authFetch("/api/config", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ platform: newPlatform })

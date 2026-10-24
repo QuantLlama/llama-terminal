@@ -151,6 +151,7 @@
   <script src="/lib/babel.min.js"></script>
   <script src="/lib/lightweight-charts.standalone.production.js?v=4.2.1"></script>
   <script src="/lib/supabase-js.js"></script>
+  <script src="/lib/authFetch.js?v=1.0.0"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 
   <script src="components/VolumeProfileEngine.js?v=2.4.7"></script>
@@ -808,7 +809,7 @@
       },
       saveWorkspace: async (name, config) => {
         try {
-          const response = await fetch(`/api/workspace/${name}`, {
+          const response = await window.authFetch(`/api/workspace/${name}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(config)
@@ -829,7 +830,7 @@
       },
       loadWorkspace: async (name) => {
         try {
-          const response = await fetch(`/api/workspace/${name}`);
+          const response = await window.authFetch(`/api/workspace/${name}`);
           if (!response.ok) {
             console.warn(
               `No saved workspace for ${name} in DB`
@@ -1906,7 +1907,7 @@
                   if (window.fetchAvailableSymbols) {
                     window.fetchAvailableSymbols(newPlatform);
                   }
-                  fetch("/api/config", {
+                  window.authFetch("/api/config", {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json"
@@ -4871,7 +4872,7 @@
       const fetchWorkspaces = async () => {
         try {
           console.log("[TerminalApp] Fetching workspaces...");
-          const res = await fetch("/api/workspaces");
+          const res = await window.authFetch("/api/workspaces");
           if (res.ok) {
             const data = await res.json();
             console.log("[TerminalApp] Received workspaces:", Object.keys(data || {}).length);
@@ -5686,7 +5687,7 @@
         refreshIndicators();
       }, [refreshIndicators]);
       useEffect(() => {
-        fetch("/api/config").
+        window.authFetch("/api/config").
           then((r) => r.json()).
           then((data) => {
             setConfig(data);
@@ -6170,7 +6171,7 @@
             window.dispatchEvent(new CustomEvent('save_status', { detail: 'saved' }));
             await fetchWorkspaces();
             if (name === "last-active") {
-              await fetch("/api/config", {
+              await window.authFetch("/api/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ workspace: workspaceData })

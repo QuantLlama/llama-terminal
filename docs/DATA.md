@@ -66,6 +66,34 @@ column plus a `WHERE user_id = ...` filter on every read, write and delete.
 string or header is ignored. Requests without a valid token receive **401**; when
 authentication is not configured at all they receive **503**.
 
+## Calling per-user endpoints from the browser
+
+Every endpoint listed above (`/api/config`, `/api/workspace/*`, `/api/workspaces`,
+`/api/algolab/state`, `/api/algolab/chat` and `/api/algolab/chat/history`) requires
+the Supabase bearer token. The browser must send
+`Authorization: Bearer <access_token>` on each call, or the API answers **401**.
+
+`src/platform/web/lib/authFetch.js` is the only sanctioned way to call those
+routes. It reads the current session from the Supabase client the page already
+created (`window.supabase.auth.getSession()`), adds the header when a session
+exists, and forwards every other `fetch` option untouched. With no session — or
+when the session lookup fails — the request is still sent, without the header, so
+the API answers 401 and logged-out flows degrade predictably instead of throwing.
+The helper never logs, persists or URL-encodes the token.
+
+```js
+// correct: per-user route
+const res = await window.authFetch("/api/config");
+
+// correct: public route, token is not needed and must not be added
+const res = await fetch("/api/platform/version");
+```
+
+Adding a new per-user endpoint therefore means adding its call site to the helper
+path: call it with `window.authFetch(...)` and extend
+`tests/test_web_auth_fetch.py`. A new public endpoint (readiness, version,
+robots, sitemap) keeps plain `fetch`.
+
 ## One-time legacy import
 
 `init_db()` calls `PostgresUserRepository.import_legacy_sqlite()` with the SQLite

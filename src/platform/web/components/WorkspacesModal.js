@@ -15,7 +15,7 @@ const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol, worksp
     setLoading(true);
     try {
       console.log("[WorkspacesModal] Fetching workspaces...");
-      const res = await fetch("/api/workspaces");
+      const res = await window.authFetch("/api/workspaces");
       if (res.ok) {
         const data = await res.json();
         console.log("[WorkspacesModal] Received data:", data);
@@ -92,7 +92,7 @@ const WorkspacesModal = ({ isOpen, onClose, onSave, onLoad, activeSymbol, worksp
     
     setDeleting(name);
     try {
-      const res = await fetch(`/api/workspace/${encodeURIComponent(name)}`, { method: "DELETE" });
+      const res = await window.authFetch(`/api/workspace/${encodeURIComponent(name)}`, { method: "DELETE" });
       if (res.ok) {
         await fetchWorkspaces();
         addNotification("success", "Eliminado", `Espacio de trabajo '${name}' eliminado`);
