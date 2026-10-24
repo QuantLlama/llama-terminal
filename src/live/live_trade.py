@@ -63,23 +63,21 @@ def load_model_and_scaler(ticker, timeframe="1h"):
     num_layers = 2
     trade_timeframe = "1m" 
     seq_length = 60
+    model_conf = {}
     if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                model_conf = json.load(f)
-                hidden_dim = model_conf.get("hidden_dim", 128)
-                num_layers = model_conf.get("num_layers", 2)
-                if timeframe:
-                    trade_timeframe = timeframe
-                else:
-                    trade_timeframe = model_conf.get("trade_timeframe", "1m")
-                seq_length = model_conf.get("seq_length", 60)
-        except Exception as e:
-            console.print(f"[yellow]Advertencia: No se pudo cargar config ({e}). Usando valores por defecto.[/yellow]")
+        with open(config_path, 'r') as f:
+            model_conf = json.load(f)
+        hidden_dim = model_conf.get("hidden_dim", 128)
+        num_layers = model_conf.get("num_layers", 2)
+        trade_timeframe = timeframe or model_conf.get("trade_timeframe", "1m")
+        seq_length = model_conf.get("seq_length", 60)
     device = get_best_device()
-    INPUT_DIM = 8 
-    model = Generator(INPUT_DIM, hidden_dim, num_layers, INPUT_DIM).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    from src.models.artifacts import validate_features
+    state = torch.load(model_path, map_location=device, weights_only=True)
+    features = validate_features(model_conf, scaler, state)
+    model = Generator(len(features), hidden_dim, num_layers, len(features)).to(device)
+    model.load_state_dict(state)
+    model.feature_cols = features
     model.eval()
     return model, scaler, device, trade_timeframe, seq_length
 def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, algo_name="EvolutionaryGAN", algo_config=None, account_id=None):
@@ -309,7 +307,7 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
                         elif signal == 'SELL': signal = 'SELL'
                         else: signal = 'HOLD'
                     elif algo_name == 'EvolutionaryGAN':
-                        last_sequence = df_features.tail(seq_length)[['Log_Ret_Close', 'Log_Ret_High', 'Log_Ret_Low', 'Log_Vol', 'RSI', 'ADX', 'ATR', 'EMA']].values
+                        last_sequence = df_features.tail(seq_length)[model_info['model'].feature_cols].values
                         last_sequence_scaled = model_info['scaler'].transform(last_sequence)
                         input_tensor = torch.FloatTensor(last_sequence_scaled).unsqueeze(0).to(model_info['device'])
                         with torch.no_grad():

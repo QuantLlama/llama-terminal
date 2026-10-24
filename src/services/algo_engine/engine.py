@@ -160,7 +160,10 @@ class AlgoEngine:
                 return False
             import joblib
             from src.models.generator import Generator
-            self._scaler = joblib.load(scaler_path)
+            from src.models.artifacts import validate_features
+            from src.utils.device_utils import get_best_device
+            scaler = joblib.load(scaler_path)
+            model_config = {}
             hidden_dim = 128
             num_layers = 2
             if os.path.exists(config_path):
@@ -168,15 +171,16 @@ class AlgoEngine:
                     model_config = json.load(f)
                     hidden_dim = model_config.get("hidden_dim", 128)
                     num_layers = model_config.get("num_layers", 2)
-                    self._seq_length = model_config.get("seq_length", 60)
-            self._device = get_best_device()
-            INPUT_DIM = 7
-            if HAS_TORCH:
-                self._model = Generator(INPUT_DIM, hidden_dim, num_layers, INPUT_DIM).to(self._device)
-                self._model.load_state_dict(torch.load(model_path, map_location=self._device, weights_only=True))
-                self._model.eval()
-            else:
-                return False
+            device = get_best_device()
+            state = torch.load(model_path, map_location=device, weights_only=True)
+            features = validate_features(model_config, scaler, state)
+            model = Generator(len(features), hidden_dim, num_layers, len(features)).to(device)
+            model.load_state_dict(state)
+            model.eval()
+            model.feature_cols = features
+            self._model, self._scaler, self._device = model, scaler, device
+            self._feature_cols = features
+            self._seq_length = model_config.get("seq_length", 60)
             self._ticker = ticker
             self._timeframe = timeframe
             logger.info(f"Modelo cargado: {ticker} ({timeframe})")
@@ -280,6 +284,7 @@ class AlgoEngine:
         try:
             from src.analysis.market_filter import MarketFilter
             market_filter = MarketFilter()
+            model_ema = df['Close'].ewm(span=20, adjust=False).mean()
             df = market_filter.calculate_indicators(df)
             df = df.dropna()
             if len(df) < self._seq_length:
@@ -291,11 +296,13 @@ class AlgoEngine:
             df = df.dropna()
             if len(df) < self._seq_length:
                 return "HOLD", 0.0, {}
-            features = ['Log_Ret_Close', 'Log_Ret_High', 'Log_Ret_Low', 'Log_Vol', 'RSI', 'ADX', 'ATR']
+            # MarketFilter's EMA(50) remains for strategy filtering; model uses training EMA(20).
+            features = self._feature_cols
             if not HAS_TORCH or self._model is None:
                 return "HOLD", 0.0, {}
                 
-            last_sequence = df.tail(self._seq_length)[features].values
+            model_features = df.assign(EMA=model_ema)
+            last_sequence = model_features.tail(self._seq_length)[features].values
             last_sequence_scaled = self._scaler.transform(last_sequence)
             input_tensor = torch.FloatTensor(last_sequence_scaled).unsqueeze(0).to(self._device)
             with torch.no_grad():

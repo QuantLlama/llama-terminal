@@ -20,7 +20,8 @@ interval allows. Offline work uses the same loader with an explicit interval.
 
 ### Feature set
 
-`FEATURE_COLS` in `src/data/loader.py` defines the model input, in this order:
+`FEATURE_COLS` in `src/models/artifacts.py` (re-exported by `src/data/loader.py`) defines
+the single shared model input order:
 
 ```text
 Log_Ret_Close · Log_Ret_High · Log_Ret_Low · Log_Vol · RSI · ADX · ATR · EMA
@@ -93,7 +94,7 @@ only** — they are not part of the trading signal.
 | --- | --- |
 | `<TICKER>_<timeframe>_generator.pth` | LSTM state dict |
 | `<TICKER>_<timeframe>_scaler.pkl` | Fitted `MinMaxScaler` (joblib) |
-| `<TICKER>_<timeframe>_config.json` | `hidden_dim`, `num_layers`, `seq_length` |
+| `<TICKER>_<timeframe>_config.json` | Architecture, timeframes, ordered `feature_cols`, `input_dim` |
 | `<TICKER>_<timeframe>_training_history.json` | Epoch losses |
 | `outputs/plots/*.png` | Training and diagnostics plots |
 | `outputs/dashboard.html` | Generated HTML report served by the Trainer CLI |
@@ -112,8 +113,28 @@ engine resolves the three files by symbol and timeframe, falls back to a generic
 
 1. resolves the three artefacts for `(ticker, timeframe)`,
 2. fails explicitly when `torch` is absent (`HAS_TORCH` — a tested property),
-3. rebuilds `Generator` with the persisted `hidden_dim`, `num_layers` and `seq_length`,
-4. loads the scaler and the state dict, then runs `model.eval()`.
+3. validates ordered features against scaler width/names and checkpoint input/output widths,
+4. rebuilds `Generator` with persisted architecture and validated width, then runs `model.eval()`.
+
+The legacy `src/live/live_trade.py::load_model_and_scaler` uses the same validator and
+retains its five-item return contract. New training validates metadata before writing the
+unchanged artifact filenames. Both consumers select the validated feature order; model
+EMA uses span 20, independently of the service strategy filter's EMA(50).
+
+The historical producer fitted `MinMaxScaler` on NumPy arrays in the canonical eight-feature
+order above and saved architecture/timeframe config without `feature_cols` or `input_dim`.
+Both loaders preserve that legacy convention when ordered metadata and scaler feature names
+are absent, provided scaler width and checkpoint input/output widths all equal eight.
+This is compatibility with the documented producer, not proof of arbitrary external feature
+order: custom unnamed eight-feature bundles with another order cannot be distinguished.
+
+Explicit `feature_cols`, `input_dim` and scaler feature names remain authoritative and must
+agree with the canonical order and widths. Seven-feature models, conflicting metadata,
+corrupt configs and width mismatches are rejected rather than assigned another schema.
+Retrain unsupported bundles; loaders never rewrite them or manufacture persisted metadata.
+Service rejection returns `False` with a logged reason; the legacy loader raises an error.
+Only load trusted local checkpoints/scalers: joblib artifacts are executable pickle data,
+not a safe interchange format.
 
 `start()` refuses to run without a market data engine, an order gateway and a loaded
 model, and the generated orders are submitted through the order gateway like any other
@@ -136,12 +157,16 @@ secrets:
 | "Deterministic training" | No global seed is set |
 | "Experiment tracking" | Artefacts are files on disk; there is no run registry |
 
-### Known defect to fix before trusting live inference
+### Artifact regression checks
 
-`algo_engine.load_model` hardcodes `INPUT_DIM = 7` while the training feature set has
-**8** columns. Loading a freshly trained checkpoint therefore fails the state-dict shape
-check. Any real deployment must align the inference feature width with the persisted
-configuration (see the roadmap).
+Run the CPU-only synthetic contract tests without broker access or existing outputs:
+
+```sh
+venv_linux/bin/python -m pytest -q tests/test_model_artifact_contract.py tests/test_algo_engine_torch_optional.py
+```
+
+They cover both public loaders, generic fallback, historical NumPy-scaler bundles, incompatible
+orders/widths, read-only rejection, service inference and optional-Torch imports.
 
 ---
 

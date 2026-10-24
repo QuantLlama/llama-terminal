@@ -118,18 +118,11 @@ def load_data(ticker, period='2y', interval='1h'):
 
 
 # ── Pre-processing ────────────────────────────────────────────────────────────
-# Feature set matches the original ENTRENAMIENTO algorithm exactly:
-#   ['Log_Ret_Close', 'Log_Ret_High', 'Log_Ret_Low', 'Log_Vol',
-#    'RSI', 'ADX', 'ATR']   (7 features – no EMA)
-#
 # Design rule: ALL column computations are guarded by "only if not already
 # present", so calling this function twice on the same df is safe.
 
-# Features reverted to the FUNCIONAL 8-feature subset for maximum robustness:
-FEATURE_COLS = [
-    'Log_Ret_Close', 'Log_Ret_High', 'Log_Ret_Low', 'Log_Vol',
-    'RSI', 'ADX', 'ATR', 'EMA'
-]
+# Re-export for existing preprocessing consumers.
+from src.models.artifacts import FEATURE_COLS
 
 
 def preprocess_data(df, seq_length):
