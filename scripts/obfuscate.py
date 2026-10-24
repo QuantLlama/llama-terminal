@@ -1,41 +1,16 @@
-"""
-Build protection script for Quantum Llama.
-Strategy:
-  - Copy ALL src/ files to build/obf_src/src (including .py files)
-  - Overwrite the 3 critical files with PyArmor-obfuscated versions
-  - Copy the PyArmor runtime to the root (importable from resources/)
-  - Copy start_api.py and .env to the root
-"""
+"""Stage allowlisted release inputs, then compile critical modules in isolation."""
 import os
 import shutil
 import subprocess
 import sys
-import re
-import time
+from check_build_inputs import parser, stage
 
 # === Paths ===
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR  = os.path.join(ROOT_DIR, 'src')
 OBF_DIR  = os.path.join(ROOT_DIR, 'build', 'obf_src')
-is_win = sys.platform == "win32"
-venv_folder = "Scripts" if is_win else "bin"
-pyarmor_name = "pyarmor.exe" if is_win else "pyarmor"
-if not is_win:
-    # Comprobar si hay una ruta alternativa guardada
-    path_file = os.path.join(ROOT_DIR, '.venv_linux_path')
-    if os.path.exists(path_file):
-        with open(path_file, 'r', encoding='utf-8') as f:
-            alt_path = f.read().strip()
-            if alt_path and os.path.exists(alt_path):
-                PYARMOR = os.path.join(alt_path, venv_folder, pyarmor_name)
-            else:
-                PYARMOR = os.path.join(ROOT_DIR, "venv_linux", venv_folder, pyarmor_name)
-    else:
-        PYARMOR = os.path.join(ROOT_DIR, "venv_linux", venv_folder, pyarmor_name)
-else:
-    PYARMOR = os.path.join(ROOT_DIR, "venv", venv_folder, pyarmor_name)
 
-# Critical files to protect with PyArmor (relative to ROOT_DIR, using forward slashes)
+# Critical Cython inputs, relative to the sanitized staging root.
 CRITICAL = [
     'src/services/auth.py',
     'src/services/license_service.py',
@@ -48,41 +23,6 @@ CRITICAL = [
     'train.py',
     'run.py',
 ]
-
-# JS files to "protect" via minification
-JS_DIR = os.path.join(SRC_DIR, 'platform', 'web')
-
-
-def clean_obf():
-    """Remove and recreate the output directory."""
-    if os.path.exists(OBF_DIR):
-        print(f"Cleaning {OBF_DIR} ...")
-        for attempt in range(5):
-            try:
-                shutil.rmtree(OBF_DIR)
-                break
-            except Exception as exc:
-                print(f"  Retry {attempt+1}: {exc}")
-                time.sleep(1)
-    os.makedirs(OBF_DIR, exist_ok=True)
-
-
-def copy_src():
-    """Copy the entire src/ tree and top-level scripts to OBF_DIR."""
-    dest = os.path.join(OBF_DIR, 'src')
-    print(f"Copying src/ -> {dest}")
-    # Use ignore to skip build directory if we're running from root
-    shutil.copytree(SRC_DIR, dest, ignore=shutil.ignore_patterns(
-        '__pycache__', 'build', 'dist', '.git', '.venv', 'venv', 'node_modules', '*.log'
-    ))
-
-    # Copy plain versions of train/run first (will be overwritten if obfuscation succeeds)
-    for f in ['train.py', 'run.py']:
-        src = os.path.join(ROOT_DIR, f)
-        if os.path.exists(src):
-            shutil.copy2(src, os.path.join(OBF_DIR, f))
-    print("  Done.")
-
 
 def obfuscate_critical():
     """Use Cython to compile critical files individually to C extensions (.so/.pyd)."""
@@ -97,7 +37,7 @@ def obfuscate_critical():
     for rel in CRITICAL:
         fname = os.path.basename(rel)
         name_only = os.path.splitext(fname)[0]
-        src_file = os.path.join(ROOT_DIR, rel)
+        src_file = os.path.join(OBF_DIR, rel)
         
         if not os.path.exists(src_file):
             print(f"  WARNING: File to compile not found: {rel}")
@@ -106,16 +46,11 @@ def obfuscate_critical():
         # For entry points, we skip Cython compilation because PyInstaller needs .py entry points
         if fname in ['train.py', 'run.py', 'start_api.py', 'browser_launcher.py']:
             print(f"  [INFO] Skipping Cython compilation for entry point: {rel}")
-            dst = os.path.join(OBF_DIR, *rel.split('/'))
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src_file, dst)
             continue
 
         print(f"  Cythonizing {rel} ...")
         
-        # Ensure Cython is installed in the current venv
-        subprocess.run([sys.executable, '-m', 'pip', 'install', 'cython'], check=True, stdout=subprocess.DEVNULL)
-        
+        # Cython is a prerequisite, never installed or upgraded by this command.
         # Copy to temp dir first so we don't pollute src/
         temp_src = os.path.join(temp, fname)
         shutil.copy2(src_file, temp_src)
@@ -127,7 +62,7 @@ def obfuscate_critical():
             
         cmd = [cythonize_bin, '-i', '-3', temp_src]
         
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=temp)
         
         dst_dir = os.path.join(OBF_DIR, *rel.split('/')[:-1])
         os.makedirs(dst_dir, exist_ok=True)
@@ -161,25 +96,11 @@ def obfuscate_critical():
             if result.stderr:
                 print(f"      Error Details: {result.stderr.strip()}")
             
-            # Fallback
-            plain_dst = os.path.join(dst_dir, fname)
-            shutil.copy2(src_file, plain_dst)
+            # Fallback: the staged plain source is already in place.
             print(f"    [INFO] Packaged regular version for {rel}")
 
     if os.path.exists(temp):
         shutil.rmtree(temp)
-
-
-def copy_extras():
-    """Copy start_api.py, .env (and any other root-level extras) to OBF_DIR."""
-    extras = ['start_api.py', '.env']
-    for f in extras:
-        src = os.path.join(ROOT_DIR, f)
-        if os.path.exists(src):
-            shutil.copy2(src, os.path.join(OBF_DIR, f))
-            print(f"Copied extra: {f}")
-        else:
-            print(f"WARNING: {f} not found at {src}")
 
 
 def protect_js():
@@ -225,17 +146,15 @@ def protect_js():
 
 
 if __name__ == '__main__':
+    cli = parser(__doc__)
+    cli.add_argument('--stage-only', action='store_true', help='Copy safe inputs without compiling')
+    args = cli.parse_args()
     try:
-        clean_obf()
-        copy_src()
-        obfuscate_critical()
-        copy_extras()
-        protect_js()
-        print("\n[OK] Obfuscation and protection complete.")
-        print(f"Location: {OBF_DIR}")
-        print("  Critical files: obfuscated with PyArmor")
-        print("  Everything else: plain .py (packaged inside the installer)")
-    except Exception as exc:
-        print(f"\nFATAL: {exc}")
-        import traceback; traceback.print_exc()
+        OBF_DIR = str(stage(args.project_root.resolve()))
+        if not args.stage_only:
+            obfuscate_critical()
+            protect_js()
+        print('Safe staging complete: build/obf_src')
+    except (ValueError, KeyError, OSError) as exc:
+        print(f'Packaging error: {exc}', file=sys.stderr)
         sys.exit(1)
