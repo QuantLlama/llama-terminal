@@ -5,7 +5,7 @@ statsmodels==0.14.2
 
 torch==2.2.2
 torchvision==0.17.2
-transformers==4.41.2
+transformers==5.20.2
 xgboost==1.7.6
 pytest==7.4.0
 pyarmor==8.2.33
