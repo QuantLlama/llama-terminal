@@ -56,6 +56,22 @@ Create a `.env` file in the repository root with the variables you need. Nothing
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | for authentication | Session validation. There are no compiled defaults: without both, auth-dependent routes answer `500 Supabase not configured` |
 | `APP_PORT` | no | Container listen port, default `8050` |
 
+### Browser authentication configuration
+
+Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the runtime environment (Coolify for
+containers); do not embed project values in frontend files. The browser synchronously
+loads `/api/public-auth-config.js` before the Babel app starts. This script exposes
+only these two public fields and is served with `Cache-Control: no-store`.
+
+The anon key is visible in the browser **by design**, not an administrative secret.
+Use the legacy Supabase JWT with `role=anon` and `alg=HS256`; unknown formats,
+missing/malformed values and administrative/service-role keys are rejected with
+HTTP 503 and a nonsecret configuration error. Decoding classifies the role only;
+Supabase still verifies signatures and sessions. Never set `SUPABASE_ANON_KEY` to
+an administrative key. Keep Row Level Security policies enabled: hiding an anon key
+is not access control. Popout windows retain their existing non-persistent,
+non-refreshing session behavior.
+
 ### Python environment
 
 ```bash
