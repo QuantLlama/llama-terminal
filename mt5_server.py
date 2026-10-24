@@ -6,8 +6,10 @@ import pandas as pd
 import json
 
 from src.live.mt5_native_connector import MT5Connector
+from src.live.mt5_bridge_auth import bridge_bind, require_bridge_token
 
 app = FastAPI(title="MT5 Wine Server", version="1.0.0")
+app.middleware("http")(require_bridge_token)
 connector = MT5Connector()
 
 class ConnectRequest(BaseModel):
@@ -181,4 +183,5 @@ def api_symbol_details(symbol: str):
     return connector.get_symbol_details(symbol)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8081)
+    host, port = bridge_bind()
+    uvicorn.run(app, host=host, port=port)

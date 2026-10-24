@@ -2404,11 +2404,7 @@ async def get_positions(
     except Exception as e:
         logger.error(f"Positions Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
 
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/api/account")
 async def get_account(
     platform: str = Query(None)
