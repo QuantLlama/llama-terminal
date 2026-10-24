@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, Union
 import uvicorn
@@ -10,6 +11,8 @@ from src.live.mt5_bridge_auth import bridge_bind, require_bridge_token
 from src.live.mt5_bridge_session import ensure_connected
 
 app = FastAPI(title="MT5 Wine Server", version="1.0.0")
+# The symbol catalogue is ~1 MB of repetitive JSON; compress it for slow tunnels.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.middleware("http")(require_bridge_token)
 connector = MT5Connector()
 
