@@ -22,6 +22,12 @@ def auto_launch_enabled():
     return value not in {"false", "0", "no", "off"}
 
 
+def bridge_headers():
+    """Shared token header required by a network-exposed bridge."""
+    token = os.getenv("MT5_BRIDGE_TOKEN", "").strip()
+    return {"X-Bridge-Token": token} if token else None
+
+
 class MT5ApiConnector:
     _instance = None
     
@@ -54,6 +60,7 @@ class MT5ApiConnector:
         self._client = httpx.Client(
             base_url=self.base_url,
             timeout=httpx.Timeout(10.0, connect=5.0),
+            headers=bridge_headers(),
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
         )
         if auto_launch_enabled():

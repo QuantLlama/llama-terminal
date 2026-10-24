@@ -78,3 +78,21 @@ def test_auto_launch_still_default_when_env_missing(monkeypatch):
     module.MT5ApiConnector()
 
     assert launches == ["http://127.0.0.1:8081"]
+
+
+def test_bridge_token_header_sent_when_configured(monkeypatch):
+    module, _ = _fresh_connector(
+        monkeypatch, {"MT5_BRIDGE_TOKEN": "s3cret", "MT5_AUTO_LAUNCH": "false"}
+    )
+
+    connector = module.MT5ApiConnector()
+
+    assert connector._client.headers.get("X-Bridge-Token") == "s3cret"
+
+
+def test_no_token_header_when_unset(monkeypatch):
+    module, _ = _fresh_connector(monkeypatch, {"MT5_AUTO_LAUNCH": "false"})
+
+    connector = module.MT5ApiConnector()
+
+    assert "X-Bridge-Token" not in connector._client.headers
