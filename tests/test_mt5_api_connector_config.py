@@ -181,3 +181,52 @@ def test_every_bridge_call_carries_the_token(monkeypatch):
 
     assert seen_headers, "expected the connector to open bridge connections"
     assert all(h and h.get("X-Bridge-Token") == "s3cret" for h in seen_headers), seen_headers
+
+
+class _CatalogueClient:
+    """Fake bridge that answers /api/symbols and counts calls."""
+
+    calls = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def get(self, path, *args, **kwargs):
+        _CatalogueClient.calls.append((path, kwargs.get("params")))
+
+        class _Response:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                if path == "/api/symbols" and kwargs.get("params", {}).get("group") == "*":
+                    return [
+                        {"name": "EURUSD", "path": "Forex\\EURUSD", "description": "Euro"},
+                        {"name": "NAS100", "path": "Indices\\NAS100", "description": "Nasdaq"},
+                    ]
+                return [{"name": "EURUSD", "path": "Forex\\EURUSD", "description": "Euro"}]
+
+        return _Response()
+
+
+def test_symbols_get_caches_the_full_catalogue(monkeypatch):
+    module, _ = _fresh_connector(monkeypatch, {"MT5_AUTO_LAUNCH": "false"})
+    connector = module.MT5ApiConnector()
+    _CatalogueClient.calls = []
+    monkeypatch.setattr(module.httpx, "Client", _CatalogueClient)
+
+    all_symbols = connector.symbols_get(group="*")
+    nas = connector.symbols_get(pattern="NAS")
+    eur = connector.symbols_get(group="*EUR*")
+
+    assert len(all_symbols) == 2
+    assert [s["name"] for s in nas] == ["NAS100"]
+    assert [s["name"] for s in eur] == ["EURUSD"]
+    wildcard_fetches = [c for c in _CatalogueClient.calls if c[1] and c[1].get("group") == "*"]
+    assert len(wildcard_fetches) == 1, f"expected one catalogue fetch, got {_CatalogueClient.calls}"

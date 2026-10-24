@@ -206,42 +206,58 @@ class MT5ApiConnector:
             logger.error(f"API get_book_snapshot error: {e}")
         return None
 
+    _CATALOGUE_TTL_SECONDS = 60.0
+
+    def _bridge_symbol_catalogue(self):
+        """Full catalogue, cached briefly: it can be megabytes over a tunnel."""
+        now = time.monotonic()
+        cached = getattr(self, "_symbols_cache", None)
+        if cached is not None and (now - cached[0]) < self._CATALOGUE_TTL_SECONDS:
+            return cached[1]
+        try:
+            with self._bridge_client(timeout=30.0) as client:
+                res = client.get("/api/symbols", params={"group": "*"})
+                data = res.json() if res.status_code == 200 else []
+        except Exception as exc:
+            logger.error(f"Symbol catalogue error: {exc}")
+            return cached[1] if cached else []
+        catalogue = [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
+        self._symbols_cache = (now, catalogue)
+        return catalogue
+
     def symbols_get(self, group=None, pattern=None):
-        """Fetch the broker symbol catalogue through the bridge.
+        """Return matching symbols without re-downloading the whole catalogue.
 
-        ``group`` is a glob filter and ``pattern`` a substring filter, both
-        evaluated by the bridge. Failed calls answer with an error dict, so the
-        result is only returned when it really is a list.
+        An unfiltered call keeps asking the bridge for the Market Watch list,
+        which is small. Filtered calls are answered from a short-lived cached
+        snapshot so the UI does not pull megabytes per request.
         """
-        params = {}
-        if group:
-            params["group"] = group
-        if pattern:
-            params["pattern"] = pattern
-        try:
-            with self._bridge_client() as client:
-                res = client.get("/api/symbols", params=params)
-                if res.status_code == 200:
-                    data = res.json()
-                    if isinstance(data, list):
-                        return data
-        except Exception as e:
-            logger.error(f"API symbols_get error: {e}")
-        return []
+        if not group and not pattern:
+            try:
+                with self._bridge_client() as client:
+                    res = client.get("/api/symbols")
+                    if res.status_code == 200:
+                        data = res.json()
+                        return [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
+            except Exception as exc:
+                logger.error(f"Symbol list error: {exc}")
+            return []
 
-    def symbol_info(self, symbol):
-        try:
-            res = self._client.get(f"/api/symbol_info/{symbol}", timeout=3.0)
-            if res.status_code == 200:
-                data = res.json()
-                if not data: return None
-                from collections import namedtuple
-                # Simular objeto con atributos
-                Info = namedtuple('SymbolInfo', data.keys())
-                return Info(**data)
-        except Exception as e:
-            logger.error(f"API symbol_info error: {e}")
-        return None
+        catalogue = self._bridge_symbol_catalogue()
+        if pattern:
+            needle = pattern.strip("*").lower()
+            return [
+                s for s in catalogue
+                if needle in str(s.get("name", "")).lower() or needle in str(s.get("path", "")).lower()
+            ]
+        if group and group != "*":
+            import fnmatch
+            return [
+                s for s in catalogue
+                if fnmatch.fnmatch(str(s.get("name", "")), group)
+                or fnmatch.fnmatch(str(s.get("path", "")), group)
+            ]
+        return catalogue
 
     def symbol_select(self, symbol, enable=True):
         try:
