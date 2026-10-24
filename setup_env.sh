@@ -1,46 +1,137 @@
 #!/bin/bash
-# Setup environment for Linux/macOS
+# Linux/macOS setup. Run from the project root; never source user activation code.
 
-echo "Setting up environment..."
+recreate=false
+help=false
+for arg in "$@"; do
+    case "$arg" in
+        --recreate) recreate=true ;;
+        --help) help=true ;;
+        *) printf 'Error: unknown argument: %s\n' "$arg" >&2; exit 2 ;;
+    esac
+done
+if "$help"; then
+    printf '%s\n' \
+        'Usage: ./setup_env.sh [--recreate | --help]' \
+        'Create or reuse venv_linux; fall back to XDG_DATA_HOME/quantumllama.' \
+        '--recreate  Replace only a validated, owned virtual environment.' \
+        '--help      Show this help without changing files.'
+    exit 0
+fi
 
-VENV_PATH="./venv_linux"
+fail() { printf 'Error: %s\n' "$1" >&2; exit "${2:-1}"; }
+unsafe() { fail "refusing unsafe virtual environment: $1"; }
 
-# Limpiar venv_linux local si está corrupto
-rm -rf venv_linux
+# Reject symlinks in directory components too (including dangling links).
+safe_path() {
+    local part="$1"
+    case "/$part/" in */../*) return 1 ;; esac
+    while [ "$part" != / ] && [ "$part" != . ]; do
+        [ ! -L "$part" ] || return 1
+        [ ! -e "$part" ] || [ -d "$part" ] || return 1
+        case "$part" in
+            */*) part="${part%/*}"; [ -n "$part" ] || part=/ ;;
+            *) part=. ;;
+        esac
+    done
+}
 
-# Intentar crear venv localmente
-python3 -m venv venv_linux 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "Fallo al crear venv local (probablemente debido a sistema de archivos NTFS/exFAT)."
-    echo "Creando el entorno virtual en la partición nativa de Linux del usuario..."
-    FALLBACK_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/quantumllama"
-    VENV_PATH="$FALLBACK_ROOT/venv_linux"
-    mkdir -p "$FALLBACK_ROOT"
-    rm -rf "$VENV_PATH"
-    python3 -m venv "$VENV_PATH"
-    if [ $? -eq 0 ]; then
-        echo "Virtual environment creado con éxito en: $VENV_PATH"
-        # Guardar la ruta del venv para los scripts de node/python
-        echo "$VENV_PATH" > .venv_linux_path
+valid_venv() {
+    local path="$1"
+    [ -d "$path" ] && [ -O "$path" ] &&
+        [ -f "$path/pyvenv.cfg" ] && [ -O "$path/pyvenv.cfg" ] &&
+        [ ! -L "$path/pyvenv.cfg" ] &&
+        [ -d "$path/bin" ] && [ ! -L "$path/bin" ] && [ -O "$path/bin" ] &&
+        [ -f "$path/bin/activate" ] && [ ! -L "$path/bin/activate" ] &&
+        [ -O "$path/bin/activate" ] && [ -x "$path/bin/python" ] &&
+        "$path/bin/python" -c 'import os, sys; sys.exit(not (sys.prefix != sys.base_prefix and os.path.realpath(sys.prefix) == os.path.realpath(sys.argv[1])))' "$path" >/dev/null 2>&1
+}
+
+fallback_root="${XDG_DATA_HOME:-${HOME}/.local/share}/quantumllama"
+fallback="$fallback_root/venv_linux"
+VENV_PATH=./venv_linux
+recorded=
+if [ -e .venv_linux_path ] || [ -L .venv_linux_path ]; then
+    [ -f .venv_linux_path ] && [ ! -L .venv_linux_path ] &&
+        [ -O .venv_linux_path ] || fail 'invalid .venv_linux_path.'
+    recorded=$(< .venv_linux_path)
+    case "$recorded" in
+        ./venv_linux|"$fallback") VENV_PATH="$recorded" ;;
+        *) fail 'invalid .venv_linux_path.' ;;
+    esac
+fi
+
+prepare_target() {
+    local path="$1"
+    if [ "$path" = "$fallback" ]; then
+        case "$path" in /*) ;; *) unsafe "$path" ;; esac
+    fi
+    safe_path "$path" || unsafe "$path"
+    if [ -e "$path" ]; then
+        valid_venv "$path" || unsafe "$path"
+        if "$recreate"; then
+            # Exact allowlisted target, owned and validated above; rm does not
+            # traverse symlinks contained inside this directory.
+            rm -rf -- "$path" || fail 'virtual environment removal failed.'
+            # The opt-in authorizes one replacement, not a second environment
+            # if local creation subsequently fails and selects the fallback.
+            recreate=false
+        fi
+    fi
+}
+
+prepare_target "$VENV_PATH"
+created=false
+if [ ! -d "$VENV_PATH" ]; then
+    if [ "$VENV_PATH" = ./venv_linux ] && python3 -m venv "$VENV_PATH"; then
+        created=true
     else
-        echo "Error crítico: No se pudo crear el entorno virtual."
-        exit 1
+        VENV_PATH="$fallback"
+        prepare_target "$VENV_PATH"
+        if [ ! -d "$VENV_PATH" ]; then
+            mkdir -p -- "$fallback_root" || fail 'fallback directory creation failed.'
+            python3 -m venv "$VENV_PATH" || fail 'virtual environment creation failed.'
+            created=true
+        fi
+    fi
+fi
+valid_venv "$VENV_PATH" || unsafe "$VENV_PATH"
+
+# Buffer pip stdout until success so legacy message ordering is preserved
+# without announcing completion on failures. Keep stderr and exact exit codes.
+pip_output=
+pointer=
+cleanup() {
+    [ -z "$pip_output" ] || rm -f -- "$pip_output"
+    [ -z "$pointer" ] || rm -f -- "$pointer"
+}
+trap cleanup EXIT
+if [ -f requirements.txt ]; then
+    pip_output=$(mktemp .setup-pip.XXXXXX) || fail 'could not buffer installation output.'
+    "$VENV_PATH/bin/python" -m pip install --upgrade pip > "$pip_output" || fail 'pip upgrade failed.' "$?"
+    "$VENV_PATH/bin/python" -m pip install -r requirements.txt >> "$pip_output" || fail 'requirements installation failed.' "$?"
+fi
+
+# Atomic replacement avoids following an existing hard link when recording.
+if [ "$recorded" != "$VENV_PATH" ]; then
+    pointer=$(mktemp .venv_linux_path.XXXXXX) || fail 'could not record environment path.'
+    printf '%s\n' "$VENV_PATH" > "$pointer" && mv -f -- "$pointer" .venv_linux_path ||
+        fail 'could not record environment path.'
+fi
+printf 'Setting up environment...\n'
+if "$created"; then
+    if [ "$VENV_PATH" = ./venv_linux ]; then
+        printf 'Virtual environment creado localmente con éxito.\n'
+    else
+        printf 'Created virtual environment: %s\n' "$VENV_PATH"
     fi
 else
-    echo "Virtual environment creado localmente con éxito."
-    echo "./venv_linux" > .venv_linux_path
+    printf 'Reusing virtual environment: %s\n' "$VENV_PATH"
 fi
-
-# Activar virtual environment
-source "${VENV_PATH}/bin/activate"
-
-# Instalar requirements
-if [ -f "requirements.txt" ]; then
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    echo "Requirements installed."
+if [ -f requirements.txt ]; then
+    cat -- "$pip_output"
+    printf 'Requirements installed.\n'
 else
-    echo "requirements.txt not found."
+    printf 'requirements.txt not found.\n'
 fi
-
-echo "Setup complete."
+printf 'Setup complete.\n'

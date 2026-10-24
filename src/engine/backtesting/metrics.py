@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List
 from ..utils.logger import setup_logger
+from ..risk_math import profit_factor
 
 logger = setup_logger('Metrics')
 
@@ -22,7 +23,7 @@ def calculate_trading_metrics(trades: List[Dict], equity_curve: List[float],
     avg_win = np.mean(winning_trades) if winning_trades else 0
     avg_loss = np.mean(losing_trades) if losing_trades else 0
     
-    profit_factor = abs(sum(winning_trades) / sum(losing_trades)) if losing_trades else 0
+    pf = profit_factor(winning_trades, losing_trades)
     
     equity_series = pd.Series(equity_curve)
     max_equity = equity_series.cummax()
@@ -44,7 +45,7 @@ def calculate_trading_metrics(trades: List[Dict], equity_curve: List[float],
         'win_rate': win_rate,
         'avg_win': avg_win,
         'avg_loss': avg_loss,
-        'profit_factor': profit_factor,
+        'profit_factor': pf,
         'sharpe_ratio': sharpe_ratio,
         'max_drawdown': max_drawdown,
         'calmar_ratio': calmar_ratio,

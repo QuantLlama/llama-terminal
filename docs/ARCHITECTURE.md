@@ -115,14 +115,41 @@ Routers are registered in `src/platform/api/main.py`.
 | `/api/backtest` | `backtesting_api.py` | Strategy catalogue, data load/upload/validate, run, optimize, results, PDF export, logs |
 | `/api/analysis` | `analysis_api.py` | Technical analysis endpoint |
 | `/ws`, `/ws/terminal` | `main.py` | Terminal-level streaming routes |
-| `/health` | `main.py` | Liveness probe used by the container health check |
+| `/health` | `runtime_api.py` | Liveness probe used by the container health check (unchanged health body, HTTP 200) |
+| `/api/health` | `runtime_api.py` | JSON readiness for Electron and browser launchers; HTTP 200 only when `ready_for_ui` is true, otherwise 503 |
+| `/api/platform/version` | `version_api.py` | Product identity from `src/product_version.py`; unchanged update fields and policy |
 | `/api/license/check` | `main.py` | License gate queried by the Electron supervisor |
-| `/api/system/telemetry` | `main.py` | CPU/GPU/memory telemetry for the UI |
+| `/api/system/telemetry` | `telemetry_api.py` | CPU/GPU/memory telemetry for the UI |
 | `/api/algo/*` | `main.py` | Start, stop, live, status, clean and logs for the algorithm runtime |
 
 Serving order matters: the SPA catch-all is registered **after** every API route, so a
 new router added later must be registered before it, or its paths will be swallowed by
 the `index.html` fallback.
+
+The first extraction slice leaves startup, service lifecycle and the remaining domain
+routes in `main.py`; it does not complete the broader API decomposition. The runtime
+router factory receives the existing `get_platform_health` callable explicitly and
+owns no health state. The version router imports only product metadata. Both are
+included at their original registration positions, before the SPA fallback; neither
+router imports `main.py` or starts services. Public paths and JSON contracts are unchanged.
+
+The telemetry slice uses `create_telemetry_router` at the original telemetry route
+position. Explicit callbacks read the current metrics provider, algorithm status and
+application-owned GPU cache; `main.py` retains `_get_gpu_info_cached` as an adapter.
+The five-second cache refreshes only after its TTL (or when empty). CUDA detection
+still falls back through optional NVML and GPUtil, and failures retain the existing
+HTTP 200 error body. No telemetry startup hook or separate cache is introduced.
+Live-status files, dashboard serving and algorithm lifecycle remain in `main.py`;
+the broader decomposition is still pending.
+
+Both health routes reuse `get_platform_health()`. Readiness preserves its fields
+(`ready_for_ui`, `mt5_status`, `services`, `timestamp`); it does not require a broker
+connection beyond the existing UI-readiness policy. Launchers accept only HTTP 200
+with valid JSON and a boolean `ready_for_ui: true`, never the SPA HTML fallback.
+Electron uses the stdlib HTTP helper in `electron/health.js` for discovery and its
+30-second startup wait. Browser mode validates the same contract during discovery
+and its existing 30-attempt startup wait. Neither opens the application on readiness
+failure. Importing `browser_launcher.py` does not probe ports or launch processes.
 
 ---
 
@@ -242,12 +269,11 @@ Recorded deliberately: this is what a maintainer should know before touching the
 
 | # | Observation | Consequence |
 | --- | --- | --- |
-| 1 | The readiness probe used by the Electron supervisor and `browser_launcher.py` is `/api/health`, but only `/health` exists. | The SPA catch-all answers `200` with `index.html`, so the probe passes even when the backend is not ready. |
 | 2 | Two live-trading paths: the legacy CLI loop (`src/live/live_trade.py`) and the platform path (MarketDataEngine → OrderGateway → AlgoEngine). | Fixes applied to one do not reach the other. |
 | 3 | Two backtesting engines (`src/analysis/backtester.py`, `src/engine/backtesting/backtester.py`) and two risk implementations. | Results and limits can disagree between the trainer and the platform. |
 | 4 | `src/platform/api/main.py` is ~4,600 lines and mixes routing, startup, licensing, telemetry and static serving. | Hard to review, easy to create import cycles. |
 | 5 | Duplicate imports and dead modules exist (`src/models/gan.py`, `src/platform/web/App.jsx`). | Misleads readers about what ships. |
-| 6 | The API reports version `2.4.0` while the package is `1.8.1`. | Any client depending on the version endpoint sees the wrong value. |
+| 6 | Product identity is loaded from `package.json` by `src/product_version.py`. | `/api/platform/version` retains its response fields, reports the product version and does not force updates. Frozen builds must include that metadata file. |
 | 7 | `transformers` and `xgboost` are pinned in `requirements.txt` but unused. | Larger installs, slower CI images, false expectations. |
 | 8 | `src/doctecnicaalgos/EvolutionaryGAN.md` describes a GAN that the shipped trainer does not implement. | Documentation overstates the ML path. |
 | 9 | A local PyArmor/Cython build leaves `*.so` files next to the sources (`src/services/security.cpython-311-*.so`, `src/live/*.so`, `run.cpython-311-*.so`). On Python 3.11 the extension shadows the `.py` module. | A developer editing the source runs the old compiled code without noticing. `.dockerignore` excludes `*.so`, so images are unaffected. |

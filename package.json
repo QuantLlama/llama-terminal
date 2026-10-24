@@ -17,18 +17,21 @@
       "output": "dist"
     },
     "files": [
-      "electron/**/*",
-      "images/**/*",
+      {"from": "build/electron", "to": "electron", "filter": ["index.js", "main.js", "main.jsc", "preload.js", "preload.jsc", "preload-loader.js", "health.js", "splash.html", "trial-expired.html"]},
+      {"from": "images", "to": "images", "filter": ["QuantumLLama.ico", "QuantumLLama.png"]},
       "package.json",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!**/.env{,.*}",
+      "!**/*.{key,pem,p12,pfx}",
+      "!**/*accounts*.json",
+      "!**/outputs/**"
     ],
     "extraResources": [
       {
         "from": "build/pyinstaller_dist",
         "filter": [
-          "backend*",
-          "Trainer*",
-          "BrowserMode*"
+          "backend", "Trainer", "BrowserMode",
+          "backend.exe", "Trainer.exe", "BrowserMode.exe"
         ],
         "to": "."
       },
@@ -45,19 +48,11 @@
         "to": "src/features/indicators.py"
       },
       {
-        "from": "build/obf_src/.env",
-        "to": "."
-      },
-      {
-        "from": "outputs",
-        "to": "outputs"
-      },
-      {
-        "from": "src/live",
+        "from": "build/obf_src/src/live",
         "to": "src/live"
       },
       {
-        "from": "src/doctecnicaalgos",
+        "from": "build/obf_src/src/doctecnicaalgos",
         "to": "src/doctecnicaalgos"
       }
     ],

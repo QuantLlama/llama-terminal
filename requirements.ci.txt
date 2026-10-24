@@ -1,13 +1,16 @@
 # Test and CI dependency set.
 #
-# Deliberately minimal: the tests under tests/ must run on a bare GitHub runner
-# without the desktop/training stack (torch, transformers, xgboost, vectorbt,
-# gym, TA-Lib, pyarmor, PyInstaller). Tests that need an optional heavy
-# dependency must skip, or assert the degraded behavior, instead of importing it.
+# Minimal API/source lane: excludes the explicit model/simulation selectors in CI.
+# The separate Python 3.11 CPU seam lane installs pinned sklearn, yfinance and
+# torch without adding the desktop/native/training stack to this dependency set.
+# Keep optional-dependency degradation tests in the minimal lane.
 fastapi==0.110.0
 httpx==0.27.0
 cryptography>=42,<46
 numpy==1.26.4
 pandas==2.2.2
 pytest>=8.3,<10
+coverage>=7.6,<8
+# Readiness probes import requests directly (not supplied by httpx).
+requests>=2.31,<3
 rich==13.7.1

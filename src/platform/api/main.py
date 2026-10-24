@@ -1,4 +1,8 @@
 import asyncio
+from src.product_version import PRODUCT_VERSION
+from src.platform.api.runtime_api import create_runtime_router
+from src.platform.api.telemetry_api import create_telemetry_router, get_gpu_info
+from src.platform.api.version_api import router as version_router
 import json
 import logging
 import math
@@ -212,7 +216,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Quantum Llama Platform API",
     description="Plataforma de trading con arquitectura desacoplada",
-    version="2.4.0",
+    version=PRODUCT_VERSION,
     lifespan=lifespan,
 )
 
@@ -302,11 +306,6 @@ class LiveStartRequest(BaseModel):
     model_config = ConfigDict(
         extra="ignore"
     )
-
-VERSION = "2.4.0"
-STABLE_VERSION = "2.4.0" 
-UPDATE_REQUIRED = False
-UPDATE_MSG = "Nueva versión estable disponible. Por favor actualice para continuar."
 
 # ── /api/modify registrado PRIMERO — antes de cualquier router o middleware ──
 # Esto garantiza que ninguna ruta comodín ni sub-router lo sombree.
@@ -1173,9 +1172,7 @@ async def get_economic_calendar(countries: str = Query("USD")):
 async def update_mapping(platform: str = Query("mt5"), data: dict = Body(...)):
     save_symbol_map(data, platform)
     return {"status": "ok"}
-@app.get("/health")
-async def health_check():
-    return get_platform_health()
+app.include_router(create_runtime_router(get_platform_health))
 
 @app.get("/api/license/check")
 async def check_license_endpoint(
@@ -1255,139 +1252,17 @@ async def disconnect_platform():
         return {"success": False, "error": str(e)}
 _gpu_cache = {"data": None, "timestamp": 0, "ttl": 5}  # TTL reducido a 5s para telemetría en tiempo real
 def _get_gpu_info_cached():
-    """Detecta GPU disponibles usando torch CUDA (primario) y GPUtil (fallback).
-    Reporta carga real de GPU (utilization %), no solo uso de VRAM."""
-    gpu_data = {
-        "detected": False,
-        "devices": [],
-        "cuda": {"available": False, "device_name": None, "count": 0},
-        "backend": "none",
-        "error_detail": None,
-    }
-    # --- Nivel 1: torch CUDA (máxima precisión, con GPU utilization real via pynvml) ---
-    try:
-        import torch
-        if torch.cuda.is_available():
-            gpu_data["cuda"]["available"] = True
-            gpu_data["cuda"]["count"] = torch.cuda.device_count()
-            gpu_data["cuda"]["device_name"] = torch.cuda.get_device_name(0)
-            gpu_data["detected"] = True
-            gpu_data["backend"] = "torch_cuda"
-            # Intentar obtener GPU utilization real via pynvml (incluida en nvidia drivers)
-            nvml_loads = {}
-            try:
-                import pynvml
-                pynvml.nvmlInit()
-                for i in range(pynvml.nvmlDeviceGetCount()):
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                    util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    nvml_loads[i] = util.gpu  # GPU compute utilization real (0-100%)
-            except Exception:
-                pass  # pynvml no disponible, usaremos VRAM ratio como proxy
-            for i in range(torch.cuda.device_count()):
-                props = torch.cuda.get_device_properties(i)
-                mem_allocated = torch.cuda.memory_allocated(i) / (1024**3)
-                mem_reserved = torch.cuda.memory_reserved(i) / (1024**3)
-                mem_total = props.total_memory / (1024**3)
-                # Preferir carga real de NVML; si no disponible, usar VRAM reservada como proxy
-                real_load = nvml_loads.get(i)
-                if real_load is not None:
-                    load_pct = round(float(real_load), 1)
-                else:
-                    load_pct = round((mem_reserved / mem_total) * 100, 1) if mem_total > 0 else 0
-                # Temperatura via pynvml
-                temp = 0
-                try:
-                    import pynvml
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                    temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-                except Exception:
-                    pass
-                gpu_data["devices"].append({
-                    "name": props.name,
-                    "memory_total": round(mem_total, 2),
-                    "memory_used": round(mem_allocated, 2),
-                    "memory_reserved": round(mem_reserved, 2),
-                    "load": load_pct,
-                    "temperature": temp,
-                })
-            return gpu_data
-        else:
-            # torch installed but no CUDA GPU — this is normal in CPU-only environments
-            gpu_data["error_detail"] = None  # Not an error, just no GPU
-            gpu_data["info"] = f"CPU-only mode (torch {torch.__version__})"
-    except ImportError as e:
-        gpu_data["error_detail"] = f"torch no instalado: {e}"
-    except Exception as e:
-        gpu_data["error_detail"] = f"torch CUDA error: {e}"
-    # --- Nivel 2: GPUtil (fallback para GPUs NVIDIA sin torch CUDA) ---
-    try:
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            gpu_data["detected"] = True
-            gpu_data["backend"] = "gputil"
-            gpu_data["cuda"]["device_name"] = gpus[0].name
-            gpu_data["cuda"]["count"] = len(gpus)
-            for gpu in gpus:
-                mem_total = gpu.memoryTotal / 1024  # MB -> GB
-                mem_used = gpu.memoryUsed / 1024    # MB -> GB
-                gpu_data["devices"].append({
-                    "name": gpu.name,
-                    "memory_total": round(mem_total, 2),
-                    "memory_used": round(mem_used, 2),
-                    "memory_reserved": round(mem_used, 2),
-                    "load": round(gpu.load * 100, 1),  # GPUtil devuelve 0.0-1.0
-                    "temperature": gpu.temperature if gpu.temperature else 0,
-                })
-    except Exception as e:
-        prev = gpu_data.get("error_detail") or ""
-        gpu_data["error_detail"] = f"{prev} | GPUtil error: {e}"
-    return gpu_data
-@app.get("/api/system/telemetry")
-async def get_system_telemetry():
-    try:
-        cpu_usage = psutil.cpu_percent(interval=None)
-        cpu_count = psutil.cpu_count()
-        vm = psutil.virtual_memory()
-        memory_used_gb = vm.used / (1024**3)
-        memory_total_gb = vm.total / (1024**3)
-        process = psutil.Process(os.getpid())
-        app_memory_gb = process.memory_info().rss / (1024**3)
-        global _gpu_cache
-        current_time = time.time()
-        if (
-            current_time - _gpu_cache["timestamp"] > _gpu_cache["ttl"]
-            or _gpu_cache["data"] is None
-        ):
-            gpu_data = _get_gpu_info_cached()
-            _gpu_cache["data"] = gpu_data
-            _gpu_cache["timestamp"] = current_time
-            # Log diagnóstico si GPU no se detecta
-            if not gpu_data.get("detected"):
-                logger.debug("[TELEMETRY] No GPU detected — running in CPU-only mode")
-            elif gpu_data.get("detected"):
-                logger.info(f"[TELEMETRY] GPU detectada via '{gpu_data.get('backend')}': {gpu_data['cuda'].get('device_name')}")
-        else:
-            gpu_data = _gpu_cache["data"]
-        return {
-            "cpu": {
-                "usage": round(cpu_usage, 1),
-                "count": cpu_count,
-                "label": f"CPU ({cpu_count} Threads)",
-            },
-            "memory": {
-                "used": round(memory_used_gb, 1),
-                "total": round(memory_total_gb, 1),
-                "app_used": round(app_memory_gb, 2),
-                "percent": vm.percent,
-                "label": f"{round(memory_used_gb, 1)}GB / {round(memory_total_gb, 1)}GB",
-            },
-            "gpu": gpu_data,
-            "status": ALGO_TYPE,
-        }
-    except Exception as e:
-
-        return {"error": str(e), "gpu": {"detected": False, "devices": []}}
+    """Keep the existing GPU provider entry point over the telemetry helper."""
+    return get_gpu_info(GPUtil)
+app.include_router(create_telemetry_router(
+    metrics_provider=lambda: psutil,
+    gpu_provider=lambda: _get_gpu_info_cached(),
+    cache_provider=lambda: _gpu_cache,
+    status_provider=lambda: ALGO_TYPE,
+    clock=lambda: time.time(),
+    process_id=lambda: os.getpid(),
+    logger=logger,
+))
 @app.get("/live_status.json")
 async def get_live_status_json():
     if os.path.exists(STATUS_FILE):
@@ -4489,14 +4364,7 @@ logs_dir = get_logs_dir()
 os.makedirs(logs_dir, exist_ok=True)
 logger.info(f"Montando LOGS_DIR: {logs_dir}")
 app.mount("/logs", StaticFiles(directory=logs_dir), name="logs")
-@app.get("/api/platform/version")
-async def get_version():
-    return {
-        "version": VERSION,
-        "stable_version": STABLE_VERSION,
-        "update_required": UPDATE_REQUIRED,
-        "message": UPDATE_MSG
-    }
+app.include_router(version_router)
 @app.get("/api/auth/session")
 async def check_session(
     user: Any = Depends(get_current_user),

@@ -141,7 +141,7 @@ def _install_gpu_env():
     console.print("[bold]3/3[/bold] Instalando dependencias adicionales...")
     deps = [
         'rich', 'pandas', 'numpy<2', 'yfinance', 'matplotlib',
-        'scikit-learn', 'xgboost', 'statsmodels', 'requests',
+        'scikit-learn', 'statsmodels', 'requests',
         'joblib', 'python-dotenv', 'supabase', 'ccxt', 'MetaTrader5',
         'pytz', 'python-dateutil', 'websockets', 'ta-lib', 'seaborn',
         'mplfinance', 'cryptography'

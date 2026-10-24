@@ -11,6 +11,7 @@ from src.features.indicators import add_technical_indicators
 from src.features.fourier import apply_fourier_transform
 from src.features.autoencoder import Autoencoder
 from src.models.generator import Generator
+from src.models.artifacts import feature_metadata
 # GAN and RL imports removed - using supervised LSTM now
 from src.utils.visualizer import Visualizer
 from rich.progress import track
@@ -321,8 +322,7 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
                 prediction = generator(sample_seq).cpu().numpy()[0]
                 
                 # Desnormalizar (Inverse Transform)
-                # El scaler espera 7 columnas: ['Log_Ret_Close', 'Log_Ret_High',
-                # 'Log_Ret_Low', 'Log_Vol', 'RSI', 'ADX', 'ATR']
+                # Width follows the fitted scaler and shared feature contract.
                 # Index 0 es Log_Ret_Close
                 
                 real_dummy = np.zeros((len(seq[0]), scaler.n_features_in_))
@@ -384,6 +384,7 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     safe_ticker = ticker.replace("=", "").replace("-", "")
     model_prefix = os.path.join(models_dir, f"{safe_ticker}_{train_timeframe}")
 
+    metadata = feature_metadata(scaler, generator.state_dict())
     torch.save(generator.state_dict(), f'{model_prefix}_generator.pth')
     # Discriminator removed - supervised LSTM only
 
@@ -396,6 +397,7 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
 
     # Save Model Config (Architecture & Timeframe)
     model_config = {
+        **metadata,
         "train_timeframe": train_timeframe,
         "trade_timeframe": trade_timeframe,
         "seq_length": seq_length,
