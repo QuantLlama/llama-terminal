@@ -6,7 +6,7 @@ statsmodels==0.15.0
 torch==2.14.1
 torchvision==0.29.1
 pytest==9.1.1
-pyarmor==8.2.33
+pyarmor==9.2.8
 
 MetaTrader5==5.0.6231; sys_platform == 'win32'
 yfinance==1.7.0
