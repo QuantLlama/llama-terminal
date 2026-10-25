@@ -209,12 +209,11 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Error en limpieza de logs: {log_err}")
         # ---------------------------------------------------
 
-        # Probe the broker before the live services start: the helper frees its
-        # own probe connector when it is done, so it has to run first. Running it
-        # afterwards tore down the connection startup had just established, which
-        # left the UI reporting "connected" over a dead MT5 session.
-        await _publish_live_connection_state("mt5")
+        # Live services first: a connection-state probe must never be able to keep
+        # the engine from starting. The probe runs with release=False so it cannot
+        # shut down the session startup_services just opened either.
         await startup_services(platform="mt5")
+        await _publish_live_connection_state("mt5", release=False)
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Plataforma lista en {elapsed:.0f}ms (sin conexiones activas)")
     except Exception as e:
@@ -1268,12 +1267,16 @@ def _publish_connection_state(status, platform=None, message=None, account_info=
     _connection_state["account_info"] = account_info
     _connection_state["last_check"] = datetime.now().isoformat()
     return _connection_state
-async def _publish_live_connection_state(platform="mt5"):
+async def _publish_live_connection_state(platform="mt5", release=True):
     """Connect MT5, read balance/equity and publish the real state.
 
     Shared by startup and /api/connection/connect; answers True when MT5
     accepted the connection. A failed attempt is published as an error instead
     of raising, so startup never dies because the broker is unreachable.
+
+    ``release`` frees this probe's connector when the caller owns it. Startup
+    passes False: by then the live services hold the session, and shutting the
+    probe connector down took that session with it.
     """
     try:
         connector = MT5Connector()
@@ -1289,7 +1292,8 @@ async def _publish_live_connection_state(platform="mt5"):
             "Conectado a MetaTrader 5",
             {"balance": balance, "equity": equity, "platform": platform},
         )
-        await asyncio.to_thread(connector.shutdown)
+        if release:
+            await asyncio.to_thread(connector.shutdown)
         return True
     except Exception as e:
         logger.error(f"[CONNECTION] Error publicando el estado de {platform}: {e}")
