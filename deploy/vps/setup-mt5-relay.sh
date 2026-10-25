@@ -67,7 +67,10 @@ Wants=network-online.target
 
 [Service]
 EnvironmentFile=/etc/default/qllama-mt5-relay
-ExecStart=/usr/bin/socat TCP-LISTEN:${LISTEN_PORT},bind=${LISTEN_HOST},reuseaddr,fork TCP:${MT5_TARGET}
+# nodelay disables Nagle on the relay socket: with it, a request that needs a
+# second segment waits for the peer's delayed ACK, and the container waits for
+# the local MT5 terminal twice per call.
+ExecStart=/usr/bin/socat TCP-LISTEN:${LISTEN_PORT},bind=${LISTEN_HOST},reuseaddr,fork,nodelay TCP:${MT5_TARGET}
 Restart=always
 RestartSec=5
 TimeoutStopSec=5

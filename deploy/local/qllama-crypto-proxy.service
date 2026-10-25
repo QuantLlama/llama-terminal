@@ -1,14 +1,21 @@
 [Unit]
 Description=Quantum Llama crypto egress proxy (tailnet CONNECT proxy)
-After=network-online.target tailscaled.service
+After=network-online.target
 Wants=network-online.target
+# Never give up restarting: this unit is the cloud container's only route to the
+# exchange, so a transient failure must not leave it dead until the next boot.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-WorkingDirectory=/run/media/pabloezm/Respalados/Pltaforma_Terminal_Llama
-ExecStart=/usr/bin/python3 scripts/local_crypto_proxy.py
+# Runs from the system disk on purpose. The repository lives on an encrypted
+# removable volume that is not mounted yet when this unit starts; a working
+# directory there made the unit fail with status=200/CHDIR until the operator
+# unlocked the disk. Install the runtime with scripts/install_bridge_runtime.sh.
+WorkingDirectory=%h/.local/share/qllama/runtime
+ExecStart=/usr/bin/python3 %h/.local/share/qllama/runtime/scripts/local_crypto_proxy.py
 Restart=always
-RestartSec=10
+RestartSec=3
 
 [Install]
 WantedBy=default.target
