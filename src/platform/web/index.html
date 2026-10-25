@@ -1984,6 +1984,20 @@
             },
               React.createElement("i", { className: "fas fa-cog" })
             ),
+            React.createElement("button", {
+              onClick: async () => {
+                try {
+                  if (window.supabase && window.supabase.auth) await window.supabase.auth.signOut();
+                } catch (e) {
+                  console.warn('[AUTH] sign out failed', e);
+                }
+                window.location.reload();
+              },
+              className: "p-2 text-muted hover:text-white transition-colors",
+              title: "Cerrar sesión"
+            },
+              React.createElement("i", { className: "fas fa-sign-out-alt" })
+            ),
             React.createElement("div", { className: "h-6 w-px bg-border mx-2" }),
             React.createElement("div", { className: "flex items-center gap-1 bg-black/20 px-1 py-0.5 rounded-sm border border-white/5" },
               React.createElement("div", {
