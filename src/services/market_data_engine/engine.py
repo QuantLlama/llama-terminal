@@ -984,9 +984,30 @@ class MarketDataEngine:
                     except Exception as e:
                         logger.debug(f"Public crypto resolve failed for {symbol}: {e}")
                         public_sym = None
+                    if not public_sym:
+                        # The connector caches itself as soon as it is built, and
+                        # _resolve_sym only reads its market map. A connector whose
+                        # first load_markets() failed (the operator machine or the
+                        # relay was down while the container started) therefore has
+                        # no markets to resolve and would never touch the data
+                        # methods that retry connect(): the tape and the DOM would
+                        # stay blank until a process restart. Retry the connection
+                        # here, which respects the connector's own retry window.
+                        try:
+                            if public_connector.connect():
+                                public_sym = public_connector._resolve_sym(symbol)
+                        except Exception as e:
+                            logger.debug(f"Public crypto reconnect failed for {symbol}: {e}")
                     if public_sym:
                         connector, broker_symbol = public_connector, public_sym
                         self._crypto_connector_cache[s_upper] = public_connector
+                    else:
+                        # Count the cycle: after CRYPTO_FAILURE_LIMIT of these the
+                        # public connector is reset so a broken one is rebuilt.
+                        self._record_crypto_cycle(
+                            symbol, s_upper, public_connector, False,
+                            "public connector has no market for the symbol",
+                        )
             else:
                 master_conn = self._get_connector("crypto")
                 all_conns = [master_conn] if master_conn else []

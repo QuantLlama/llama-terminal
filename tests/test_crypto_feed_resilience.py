@@ -446,3 +446,98 @@ def test_a_ticker_only_cycle_still_counts_as_an_attempt(
     assert engine._metrics.errors_count == 1
     assert public_resets, "the failing public connector must be reset"
     assert "Dropped crypto connector" in caplog.text
+
+
+def _install_flaky_ccxt(monkeypatch, *, fail_forever=False):
+    """Stub ``ccxt`` whose first ``load_markets`` fails, like a relay outage at boot."""
+    attempts = {"load": 0}
+
+    class _Exchange:
+        def __init__(self, config):
+            # ccxt exposes no markets until load_markets() succeeds, which is the
+            # whole point of this stub: a connector built during an outage has an
+            # empty catalogue.
+            self.markets = {}
+
+        def load_markets(self):
+            attempts["load"] += 1
+            if fail_forever or attempts["load"] == 1:
+                raise RuntimeError("relay unreachable")
+            self.markets = {
+                PERP: {"symbol": PERP, "type": "swap", "linear": True, "settle": "USDT"},
+            }
+            return self.markets
+
+        def fetch_ticker(self, symbol):
+            return {"symbol": symbol, "bid": 100.5, "ask": 100.7, "last": 100.6,
+                    "baseVolume": 1.0, "quoteVolume": 100.6, "timestamp": TICK_MS}
+
+        def fetch_trades(self, symbol, limit=None):
+            return [{"id": f"x{attempts['load']}", "timestamp": TICK_MS,
+                     "price": 100.6, "amount": 0.5, "side": "buy"}]
+
+        def fetch_order_book(self, symbol, limit=None):
+            return {"bids": [[100.5, 1.5]], "asks": [[100.7, 1.25]], "timestamp": TICK_MS}
+
+        def fetch_ohlcv(self, symbol, timeframe="1m", since=None, limit=None):
+            return [[TICK_MS, 100.0, 101.0, 99.5, 100.6, 42.0]]
+
+    module = types.ModuleType("ccxt")
+    module.binanceusdm = _Exchange
+    monkeypatch.setitem(sys.modules, "ccxt", module)
+    return attempts
+
+
+def _forget_public_connector(engine, public_module):
+    """Drop the cached connector without going through the spied reset helper."""
+    public_module._connectors.clear()
+    engine._connectors.pop("crypto_public", None)
+    engine._crypto_connector_cache.clear()
+    engine._crypto_feed_failures.clear()
+
+
+def test_engine_heals_a_public_connector_whose_first_load_failed(engine, monkeypatch):
+    """A container that boots while the relay is down must recover on its own.
+
+    The connector caches itself, and ``_resolve_sym`` cannot rebuild an empty
+    market map, so the poll has to retry the connection instead of returning
+    forever: otherwise the tape and the DOM stay blank until a process restart.
+    """
+    from src.live import crypto_public_connector as public_module
+
+    attempts = _install_flaky_ccxt(monkeypatch)
+    _forget_public_connector(engine, public_module)
+    engine.subscribe([PERP])
+
+    # Inside the connector's own retry window the poll cannot recover yet.
+    _poll_cycle(engine)
+    assert attempts["load"] == 1, "the first load failed"
+    assert engine.get_recent_trades(PERP, 10) == [], "nothing to serve without markets"
+
+    # The window passes; the next cycle must retry and heal in place.
+    monkeypatch.setattr(public_module, "_CONNECT_RETRY_SECONDS", 0.0)
+    _poll_cycle(engine)
+
+    assert attempts["load"] >= 2, "the poll must retry the connection"
+    assert engine.get_recent_trades(PERP, 10), "the tape heals without a restart"
+    assert engine.get_book_snapshot(PERP), "the DOM heals without a restart"
+
+
+def test_engine_resets_a_public_connector_that_never_loads(
+    engine, monkeypatch, public_resets, caplog
+):
+    """When the venue stays unreachable the connector is dropped, not reused forever."""
+    from src.live import crypto_public_connector as public_module
+
+    _install_flaky_ccxt(monkeypatch, fail_forever=True)
+    _forget_public_connector(engine, public_module)
+    monkeypatch.setattr(public_module, "_CONNECT_RETRY_SECONDS", 0.0)
+    engine.subscribe([PERP])
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(engine_module.CRYPTO_FAILURE_LIMIT):
+            _poll_cycle(engine)
+
+    assert public_resets, "an unusable public connector must be reset"
+    assert engine._metrics.errors_count >= 1
+    assert "Dropped crypto connector" in caplog.text
