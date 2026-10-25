@@ -78,3 +78,14 @@ external volume. Branch: `fix/crypto-tape-dom-live`.
 - **E7** — `TCP_NODELAY` on both VPS relays did not move the measured bridge latency
   (0.534-0.544 s before, 0.539-0.558 s after). The floor is the ~176 ms tailnet RTT plus the MT5
   call under Wine, so MT5 chart latency has to come from the engine buffer, not from the relay.
+- **E8** — Verified in production after deployment 40 (`finished`):
+  `GET /api/v2/feed/status` reports `status ONLINE`, `messages_received` growing (27 → 47 over
+  16 s), `buffer.size` 295 → 483, `errors_count 0`; `GET /api/v2/feed/dom/BTCUSDT` returns 5 bids
+  and 5 asks with live prices; `GET /api/v2/feed/trades/BTCUSDT` returns 50 trades, stable in 8
+  consecutive samples, with the `size`/`side`/`trade_id` shape `useTradeStream.js` consumes.
+  The earlier 50/0 oscillation was the freshly started container, not a second worker (the image
+  runs a single uvicorn process).
+- **E9** — Feed latency with a reused connection is ~0.19 s per request (`/feed/status`,
+  `/feed/trades`, `/feed/dom` alike), which is this operator link's ~176 ms RTT: the endpoints read
+  the engine buffer and add no per-request bridge call. A cold connection pays ~0.58 s for the
+  handshake, which is what a per-request `curl` measures.
