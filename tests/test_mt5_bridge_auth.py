@@ -76,3 +76,37 @@ def test_bind_reads_environment(monkeypatch):
     )
 
     assert module.bridge_bind() == ("0.0.0.0", 9099)
+
+
+def test_api_connector_reads_the_token_at_request_time(monkeypatch):
+    """The bridge token must be read per request, not frozen at construction.
+
+    ``src/live/connector.py`` instantiates this connector while the module is
+    imported, which happens before ``load_dotenv()`` runs. Freezing the headers in
+    ``__init__`` therefore built a client with no ``X-Bridge-Token``, and every
+    ``connect()`` answered 401: the platform reported ``MT5 CONNECTION FAILED``
+    for a bridge that was healthy.
+    """
+    import httpx
+
+    from src.live.mt5_api_connector import MT5ApiConnector
+
+    monkeypatch.delenv("MT5_BRIDGE_TOKEN", raising=False)
+    connector = MT5ApiConnector(base_url="http://127.0.0.1:9")
+
+    seen = {}
+
+    def handler(request):
+        seen.update({key.lower(): value for key, value in request.headers.items()})
+        return httpx.Response(200, json={"success": True})
+
+    connector._client = httpx.Client(
+        base_url="http://127.0.0.1:9",
+        transport=httpx.MockTransport(handler),
+        event_hooks={"request": [connector._attach_bridge_auth]},
+    )
+
+    # The token appears only after the client was built, exactly like .env.
+    monkeypatch.setenv("MT5_BRIDGE_TOKEN", "late-token")
+    assert connector.connect() is True
+    assert seen.get("x-bridge-token") == "late-token"
