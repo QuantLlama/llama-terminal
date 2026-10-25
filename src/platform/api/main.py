@@ -131,6 +131,7 @@ STATUS_FILE = os.path.join(get_outputs_dir(), "live_status.json")
 load_dotenv()
 from src.live.connector import get_mt5_connector
 from src.live.bridge_types import as_list, normalize, positions_to_web, symbol_is_tradable
+from src.live import mt5_access
 GLOBAL_MT5_CONNECTOR = get_mt5_connector()
 from src.services.crypto_manager import get_crypto_manager
 from src.live.crypto_connector import get_connector
@@ -209,6 +210,9 @@ async def lifespan(app: FastAPI):
         # ---------------------------------------------------
 
         await startup_services(platform="mt5")
+        # A restarted container keeps the state in memory, so publish what MT5
+        # answers now instead of leaving the previous session's "disconnected".
+        await _publish_live_connection_state("mt5")
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Plataforma lista en {elapsed:.0f}ms (sin conexiones activas)")
     except Exception as e:
@@ -774,18 +778,22 @@ async def get_symbol_info(
         details = await asyncio.to_thread(fetch_details)
         if details is not None:
             try:
-                import MetaTrader5 as mt5
-                info = mt5.symbol_info(resolve_symbol(symbol))
-                if info:
+                rules = await asyncio.to_thread(
+                    mt5_access.order_size_rules, resolve_symbol(symbol)
+                )
+                if rules:
                     details["order_size_rules"] = {
-                        "min_amount": float(getattr(info, "volume_min", 0.0) or 0.0),
-                        "max_amount": float(getattr(info, "volume_max", 0.0) or 0.0),
-                        "step": float(getattr(info, "volume_step", 0.0) or 0.0),
-                        "contract_size": float(getattr(info, "trade_contract_size", 1.0) or 1.0),
+                        "min_amount": float(rules.get("volume_min") or 0.0),
+                        "max_amount": float(rules.get("volume_max") or 0.0),
+                        "step": float(rules.get("volume_step") or 0.0),
+                        "contract_size": float(rules.get("contract_size") or 1.0),
                         "resolved_symbol": resolve_symbol(symbol),
                     }
-            except Exception:
-                details["order_size_rules"] = details.get("order_size_rules", {})
+            except Exception as rules_err:
+                logger.warning(f"Could not read the order size rules for {symbol}: {rules_err}")
+            # The crypto branch always answers this key; keep the shape stable
+            # so the UI never has to guess whether the limits are known.
+            details.setdefault("order_size_rules", {})
         return details
     except Exception as e:
         logger.error(f"Error fetching details for {symbol}: {e}")
@@ -910,14 +918,7 @@ async def calculate_indicators(
                     pass
 
             else:
-                import MetaTrader5 as mt5
-                tf_map = {
-                    "1m": mt5.TIMEFRAME_M1, "5m": mt5.TIMEFRAME_M5,
-                    "10m": mt5.TIMEFRAME_M10, "15m": mt5.TIMEFRAME_M15,
-                    "30m": mt5.TIMEFRAME_M30, "1h": mt5.TIMEFRAME_H1,
-                    "4h": mt5.TIMEFRAME_H4, "1d": mt5.TIMEFRAME_D1,
-                }
-                mt5_tf = tf_map.get(timeframe, mt5.TIMEFRAME_M1)
+                mt5_tf = mt5_access.timeframe_value(timeframe)
                 connector = MT5Connector()
                 candles = connector.get_latest_candles(actual_symbol, mt5_tf, limit)
                 if candles is not None and len(candles) >= 50:
@@ -1253,55 +1254,73 @@ _connection_state = {
     "last_check": None,
     "account_info": None,
 }
+def _publish_connection_state(status, platform=None, message=None, account_info=None):
+    """The only writer of the state the UI reads from /api/connection/status.
+
+    Startup, connect and disconnect all publish through here, so a restarted
+    container can never answer with the previous session's state.
+    """
+    _connection_state["status"] = status
+    _connection_state["platform"] = platform
+    _connection_state["message"] = message
+    _connection_state["account_info"] = account_info
+    _connection_state["last_check"] = datetime.now().isoformat()
+    return _connection_state
+async def _publish_live_connection_state(platform="mt5"):
+    """Connect MT5, read balance/equity and publish the real state.
+
+    Shared by startup and /api/connection/connect; answers True when MT5
+    accepted the connection. A failed attempt is published as an error instead
+    of raising, so startup never dies because the broker is unreachable.
+    """
+    try:
+        connector = MT5Connector()
+        connected = await asyncio.to_thread(connector.connect)
+        if not connected:
+            _publish_connection_state("error", platform, "No se pudo conectar a MT5")
+            return False
+        balance = await asyncio.to_thread(connector.get_balance)
+        equity = await asyncio.to_thread(connector.get_equity)
+        _publish_connection_state(
+            "connected",
+            platform,
+            "Conectado a MetaTrader 5",
+            {"balance": balance, "equity": equity, "platform": platform},
+        )
+        await asyncio.to_thread(connector.shutdown)
+        return True
+    except Exception as e:
+        logger.error(f"[CONNECTION] Error publicando el estado de {platform}: {e}")
+        _publish_connection_state("error", platform, f"Error: {str(e)}")
+        return False
 @app.get("/api/connection/status")
 async def get_connection_status():
     return _connection_state
 @app.post("/api/connection/connect")
 async def connect_platform(data: dict = Body(...)):
-    global _connection_state
     platform = "mt5" 
+    _publish_connection_state(
+        "connecting", platform, f"Conectando a {platform.upper()}..."
+    )
+    logger.info(f"[CONNECTION] Iniciando conexión a {platform}")
     try:
-        _connection_state["status"] = "connecting"
-        _connection_state["platform"] = platform
-        _connection_state["message"] = f"Conectando a {platform.upper()}..."
-        logger.info(f"[CONNECTION] Iniciando conexión a {platform}")
-        connector = MT5Connector()
-        if connector.connect():
-            account_info = connector.get_balance()
-            equity = connector.get_equity()
-            _connection_state["status"] = "connected"
-            _connection_state["message"] = "Conectado a MetaTrader 5"
-            _connection_state["account_info"] = {
-                "balance": account_info,
-                "equity": equity,
-                "platform": "mt5",
-            }
-            _connection_state["last_check"] = datetime.now().isoformat()
-            connector.shutdown()
-            await startup_services(platform="mt5")
-            logger.info(f"[CONNECTION] Conectado exitosamente a MT5")
-            return {"success": True, "state": _connection_state}
-        else:
+        if not await _publish_live_connection_state(platform):
             raise Exception("No se pudo conectar a MT5")
+        await startup_services(platform="mt5")
+        logger.info(f"[CONNECTION] Conectado exitosamente a MT5")
+        return {"success": True, "state": _connection_state}
     except Exception as e:
         logger.error(f"[CONNECTION] Error conectando a {platform}: {e}")
-        _connection_state["status"] = "error"
-        _connection_state["message"] = f"Error: {str(e)}"
-        _connection_state["last_check"] = datetime.now().isoformat()
+        _publish_connection_state("error", platform, f"Error: {str(e)}")
         return {"success": False, "error": str(e), "state": _connection_state}
 @app.post("/api/connection/disconnect")
 async def disconnect_platform():
-    global _connection_state
     try:
         logger.info(
             f"[CONNECTION] Desconectando de {_connection_state.get('platform')}"
         )
         await shutdown_services()
-        _connection_state["status"] = "disconnected"
-        _connection_state["platform"] = None
-        _connection_state["message"] = "Desconectado"
-        _connection_state["account_info"] = None
-        _connection_state["last_check"] = datetime.now().isoformat()
+        _publish_connection_state("disconnected", None, "Desconectado")
         logger.info(f"[CONNECTION] Desconectado exitosamente")
         return {"success": True, "state": _connection_state}
     except Exception as e:
@@ -2321,29 +2340,40 @@ async def get_deals(
 @app.get("/debug/mt5")
 async def debug_mt5():
     try:
-        import MetaTrader5 as mt5
         from datetime import datetime
+        module = mt5_access.local_module()
         info = {
             "timestamp": datetime.now().isoformat(),
-            "mt5_version": mt5.version(),
+            "bridge_enabled": mt5_access.bridge_enabled(),
+            "local_module": module is not None,
+            "mt5_version": mt5_access.mt5_version(),
             "connected": False,
             "account_info": None,
             "terminal_info": None,
-            "last_error": mt5.last_error()
+            "last_error": None
         }
-        if mt5.initialize():
+        if module is None:
+            # Cloud runtime: the bridge is the only door and it exposes no
+            # terminal/account diagnostics, so report the facts that are known
+            # and leave the rest null instead of raising ModuleNotFoundError.
+            return info
+        try:
+            info["last_error"] = module.last_error()
+        except Exception:
+            pass
+        if module.initialize():
             info["connected"] = True
-            acc = mt5.account_info()
+            acc = module.account_info()
             if acc:
                 info["account_info"] = acc._asdict()
-            term = mt5.terminal_info()
+            term = module.terminal_info()
             if term:
                 info["terminal_info"] = term._asdict()
             from_date = datetime(2020, 1, 1)
             to_date = datetime.now()
-            deals_count = mt5.history_deals_get(from_date, to_date)
+            deals_count = module.history_deals_get(from_date, to_date)
             info["history_deals_count"] = len(deals_count) if deals_count else 0
-            mt5.shutdown()
+            module.shutdown()
         return info
     except Exception as r:
         return {"error": str(r), "trace": traceback.format_exc()}
@@ -2826,31 +2856,41 @@ async def get_realtime(
         account_info_eq = account_info_dict.get("equity", 0) if account_info_dict else 0
         account_info_mg = account_info_dict.get("margin", 0) if account_info_dict else 0
         account_info_mgf = account_info_dict.get("margin_free", 0) if account_info_dict else 0
-        import MetaTrader5 as mt5
-        with connector._lock:
-            tick = mt5.symbol_info_tick(actual_symbol)
-            symbol_info_full = mt5.symbol_info(actual_symbol)
+        # mt5_access answers from the bridge in the cloud and from the local
+        # package on Windows, so the tape is fed in both runtimes.
+        tick = mt5_access.symbol_tick(actual_symbol)
+        symbol_info_full = mt5_access.symbol_info(actual_symbol)
+        info_point = symbol_info_full["point"] if symbol_info_full else 0.0001
+        info_digits = symbol_info_full["digits"] if symbol_info_full else 5
+        info_tick_size = (
+            symbol_info_full["trade_tick_size"]
+            if (symbol_info_full and symbol_info_full["trade_tick_size"] > 0)
+            else (symbol_info_full["point"] if symbol_info_full else 0.0001)
+        )
+        info_stops_level = symbol_info_full["stops_level"] if symbol_info_full else 0
         if tick is None:
             tick_data = {
                 "symbol": actual_symbol, "bid": 0, "ask": 0, "last": 0, "volume": 0, "time": 0,
-                "point": symbol_info_full.point if symbol_info_full else 0.0001,
-                "digits": symbol_info_full.digits if symbol_info_full else 5,
-                "tick_size": symbol_info_full.trade_tick_size if (symbol_info_full and symbol_info_full.trade_tick_size > 0) else (symbol_info_full.point if symbol_info_full else 0.0001),
-                "stops_level": symbol_info_full.trade_stops_level if symbol_info_full else 0,
+                "point": info_point,
+                "digits": info_digits,
+                "tick_size": info_tick_size,
+                "stops_level": info_stops_level,
             }
         else:
             tick_data = {
                 "symbol": actual_symbol,
-                "bid": tick.bid, "ask": tick.ask,
-                "last": tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2,
-                "volume": tick.volume, "time": tick.time,
-                "time_msc": getattr(tick, "time_msc", int(tick.time * 1000)),
-                "point": symbol_info_full.point if symbol_info_full else 0.0001,
-                "digits": symbol_info_full.digits if symbol_info_full else 5,
-                "tick_size": symbol_info_full.trade_tick_size if (symbol_info_full and symbol_info_full.trade_tick_size > 0) else (symbol_info_full.point if symbol_info_full else 0.0001),
-                "stops_level": symbol_info_full.trade_stops_level if symbol_info_full else 0,
+                "bid": tick["bid"], "ask": tick["ask"],
+                "last": tick["last"] if tick["last"] > 0 else (tick["bid"] + tick["ask"]) / 2,
+                "volume": tick["volume"], "time": tick["time"],
+                "time_msc": tick.get("time_msc", int(tick["time"] * 1000)),
+                "point": info_point,
+                "digits": info_digits,
+                "tick_size": info_tick_size,
+                "stops_level": info_stops_level,
             }
-        positions = connector.get_positions()
+        # normalize() keeps native MT5 positions as they are and turns bridge
+        # dicts into attribute objects, so one loop reads both.
+        positions = [normalize(position) for position in as_list(connector.get_positions())]
         pos_list = []
         if positions:
             for pos in positions:
@@ -2863,7 +2903,7 @@ async def get_realtime(
                     "sl": pos.sl, "tp": pos.tp,
                     "profit": pos.profit, "symbol": pos.symbol,
                 })
-        pending_orders = connector.get_pending_orders()
+        pending_orders = [normalize(order) for order in as_list(connector.get_pending_orders())]
         pending_list = []
         if pending_orders:
             for o in pending_orders:
@@ -3032,10 +3072,11 @@ async def place_order(
                     current_price = 0
                 
                 if not current_price:
-                    import MetaTrader5 as mt5_raw
-                    tick = mt5_raw.symbol_info_tick(actual_symbol)
+                    tick = mt5_access.symbol_tick(actual_symbol)
                     if tick:
-                        current_price = tick.last if tick.last > 0 else (tick.bid + tick.ask) / 2
+                        current_price = (
+                            tick["last"] if tick["last"] > 0 else (tick["bid"] + tick["ask"]) / 2
+                        )
                 base_price = current_price or 0.0
 
         point = 1.0 # Default for crypto offsets (Price units)
@@ -3050,10 +3091,9 @@ async def place_order(
                 "YM": 1.0,   "MYM": 1.0 
             }
             actual_base = normalize_symbol_for_comparison(actual_symbol)
-            import MetaTrader5 as mt5_raw
-            symbol_info = mt5_raw.symbol_info(actual_symbol)
+            symbol_info = mt5_access.symbol_info(actual_symbol)
             if symbol_info:
-                point = TICKS_MAP.get(actual_base, getattr(symbol_info, 'tick_size', symbol_info.point))
+                point = TICKS_MAP.get(actual_base, symbol_info["tick_size"] or symbol_info["point"])
 
         def is_absolute_price(val, base):
             if not base or base == 0: return False
@@ -3127,14 +3167,13 @@ async def place_order(
                 logger.info(f"[CLOSE-DEBUG] Closing ticket={order.ticket}, symbol={actual_symbol}, volume={order.volume}")
                 try:
                     ticket_int = int(order.ticket)
-                    import MetaTrader5 as mt5_raw
-                    pos_info = mt5_raw.positions_get(ticket=ticket_int)
+                    pos_info = mt5_access.positions(ticket=ticket_int)
                     if pos_info:
-                        actual_symbol = pos_info[0].symbol
+                        actual_symbol = pos_info[0].get("symbol") or actual_symbol
                     else:
-                        ord_info = mt5_raw.orders_get(ticket=ticket_int)
+                        ord_info = mt5_access.orders(ticket=ticket_int)
                         if ord_info:
-                            actual_symbol = ord_info[0].symbol
+                            actual_symbol = ord_info[0].get("symbol") or actual_symbol
                 except Exception as sym_err:
                     logger.warning(f"[CLOSE] Could not resolve symbol from ticket {order.ticket}: {sym_err}")
                 pending_orders = await asyncio.to_thread(connector.get_pending_orders, symbol=actual_symbol)
