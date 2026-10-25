@@ -29,8 +29,10 @@ COPY requirements.deploy.txt ./requirements.deploy.txt
 RUN pip install --upgrade pip setuptools wheel \
     && pip install -r requirements.deploy.txt
 
-# Optional AI/model inference support (CPU build keeps the image small).
-ARG WITH_TORCH=false
+# AI/model support (CPU build). The cloud deployment trains models, so this is on
+# by default: train.py imports torch unconditionally and the spawn dies without
+# it. Build with --build-arg WITH_TORCH=false for a data/execution-only image.
+ARG WITH_TORCH=true
 RUN if [ "$WITH_TORCH" = "true" ]; then \
         pip install --index-url https://download.pytorch.org/whl/cpu torch==2.2.2; \
     fi

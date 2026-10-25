@@ -260,7 +260,8 @@ docker build -t llama-terminal .
 docker run --rm -p 8050:8050 --env-file .env llama-terminal
 ```
 
-Optional CPU inference build: `docker build --build-arg WITH_TORCH=true -t llama-terminal .`.
+CPU `torch` is included by default, so the image can train. Build with
+`--build-arg WITH_TORCH=false` for a smaller data/execution-only image.
 The container does not include the desktop shell or the MT5 terminal; see
 [`../deploy/COOLIFY.md`](../deploy/COOLIFY.md) for the full topology.
 
