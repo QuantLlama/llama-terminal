@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import logging
 import os
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -26,6 +27,43 @@ def bridge_headers():
     """Shared token header required by a network-exposed bridge."""
     token = os.getenv("MT5_BRIDGE_TOKEN", "").strip()
     return {"X-Bridge-Token": token} if token else None
+
+
+class _BridgeCallContext:
+    """``with`` block over the connector's shared client.
+
+    ``__exit__`` deliberately does not close the client: closing it there is
+    what forced a fresh TCP handshake (through the socat relay and the tailnet
+    tunnel) on every polling cycle. ``timeout`` is applied per request instead
+    of being baked into the client, so the one call site that needs a longer
+    budget does not change the pool for everybody else.
+    """
+
+    __slots__ = ("_client", "_timeout")
+
+    def __init__(self, client, timeout=None):
+        self._client = client
+        self._timeout = timeout
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def _with_timeout(self, kwargs):
+        if self._timeout is not None:
+            kwargs.setdefault("timeout", self._timeout)
+        return kwargs
+
+    def request(self, method, url, **kwargs):
+        return self._client.request(method, url, **self._with_timeout(kwargs))
+
+    def get(self, url, **kwargs):
+        return self._client.get(url, **self._with_timeout(kwargs))
+
+    def post(self, url, **kwargs):
+        return self._client.post(url, **self._with_timeout(kwargs))
 
 
 class MT5ApiConnector:
@@ -67,6 +105,10 @@ class MT5ApiConnector:
             event_hooks={"request": [self._attach_bridge_auth]},
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
         )
+        # One pooled client for every ``_bridge_client()`` call site, created on
+        # first use so an import-time connector never opens sockets by itself.
+        self._pooled_client = None
+        self._pooled_client_lock = threading.Lock()
         if auto_launch_enabled():
             self._ensure_server_running()
         else:
@@ -164,12 +206,60 @@ class MT5ApiConnector:
             except Exception as e:
                 logger.error(f"Error launching wine server: {e}")
         
+    def _shared_client(self):
+        """The single ``httpx.Client`` this connector reuses for bridge calls.
+
+        ``httpx.Client`` is thread-safe and the call sites run under
+        ``asyncio.to_thread``, so one pool serves them concurrently. Creation is
+        guarded by a lock so concurrent first calls cannot build two pools.
+        """
+        client = self._pooled_client
+        if client is not None:
+            return client
+        with self._pooled_client_lock:
+            if self._pooled_client is None:
+                self._pooled_client = httpx.Client(
+                    base_url=self.base_url,
+                    timeout=httpx.Timeout(10.0, connect=5.0),
+                    headers=bridge_headers(),
+                    event_hooks={"request": [self._attach_bridge_auth]},
+                    limits=httpx.Limits(
+                        max_connections=20, max_keepalive_connections=10
+                    ),
+                )
+            return self._pooled_client
+
     def _bridge_client(self, timeout=None):
-        """Bridge connection that always carries the shared token."""
-        kwargs = {"base_url": self.base_url, "headers": bridge_headers()}
-        if timeout is not None:
-            kwargs["timeout"] = timeout
-        return httpx.Client(**kwargs)
+        """Pooled bridge connection that always carries the shared token."""
+        return _BridgeCallContext(self._shared_client(), timeout)
+
+    def close(self):
+        """Release the pooled client (idempotent); the next call rebuilds it."""
+        with self._pooled_client_lock:
+            client = self._pooled_client
+            self._pooled_client = None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def probe_latency(self, count=3, timeout=5.0):
+        """Round-trip samples in milliseconds for the cheapest bridge call.
+
+        ``/api/balance`` answers from memory on the bridge, so the samples
+        measure the transport (socat relay + tailnet tunnel) rather than MT5
+        work. Raises when the bridge is unreachable; callers report the error
+        instead of hiding it.
+        """
+        samples = []
+        with self._bridge_client(timeout=timeout) as client:
+            for _ in range(max(1, int(count))):
+                started = time.perf_counter()
+                response = client.get("/api/balance")
+                response.raise_for_status()
+                samples.append((time.perf_counter() - started) * 1000.0)
+        return samples
 
     def connect(self, path=None):
         try:
@@ -187,6 +277,7 @@ class MT5ApiConnector:
         for every other platform client on each request that finishes with a
         connector shutdown.
         """
+        self.close()
         self.connected = False
 
     def shutdown_bridge(self):

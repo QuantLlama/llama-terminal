@@ -17,6 +17,31 @@ from contextlib import asynccontextmanager
 import mimetypes
 import httpx
 
+
+# --- Application logging ---------------------------------------------------
+# Uvicorn configures only its own loggers, so the root logger kept no handler
+# and every logger.info(...) in this module was dropped: the container showed
+# the uvicorn access log and nothing else. Attach one stdout handler to the root
+# logger, and only when it has none, so re-importing this module (or any other
+# library calling basicConfig first) never duplicates lines. Uvicorn's loggers
+# are left untouched.
+def configure_application_logging(level=None):
+    root = logging.getLogger()
+    if root.handlers:
+        return root
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    )
+    root.addHandler(handler)
+    name = (level or os.getenv("LOG_LEVEL") or "INFO").strip().upper()
+    # An unknown LOG_LEVEL must not break the boot; fall back to INFO.
+    root.setLevel(name if isinstance(logging.getLevelName(name), int) else "INFO")
+    return root
+
+
+configure_application_logging()
+
 # Fix for Windows: Ensure .js and .css files are served with correct MIME types
 mimetypes.add_type('application/javascript', '.js')
 mimetypes.add_type('text/css', '.css')
@@ -2383,6 +2408,43 @@ async def debug_mt5():
         return info
     except Exception as r:
         return {"error": str(r), "trace": traceback.format_exc()}
+
+
+@app.get("/debug/bridge-latency")
+async def debug_bridge_latency():
+    """Round trip to the MT5 bridge, measured from inside this container.
+
+    Read-only diagnostic: it times the cheapest bridge call (/api/balance)
+    three times on the connector's pooled client, which is the same path every
+    polling cycle uses, so the socat relay and the tailnet tunnel are included.
+    It never raises: a dead bridge answers ``enabled: true`` plus ``error``.
+    """
+    payload = {
+        "bridge_url": None,
+        "samples_ms": [],
+        "min_ms": None,
+        "median_ms": None,
+        "enabled": False,
+        "error": None,
+    }
+    try:
+        payload["enabled"] = bool(mt5_access.bridge_enabled())
+    except Exception as exc:
+        payload["error"] = f"{type(exc).__name__}: {exc}"
+        return payload
+    try:
+        connector = get_mt5_connector()
+        payload["bridge_url"] = getattr(connector, "base_url", None)
+        samples = await asyncio.to_thread(connector.probe_latency)
+        ordered = sorted(samples)
+        payload["samples_ms"] = [round(value, 2) for value in samples]
+        payload["min_ms"] = round(ordered[0], 2) if ordered else None
+        payload["median_ms"] = round(ordered[len(ordered) // 2], 2) if ordered else None
+    except Exception as exc:
+        payload["error"] = f"{type(exc).__name__}: {exc}"
+    return payload
+
+
 @app.get("/api/positions")
 async def get_positions(
     symbol: str = Query(None),
