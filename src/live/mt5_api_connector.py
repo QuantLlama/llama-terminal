@@ -439,6 +439,23 @@ class MT5ApiConnector:
         except:
             return 0.0
 
+    def symbol_info(self, symbol):
+        """Full symbol record the bridge serves at /api/symbol_info.
+
+        ``get_symbol_details`` only answers the few fields the chart needs; the
+        order path also needs volume limits, so the raw record is fetched too.
+        The bridge answers ``null`` when it does not know the symbol.
+        """
+        try:
+            with self._bridge_client() as client:
+                res = client.get(f"/api/symbol_info/{symbol}")
+                if res.status_code == 200:
+                    data = res.json()
+                    return data if isinstance(data, dict) else None
+        except Exception as e:
+            logger.error(f"API symbol_info error: {e}")
+        return None
+
     def get_symbol_details(self, symbol):
         try:
              with self._bridge_client() as client:
