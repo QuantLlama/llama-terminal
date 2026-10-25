@@ -100,6 +100,7 @@ Python over pandas/numpy.
 | Broker managers | `src/services/{mt5,crypto,ninjatrader,tradovate}_manager.py` | Account catalogues, connection state, per-venue launch logic |
 | Replication | `src/services/replication_service.py` | File-based command channel into NinjaTrader instances |
 | Crypto proxy | `src/services/crypto_proxy.py` | Applies `CRYPTO_HTTP_PROXY` to CCXT exchanges |
+| Public market data | `src/live/crypto_public_connector.py` | Credential-free CCXT connector (ticker, trades, order book, candles) used by the engine when no trading tenant is selected, so the unauthenticated tape and DOM endpoints keep flowing |
 
 ---
 
@@ -242,6 +243,7 @@ Environment variables that change behavior:
 | `MT5_AUTO_LAUNCH` | Let the client start the local bridge on demand |
 | `USE_MT5_API` | `true` / `false` / `auto` connector selection |
 | `CRYPTO_HTTP_PROXY` | Route crypto exchange traffic through a proxy |
+| `CRYPTO_PUBLIC_EXCHANGE` | Exchange id for the credential-free market-data connector (default `binanceusdm`); it serves the tape and DOM when no trading tenant is selected |
 | `QUANTUM_LLAMA_KEY_DIR` | Writable directory for key material |
 | `APP_PORT` | Container listen port (default `8050`) |
 
