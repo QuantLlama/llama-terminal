@@ -13,6 +13,8 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
+from src.utils.paths import get_data_path
+
 from src.services.user_repository import (
     DEFAULT_USER_ID,
     DatabaseNotConfigured,
@@ -20,6 +22,18 @@ from src.services.user_repository import (
     reset_repository,
     set_repository,
 )
+
+# Broker accounts are stored per user in PostgreSQL, one row per account and
+# platform, with the credentials encrypted under that user's own key.
+BROKER_PLATFORMS = ("mt5", "crypto", "nt8")
+
+# Legacy key files the previous release encrypted each platform with.
+LEGACY_KEY_FILES = {
+    "mt5": ".mt5_key",
+    "crypto": ".crypto_key",
+    "nt8": ".mt5_key",
+    "tradovate": ".tradovate_key",
+}
 
 
 def get_db_path():
@@ -59,11 +73,16 @@ def get_logs_dir():
     return log_dir
 
 def init_db():
-    """Create the Postgres schema and run the one-time legacy import."""
+    """Create the Postgres schema and run the one-time legacy imports."""
     repository = get_repository()
     repository.ensure_schema()
     result = repository.import_legacy_sqlite(get_db_path())
-    print(f"[DATABASE] PostgreSQL schema ready; legacy SQLite import: {result['status']}")
+    accounts = import_legacy_accounts()
+    print(
+        "[DATABASE] PostgreSQL schema ready; "
+        f"legacy SQLite import: {result['status']}; "
+        f"legacy account import: {accounts['status']}"
+    )
 
 def legacy_import_user_id() -> str:
     """Identity the legacy import writes to."""
@@ -123,6 +142,104 @@ def get_all_workspaces(*, user_id: str) -> Dict[str, Dict[str, Any]]:
 
 def delete_workspace(session_name: str, *, user_id: str) -> bool:
     return get_repository().delete_workspace(user_id, session_name)
+
+def legacy_account_files() -> Dict[str, str]:
+    """Paths the previous release wrote each platform's accounts to.
+
+    They resolve through the shared data-path helper, which is the project root
+    inside a container (``/app/src/config``) - that is where every account a web
+    user created actually went, and it is what this one-time import must read.
+    """
+    return {
+        platform: get_data_path("src", "config", f"{platform}_accounts.json")
+        for platform in BROKER_PLATFORMS
+    }
+
+
+def _legacy_account_blob(platform: str, entry: Dict[str, Any]) -> str:
+    """Re-encrypt one legacy secret under its owner's per-user key.
+
+    The legacy files hold ciphertext for the installation-wide key file. When that
+    key is still present the secret is decrypted and re-encrypted for the owner;
+    when it is gone the account is still imported, with an empty blob, so nothing
+    undecryptable is ever stored. This never raises: an unwritable key location
+    must not stop startup.
+    """
+    try:
+        from src.services.credential_manager import (
+            SECRET_FIELDS,
+            encrypt_secrets,
+            get_vault,
+        )
+        from src.services.security import CredentialManager
+
+        fields = SECRET_FIELDS.get(platform, ())
+        if not fields:
+            return ""
+        owner = legacy_import_user_id()
+        legacy_cipher = None
+        secrets: Dict[str, str] = {}
+        for field in fields:
+            stored = entry.get(field)
+            if not isinstance(stored, str) or not stored:
+                continue
+            if legacy_cipher is None:
+                legacy_cipher = CredentialManager(
+                    key_file=LEGACY_KEY_FILES.get(platform, ".mt5_key")
+                )
+            plaintext = legacy_cipher.decrypt(stored)
+            if plaintext and plaintext != "DECRYPTION_FAILED":
+                secrets[field] = plaintext
+        return encrypt_secrets(get_vault().manager_for(owner), platform, secrets)
+    except Exception:
+        return ""
+
+
+def import_legacy_accounts(
+    files: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """One-time import of the legacy JSON account files into Postgres."""
+    return get_repository().import_legacy_accounts(
+        legacy_account_files() if files is None else files,
+        blob_builder=_legacy_account_blob,
+    )
+
+
+def clear_legacy_account_import_marker() -> None:
+    """Allow one further account import at the operator's explicit request."""
+    from src.services.user_repository import LEGACY_ACCOUNT_IMPORT_MARKER
+
+    get_repository().clear_legacy_import_marker(LEGACY_ACCOUNT_IMPORT_MARKER)
+
+
+def list_accounts(*, user_id: str) -> List[Dict[str, Any]]:
+    return get_repository().list_accounts(user_id=user_id)
+
+def get_account(*, user_id: str, platform: str, account_id: str) -> Optional[Dict[str, Any]]:
+    return get_repository().get_account(
+        user_id=user_id, platform=platform, account_id=account_id
+    )
+
+def upsert_account(
+    *,
+    user_id: str,
+    platform: str,
+    account_id: str,
+    metadata: Dict[str, Any],
+    credential_blob: str = "",
+) -> bool:
+    return get_repository().upsert_account(
+        user_id=user_id,
+        platform=platform,
+        account_id=account_id,
+        metadata=metadata,
+        credential_blob=credential_blob,
+    )
+
+def delete_account(*, user_id: str, platform: str, account_id: str) -> bool:
+    return get_repository().delete_account(
+        user_id=user_id, platform=platform, account_id=account_id
+    )
 
 def get_ai_chat_history(*, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     return get_repository().get_ai_chat_history(user_id, limit=limit)

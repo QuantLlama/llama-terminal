@@ -1,20 +1,38 @@
+"""MetaTrader 5 account registry.
+
+Accounts used to live in ``src/config/mt5_accounts.json``, which is not a mounted
+volume inside the container and was shared by every visitor. They now live in
+PostgreSQL, one row per authenticated user, and every storage method below takes
+``user_id`` as a required keyword-only argument: there is no implicit tenant and
+no installation-wide credential key (see ``credential_manager``).
+"""
 import os
 import json
 import hashlib
-import subprocess
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
-from cryptography.fernet import Fernet
 import logging
 logger = logging.getLogger(__name__)
-from .security import CredentialManager
+from src.services import database
+from src.services.credential_manager import (
+    decrypt_secrets,
+    encrypt_secrets,
+    get_vault,
+    split_secrets,
+)
 from src.utils.paths import get_data_path
 
+PLATFORM = "mt5"
+
+
 class MT5AccountManager:
-    def __init__(self, accounts_file: str = "src/config/mt5_accounts.json"):
-        self.accounts_file = get_data_path(accounts_file)
-        self.credential_manager = CredentialManager()
-        self.accounts = self._load_accounts()
+    PLATFORM = PLATFORM
+
+    def __init__(self, accounts_file: str = "src/config/mt5_accounts.json", *, vault=None):
+        # ``accounts_file`` is the legacy JSON path. It is only recorded for the
+        # one-time import; accounts themselves are stored per user in Postgres.
+        self.accounts_file = accounts_file
+        self.vault = vault or get_vault()
         self.instances_dir = get_data_path("mt5_instances")
         os.makedirs(self.instances_dir, exist_ok=True)
         self.brokers_file = get_data_path("src/config/brokers.json")
@@ -111,113 +129,176 @@ class MT5AccountManager:
                 seen.add(r["server"])
                 unique_results.append(r)
         return sorted(unique_results, key=lambda x: x["server"])
-    def _load_accounts(self) -> Dict:
-        if os.path.exists(self.accounts_file):
-            try:
-                with open(self.accounts_file, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading accounts: {e}")
-                return {}
-        return {}
-    def _save_accounts(self):
-        os.makedirs(os.path.dirname(self.accounts_file), exist_ok=True)
-        with open(self.accounts_file, 'w') as f:
-            json.dump(self.accounts, f, indent=4)
+
+    # ── per-user storage ──────────────────────────────────────────
+
+    def _cipher(self, user_id: str):
+        return self.vault.manager_for(user_id)
+
+    def _stored(self, user_id: str, account_id: str) -> Optional[Dict[str, Any]]:
+        return database.get_account(
+            user_id=user_id, platform=PLATFORM, account_id=account_id
+        )
+
+    def _stored_accounts(self, user_id: str) -> Dict[str, Dict[str, Any]]:
+        accounts: Dict[str, Dict[str, Any]] = {}
+        for row in database.list_accounts(user_id=user_id):
+            if row["platform"] != PLATFORM:
+                continue
+            account = dict(row["metadata"])
+            account["id"] = row["account_id"]
+            account["credential_blob"] = row["credential_blob"]
+            accounts[row["account_id"]] = account
+        return accounts
+
+    def _persist(
+        self,
+        user_id: str,
+        account: Dict[str, Any],
+        *,
+        credential_blob: Optional[str] = None,
+    ) -> None:
+        """Write one account for one user, encrypting secrets under that user's key."""
+        metadata, secrets = split_secrets(PLATFORM, account)
+        blob = (
+            encrypt_secrets(self._cipher(user_id), PLATFORM, secrets)
+            if credential_blob is None
+            else credential_blob
+        )
+        database.upsert_account(
+            user_id=user_id,
+            platform=PLATFORM,
+            account_id=account["id"],
+            metadata=metadata,
+            credential_blob=blob,
+        )
+
+    def _with_secrets(self, user_id: str, account: Dict[str, Any]) -> Dict[str, Any]:
+        full = {key: value for key, value in account.items() if key != "credential_blob"}
+        full.update(
+            decrypt_secrets(self._cipher(user_id), PLATFORM, account.get("credential_blob"))
+        )
+        return full
+
     def add_account(self, name: str, broker: str, server: str, login: str, 
-                   password: str, account_type: str = "demo") -> Dict:
+                   password: str, account_type: str = "demo", *, user_id: str) -> Dict:
         account_id = hashlib.md5(f"{broker}_{login}".encode()).hexdigest()[:8]
-        encrypted_password = self.credential_manager.encrypt(password)
         account_data = {
             "id": account_id,
             "name": name,
             "broker": broker,
             "server": server,
             "login": login,
-            "password": encrypted_password,
+            "password": password,
             "account_type": account_type,
             "created_at": datetime.now().isoformat(),
             "status": "inactive",
             "is_master": False,
             "instance_path": None
         }
-        self.accounts[account_id] = account_data
-        self._save_accounts()
+        self._persist(user_id, account_data)
         logger.info(f"Account added: {name} ({broker} - {login})")
         return self._sanitize_account(account_data)
-    def update_account(self, account_id: str, update_data: Dict) -> Optional[Dict]:
-        if account_id not in self.accounts:
+    def update_account(self, account_id: str, update_data: Dict, *, user_id: str) -> Optional[Dict]:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
             return None
-        account = self.accounts[account_id]
+        account = dict(stored["metadata"])
+        account["id"] = account_id
+        blob = stored["credential_blob"]
+        rotate_config = False
         if "name" in update_data:
             account["name"] = update_data["name"]
         if "account_type" in update_data:
             account["account_type"] = update_data["account_type"]
-        if "password" in update_data and update_data["password"]:
-            account["password"] = self.credential_manager.encrypt(update_data["password"])
-            if self.accounts[account_id].get("status") == "active":
-                try:
-                    self.generate_config_ini(account_id)
-                except:
-                    pass
-        self.accounts[account_id] = account
-        self._save_accounts()
+        if update_data.get("password"):
+            blob = encrypt_secrets(
+                self._cipher(user_id), PLATFORM, {"password": update_data["password"]}
+            )
+            rotate_config = account.get("status") == "active"
+        self._persist(user_id, account, credential_blob=blob)
+        if rotate_config:
+            try:
+                self.generate_config_ini(account_id, user_id=user_id)
+            except Exception:
+                logger.error("Could not regenerate the MT5 config for a rotated password")
         logger.info(f"MT5 Account updated: {account_id}")
         return self._sanitize_account(account)
-    def set_master_account(self, account_id: str) -> bool:
-        if account_id not in self.accounts:
+    def set_master_account(self, account_id: str, *, user_id: str) -> bool:
+        accounts = self._stored_accounts(user_id)
+        if account_id not in accounts:
             return False
         changed = False
-        for acc_id, acc in self.accounts.items():
+        for acc_id, acc in accounts.items():
             was_master = acc.get("is_master", False)
             should_be_master = (acc_id == account_id)
             if was_master != should_be_master:
                 acc["is_master"] = should_be_master
                 if not should_be_master:
-                    acc["status"] = "inactive" 
+                    acc["status"] = "inactive"
+                self._persist(user_id, acc, credential_blob=acc.get("credential_blob"))
                 changed = True
         if changed:
-            self._save_accounts()
             try:
-                self.start_instance(account_id)
+                self.start_instance(account_id, user_id=user_id)
             except Exception as e:
                 logger.error(f"Auto-connect to master failed: {e}")
         return True
-    def remove_account(self, account_id: str) -> bool:
-        if account_id in self.accounts:
-            self.stop_instance(account_id)
-            instance_path = self.accounts[account_id].get("instance_path")
-            if instance_path and os.path.exists(instance_path):
-                import shutil
-                shutil.rmtree(instance_path, ignore_errors=True)
-            del self.accounts[account_id]
-            self._save_accounts()
-            logger.info(f"Account removed: {account_id}")
-            return True
-        return False
-    def get_accounts(self) -> List[Dict]:
-        self.accounts = self._load_accounts()
-        return [self._sanitize_account(acc) for acc in self.accounts.values()]
-    def get_account(self, account_id: str) -> Optional[Dict]:
-        if account_id in self.accounts:
-            return self._sanitize_account(self.accounts[account_id])
-        return None
+    def remove_account(self, account_id: str, *, user_id: str) -> bool:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
+            return False
+        self.stop_instance(account_id, user_id=user_id)
+        instance_path = stored["metadata"].get("instance_path")
+        if instance_path and os.path.exists(instance_path):
+            import shutil
+            shutil.rmtree(instance_path, ignore_errors=True)
+        database.delete_account(
+            user_id=user_id, platform=PLATFORM, account_id=account_id
+        )
+        logger.info(f"Account removed: {account_id}")
+        return True
+    def get_accounts(self, *, user_id: str) -> List[Dict]:
+        return [
+            self._sanitize_account(acc)
+            for acc in self._stored_accounts(user_id).values()
+        ]
+    def get_account(self, account_id: str, *, user_id: str) -> Optional[Dict]:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
+            return None
+        account = dict(stored["metadata"])
+        account["id"] = account_id
+        return self._sanitize_account(account)
+    def get_account_full(self, account_id: str, *, user_id: str) -> Optional[Dict]:
+        """Account plus decrypted credentials, for local MT5 config generation."""
+        stored = self._stored(user_id, account_id)
+        if stored is None:
+            return None
+        account = dict(stored["metadata"])
+        account["id"] = account_id
+        account["credential_blob"] = stored["credential_blob"]
+        return self._with_secrets(user_id, account)
     def _sanitize_account(self, account: Dict) -> Dict:
         sanitized = account.copy()
+        sanitized.pop("credential_blob", None)
         if "password" in sanitized:
             sanitized["password"] = "***"
         if "is_master" not in sanitized:
             sanitized["is_master"] = False
         return sanitized
-    def generate_config_ini(self, account_id: str) -> str:
-        if account_id not in self.accounts:
+    def generate_config_ini(self, account_id: str, *, user_id: str) -> str:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
             raise ValueError(f"Account {account_id} not found")
-        account = self.accounts[account_id]
-        password = self.credential_manager.decrypt(account["password"])
+        account = self.get_account_full(account_id, user_id=user_id)
+        password = account.get("password", "")
         instance_path = os.path.join(self.instances_dir, f"mt5_{account_id}")
         os.makedirs(instance_path, exist_ok=True)
-        self.accounts[account_id]["instance_path"] = instance_path
-        self._save_accounts()
+        metadata = dict(stored["metadata"])
+        metadata["id"] = account_id
+        metadata["instance_path"] = instance_path
+        self._persist(user_id, metadata, credential_blob=stored["credential_blob"])
         config_content = f"""[Common]
 Login={account["login"]}
 Password={password}
@@ -230,10 +311,22 @@ DataPath={os.path.abspath(instance_path)}\\data
             f.write(config_content)
         logger.info(f"Config generated for {account_id}: {config_path}")
         return config_path
-    def start_instance(self, account_id: str, mt5_exe_path: str = None) -> bool:
-        if account_id not in self.accounts:
+    def start_instance(
+        self, account_id: str, mt5_exe_path: str = None, *, user_id: str
+    ) -> bool:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
             logger.error(f"Account {account_id} not found")
             return False
+        account = dict(stored["metadata"])
+        account["id"] = account_id
+        account["credential_blob"] = stored["credential_blob"]
+
+        def mark_status(status: str) -> None:
+            updated = dict(account)
+            updated["status"] = status
+            self._persist(user_id, updated, credential_blob=stored["credential_blob"])
+
         try:
             import MetaTrader5 as mt5
             if not mt5.initialize():
@@ -242,38 +335,35 @@ DataPath={os.path.abspath(instance_path)}\\data
             account_info = mt5.account_info()
             if account_info:
                 logger.info(f"MT5 está corriendo con cuenta: {account_info.login}")
-                if str(account_info.login) == self.accounts[account_id]["login"]:
+                if str(account_info.login) == account["login"]:
                     logger.info(f"Ya conectado a la cuenta {account_id}")
-                    self.accounts[account_id]["status"] = "active"
-                    self._save_accounts()
+                    mark_status("active")
                     return True
-                else:
-                    password = self.credential_manager.decrypt(
-                        self.accounts[account_id]["password"]
-                    )
-                    authorized = mt5.login(
-                        login=int(self.accounts[account_id]["login"]),
-                        password=password,
-                        server=self.accounts[account_id]["server"]
-                    )
-                    if authorized:
-                        logger.info(f"Conectado a cuenta {account_id}")
-                        self.accounts[account_id]["status"] = "active"
-                        self._save_accounts()
-                        return True
-                    else:
-                        logger.error(f"No se pudo conectar a cuenta {account_id}")
-                        return False
-            else:
-                logger.error("MT5 está corriendo pero no hay cuenta conectada")
+                password = decrypt_secrets(
+                    self._cipher(user_id), PLATFORM, stored["credential_blob"]
+                ).get("password", "")
+                authorized = mt5.login(
+                    login=int(account["login"]),
+                    password=password,
+                    server=account["server"]
+                )
+                if authorized:
+                    logger.info(f"Conectado a cuenta {account_id}")
+                    mark_status("active")
+                    return True
+                logger.error(f"No se pudo conectar a cuenta {account_id}")
                 return False
+            logger.error("MT5 está corriendo pero no hay cuenta conectada")
+            return False
         except Exception as e:
             logger.error(f"Error verificando MT5: {e}")
             return False
-    def stop_instance(self, account_id: str) -> bool:
-        if account_id not in self.accounts:
+    def stop_instance(self, account_id: str, *, user_id: str) -> bool:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
             return False
-        account = self.accounts[account_id]
+        account = dict(stored["metadata"])
+        account["id"] = account_id
         pid = account.get("pid")
         if pid:
             try:
@@ -281,19 +371,21 @@ DataPath={os.path.abspath(instance_path)}\\data
                 process = psutil.Process(pid)
                 process.terminate()
                 process.wait(timeout=5)
-                self.accounts[account_id]["status"] = "inactive"
-                self.accounts[account_id]["pid"] = None
-                self._save_accounts()
+                account["status"] = "inactive"
+                account["pid"] = None
+                self._persist(user_id, account, credential_blob=stored["credential_blob"])
                 logger.info(f"MT5 instance stopped for {account_id}")
                 return True
             except Exception as e:
                 logger.error(f"Failed to stop MT5 instance: {e}")
                 return False
         return False
-    def test_connection(self, account_id: str) -> Dict:
-        if account_id not in self.accounts:
+    def test_connection(self, account_id: str, *, user_id: str) -> Dict:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
             return {"success": False, "error": "Account not found"}
-        account = self.accounts[account_id]
+        account = dict(stored["metadata"])
+        account["id"] = account_id
         try:
             import MetaTrader5 as mt5
             if not mt5.initialize():
@@ -301,7 +393,9 @@ DataPath={os.path.abspath(instance_path)}\\data
                     "success": False,
                     "error": "MT5 no está corriendo. Por favor, abre MT5 manualmente primero."
                 }
-            password = self.credential_manager.decrypt(account["password"])
+            password = decrypt_secrets(
+                self._cipher(user_id), PLATFORM, stored["credential_blob"]
+            ).get("password", "")
             authorized = mt5.login(
                 login=int(account["login"]),
                 password=password,
@@ -362,10 +456,12 @@ DataPath={os.path.abspath(instance_path)}\\data
         for servers in common_servers.values():
             all_servers.extend(servers)
         return sorted(list(set(all_servers)))
-    def get_instance_status(self, account_id: str) -> Dict:
-        if account_id not in self.accounts:
+    def get_instance_status(self, account_id: str, *, user_id: str) -> Dict:
+        stored = self._stored(user_id, account_id)
+        if stored is None:
             return {"status": "unknown", "error": "Account not found"}
-        account = self.accounts[account_id]
+        account = dict(stored["metadata"])
+        account["id"] = account_id
         pid = account.get("pid")
         if not pid:
             return {"status": "inactive"}
@@ -380,9 +476,9 @@ DataPath={os.path.abspath(instance_path)}\\data
                     "memory_mb": process.memory_info().rss / 1024 / 1024
                 }
             else:
-                self.accounts[account_id]["status"] = "inactive"
-                self.accounts[account_id]["pid"] = None
-                self._save_accounts()
+                account["status"] = "inactive"
+                account["pid"] = None
+                self._persist(user_id, account, credential_blob=stored["credential_blob"])
                 return {"status": "inactive"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
