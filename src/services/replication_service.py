@@ -3,6 +3,7 @@ import threading
 import logging
 from datetime import datetime
 from typing import Optional
+from src.services.active_tenant import get_active_user_id, note_missing_active_user
 logger = logging.getLogger(__name__)
 def log_diag(msg):
     try:
@@ -17,10 +18,17 @@ def replicate_to_nt8_sync(
 ):
     if not symbol:
         return
+    # A mirrored order belongs to the account its owner is trading. This runs in a
+    # thread with no request context, so it reads the active tenant and does
+    # nothing at all while nobody has selected one.
+    user_id = get_active_user_id()
+    if not user_id:
+        note_missing_active_user("nt8-replication", logger)
+        return
     try:
         from src.services.ninjatrader_manager import get_nt8_manager
         manager = get_nt8_manager()
-        nt8_accounts = manager.get_accounts()
+        nt8_accounts = manager.get_accounts(user_id=user_id)
         if not nt8_accounts:
             return
         norm_symbol = symbol.split(".")[0].split("_")[0]

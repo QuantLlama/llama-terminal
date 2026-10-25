@@ -14,6 +14,7 @@ from .models import (
 )
 from .risk_validator import RiskValidator
 from src.services.replication_service import replicate_to_nt8_background
+from src.services.active_tenant import get_active_user_id, note_missing_active_user
 logger = logging.getLogger(__name__)
 class OrderGateway:
     _instance: Optional['OrderGateway'] = None
@@ -73,7 +74,19 @@ class OrderGateway:
         with self._connector_lock:
             platform = platform.lower()
             if platform == "nt8": platform = "tradovate"
-            conn_key = f"{platform}_{account_id}" if account_id else platform
+            # The processor thread has no request: the trading tenant is whichever
+            # account the user last selected or connected. Without one this loop
+            # must not trade anybody's account.
+            user_id = get_active_user_id()
+            if not user_id:
+                note_missing_active_user(f"order-gateway:{platform}", logger)
+                return None
+            # Keyed per tenant as well: switching accounts must never reuse another
+            # user's authenticated session.
+            conn_key = (
+                f"{user_id}_{platform}_{account_id}" if account_id
+                else f"{user_id}_{platform}"
+            )
             if conn_key not in self._connectors:
                 try:
                     if platform == "mt5":
@@ -83,17 +96,19 @@ class OrderGateway:
                         from src.live.crypto_connector import get_connector
                         if not account_id:
                             from src.services.crypto_manager import get_crypto_manager
-                            accounts = get_crypto_manager().get_accounts()
+                            accounts = get_crypto_manager().get_accounts(user_id=user_id)
                             if accounts: account_id = accounts[0]['id']
                         if account_id:
-                            self._connectors[conn_key] = get_connector(account_id)
+                            self._connectors[conn_key] = get_connector(account_id, user_id=user_id)
                     elif platform == "tradovate":
                         from src.live.tradovate_connector import get_tradovate_connector
                         if not account_id:
                             from src.services.tradovate_manager import get_tradovate_manager
-                            accounts = get_tradovate_manager().get_accounts()
+                            accounts = get_tradovate_manager().get_accounts(user_id=user_id)
                             if accounts: account_id = accounts[0]['id']
                         if account_id:
+                            # src/live/tradovate_connector.py does not take a tenant
+                            # yet, so this call fails closed (TypeError, logged below).
                             self._connectors[conn_key] = get_tradovate_connector(account_id)
                     else:
                         raise ValueError(f"Plataforma no soportada en Gateway: {platform}")

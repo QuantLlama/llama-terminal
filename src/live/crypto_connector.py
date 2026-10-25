@@ -6,7 +6,7 @@ import threading
 import os
 import time
 import traceback
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 logger = logging.getLogger(__name__)
 
@@ -1914,18 +1914,25 @@ class CryptoConnector:
             logger.error(f"Error setting leverage for {symbol} on {self.exchange_id}: {e}")
             return {"success": False, "error": str(e)}
 
-GLOBAL_CONNECTORS: Dict[str, CryptoConnector] = {}
+# Keyed by ``(user_id, account_id)``: the credentials behind an account belong to
+# one tenant, so a cache hit must never hand one user's authenticated exchange
+# session to another whose account happens to share an id.
+GLOBAL_CONNECTORS: Dict[Tuple[str, str], CryptoConnector] = {}
 
-def get_connector(account_id: str) -> Optional[CryptoConnector]:
+def get_connector(account_id: str, *, user_id: str) -> Optional[CryptoConnector]:
     """
-    Get or create a crypto connector for the given account.
-    
+    Get or create a crypto connector for one account of one tenant.
+
+    ``user_id`` is a required keyword-only argument. The account row and the key
+    that protects its API secret belong to that user; there is no installation-wide
+    account and no shared connector.
+
     NOTE: We now try to create the connector even if connect() fails,
     because we can still list symbols without a connected account.
     """
     from src.services.crypto_manager import get_crypto_manager
     manager = get_crypto_manager()
-    acc = manager.get_account_full(account_id)
+    acc = manager.get_account_full(account_id, user_id=user_id)
     if not acc:
         logger.warning(f"[GET_CONN] Account not found: {account_id}")
         return None
@@ -1942,8 +1949,9 @@ def get_connector(account_id: str) -> Optional[CryptoConnector]:
         logger.warning(f"[GET_CONN] BitMEX account blocked: {account_id}")
         return None
     
-    if account_id in GLOBAL_CONNECTORS:
-        return GLOBAL_CONNECTORS[account_id]
+    cache_key = (user_id, account_id)
+    if cache_key in GLOBAL_CONNECTORS:
+        return GLOBAL_CONNECTORS[cache_key]
     try:
         connector = CryptoConnector(
             account_id=account_id,
@@ -1956,18 +1964,18 @@ def get_connector(account_id: str) -> Optional[CryptoConnector]:
         # Try to connect, but still cache connector even if connection fails
         # (we can still list symbols without being connected)
         if connector.connect():
-            GLOBAL_CONNECTORS[account_id] = connector
+            GLOBAL_CONNECTORS[cache_key] = connector
             logger.info(f"[GET_CONN] Connected and cached: {account_id}")
         else:
             # Even if connect fails, try to load markets without auth
             try:
                 connector.exchange.load_markets()
                 connector._filter_perpetual_markets()
-                GLOBAL_CONNECTORS[account_id] = connector
+                GLOBAL_CONNECTORS[cache_key] = connector
                 logger.info(f"[GET_CONN] Created connector without auth (symbols available): {account_id}")
             except Exception as e:
                 logger.warning(f"[GET_CONN] Cannot load markets for {account_id}: {e}")
-        return GLOBAL_CONNECTORS.get(account_id)
+        return GLOBAL_CONNECTORS.get(cache_key)
     except Exception as e:
         logger.error(f"[GET_CONN] Failed to create connector for {account_id}: {e}")
     return None

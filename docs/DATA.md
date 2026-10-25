@@ -75,9 +75,11 @@ authentication is not configured at all they receive **503**.
 ## Calling per-user endpoints from the browser
 
 Every endpoint listed above (`/api/config`, `/api/workspace/*`, `/api/workspaces`,
-`/api/algolab/state`, `/api/algolab/chat` and `/api/algolab/chat/history`) requires
-the Supabase bearer token. The browser must send
-`Authorization: Bearer <access_token>` on each call, or the API answers **401**.
+`/api/algolab/state`, `/api/algolab/chat`, `/api/algolab/chat/history` and the whole
+`/api/accounts/*` family, including `/api/accounts/brokers` and
+`/api/accounts/server-search`) requires the Supabase bearer token. The browser must
+send `Authorization: Bearer <access_token>` on each call, or the API answers
+**401**.
 
 `src/platform/web/lib/authFetch.js` is the only sanctioned way to call those
 routes. It reads the current session from the Supabase client the page already
@@ -102,13 +104,15 @@ robots, sitemap) keeps plain `fetch`.
 
 ### Broker accounts
 
-Broker accounts left the JSON files. `MT5AccountManager`, `CryptoAccountManager`
-and `NinjaTraderAccountManager` read and write `broker_accounts` through
-`src/services/database.py`, and every storage method takes `user_id` as a required
-keyword-only argument, so one user's account list is unreachable from another's
-request. Each row is `(user_id, platform, account_id)` plus a `metadata JSONB`
-column for the public fields and a `credential_blob` column for the encrypted
-secrets.
+Broker accounts left the JSON files. `MT5AccountManager`, `CryptoAccountManager`,
+`NinjaTraderAccountManager` and `TradovateAccountManager` read and write
+`broker_accounts` through `src/services/database.py`, and every storage method
+takes `user_id` as a required keyword-only argument, so one user's account list is
+unreachable from another's request. Each row is `(user_id, platform, account_id)`
+plus a `metadata JSONB` column for the public fields and a `credential_blob` column
+for the encrypted secrets. Nothing is read from or written to `src/config` any
+more, and the installation-wide `.tradovate_key` leg is gone with the file it
+protected.
 
 The blob is encrypted with a **per-user key**, derived with HMAC-SHA256 from one
 installation master secret (`QL_CREDENTIAL_MASTER_KEY`, or the key file under
@@ -124,19 +128,55 @@ in the deployment secret store rather than in the image.
 bearer token: an anonymous call is a 401 and changes nothing, and a `user_id` in a
 body or query string is ignored in favour of the token.
 
-**Not yet tenant scoped (follow-up required):** `src/services/tradovate_manager.py`
-still uses its legacy single-file store, so tradovate rows listed or created
-through these routes are shared by every user; protecting that platform needs the
-same refactor plus the file's own edit surface. The crypto and tradovate exchange
-connectors (`src/live/*_connector.py`) also resolve credentials without a tenant
-argument, so `test`, `connect` and `leverage` for those platforms answer **503**
-("connectors do not accept per-user credentials yet") instead of serving another
-tenant's credentials. The trading routes in `src/platform/api/main.py` that pick a
-global "master" crypto account (order placement, symbols, deals, positions) and the
-consumers in `src/services/order_gateway/`, `src/services/market_data_engine/`,
-`src/platform/api/footprint_api.py` and `src/services/replication_service.py` still
-call the managers without `user_id` and must be migrated before those features work
-again; they now fail loudly instead of trading on a shared account.
+### Consumers of the account registry
+
+Every caller is now either a **request path** or a **background consumer**, and the
+two resolve the tenant differently on purpose:
+
+* **Request paths** (`src/platform/api/main.py`, `accounts_api.py`,
+  `footprint_api.py`) take `user_id` from `Depends(get_authenticated_user_id)` and
+  pass it down to the manager and to `get_connector(account_id, *, user_id=...)`.
+  There is no default and no fallback: a route that cannot name the user requires a
+  token instead of guessing. An `account_id` in a request body is only a selection
+  and is checked against the caller's own rows.
+* **Background consumers** - the crypto account monitor, the market-data engine,
+  the order gateway and the NinjaTrader replicator - have no request context. They
+  read the **active trading tenant** from `src/services/active_tenant.py`
+  (`get_active_user_id()`), which only an authenticated action sets: selecting a
+  master account (`POST /api/accounts/{id}/master`) or connecting an account
+  (`POST /api/accounts/{id}/connect`). While it is empty they skip their work and
+  emit one log line per consumer, and the crypto monitor reports no account to the
+  UI, so no health or status surface can claim a phantom account.
+
+An owner who stops trading clears the holder (`clear_active_user_id()`), which
+stops every background loop; the process never falls back to `default_user` or to
+"the first row in the table", because either would trade somebody else's account.
+
+Because those routes now require a token - `/api/modify`, `/api/symbols`,
+`/api/symbol_info`, `/api/timeframes`, `/api/history`, `/api/deals`,
+`/api/positions`, `/api/account`, `/api/realtime`, `/api/realtime_batch` and
+`/api/order` - their browser call sites have to send the bearer header too.
+`src/platform/web/index.html` does, through `window.authFetch`. Still on bare
+`fetch` (follow-up required, outside this change's edit surface):
+`components/ChartPane.js` (`/api/timeframes`, `/api/history`),
+`components/PositionOverlay.js` (`/api/modify`, `/api/order`),
+`components/PerformanceModal.js` and `components/HistoryPanel.js` (`/api/deals`),
+`components/VixCorrelationPanel.js` (`/api/history`) and
+`components/AlgoPanel.js` (`/api/accounts`). Until those move to the helper they
+answer 401 for a logged-in session.
+
+**Still not tenant scoped (follow-up required, outside this change's edit
+surface):**
+
+* `src/live/tradovate_connector.py:123` (`get_tradovate_connector`) still calls
+  `get_account_full(account_id)` without a tenant, so a per-user route cannot open a
+  Tradovate session yet: `test`, `connect` and `leverage` for Tradovate answer
+  **503** ("connectors do not accept per-user credentials yet") instead of resolving
+  credentials for the wrong user. The crypto connector (`get_connector`) does take
+  `user_id`.
+* `src/live/live_trade.py:135` calls `get_connector(account_id)` and
+  `get_tradovate_connector(account_id)` from the local CLI runner, so that runner
+  must pass a tenant (or set the active tenant) before it can trade again.
 
 ## One-time legacy import
 
@@ -169,6 +209,10 @@ authenticated users have their own rows and never fall back to that namespace.
 (`src/config/mt5_accounts.json`, `src/config/crypto_accounts.json`,
 `src/config/nt8_accounts.json`; inside a container that is `/app/src/config`, which
 is **not** a mounted volume, which is why those files were lost on every deploy).
+`src/config/tradovate_accounts.json` is deliberately **not** in that list
+(`database.BROKER_PLATFORMS`), because the shared file was never per-user and its
+rows cannot be attributed to an owner: Tradovate accounts created before this
+change must be entered again by their owner.
 
 The import uses the same marker discipline as the SQLite import, with its own
 marker (`legacy_broker_accounts_json_v1`):
@@ -197,8 +241,16 @@ Supabase client and the same fake store to assert 401s, cross-tenant isolation a
 client-supplied `user_id` rejection on HTTP responses. `tests/test_accounts_repository.py`
 covers the `broker_accounts` schema, the mandatory `user_id`, the per-user key
 derivation and the JSON import; `tests/test_accounts_isolation.py` does the same
-for every `/api/accounts/*` route. No test opens a socket or a real database
-connection.
+for every `/api/accounts/*` route. `tests/test_active_tenant.py` pins the
+active-tenant holder and proves, for each background consumer, that it neither
+raises nor touches an account while the holder is empty and that it uses exactly
+the id the holder carries otherwise. `tests/test_accounts_consumers.py` drives the
+trading, footprint and accounts routes through the real handlers and managers, and
+then asserts structurally (AST) that no consumer passes an account call without a
+resolved tenant, defaults a tenant parameter, reads the ambient tenant from a
+request path, or reintroduces a `default_user` literal; it also checks that every
+`/api/accounts` call site in the browser sources uses `window.authFetch`. No test
+opens a socket or a real database connection.
 
 ## Migrating a desktop installation to one hosted account
 

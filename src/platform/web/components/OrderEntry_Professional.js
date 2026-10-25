@@ -327,7 +327,7 @@ const OrderEntry_Professional = (props) => {
   const { addNotification } = window.useNotification();
   const handleSetLeverage = async () => {
     try {
-      const response = await fetch(`/api/accounts/${selectedAccountId}/leverage?platform=crypto`, {
+      const response = await window.authFetch(`/api/accounts/${selectedAccountId}/leverage?platform=crypto`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -865,7 +865,7 @@ const OrderEntry_Professional = (props) => {
             }).catch((err) => console.error("Config sync failed:", err));
           }
           try {
-            const res = await fetch(`/api/accounts/${newAccountId}/connect?platform=${newPlatform}`, {
+            const res = await window.authFetch(`/api/accounts/${newAccountId}/connect?platform=${newPlatform}`, {
               method: "POST"
             });
             if (res.ok) {

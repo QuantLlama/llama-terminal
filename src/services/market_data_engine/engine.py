@@ -13,6 +13,7 @@ from .models import (
 )
 from .buffer import CircularBuffer, SymbolBuffer, TradeBuffer
 from src.platform.api.utils import resolve_symbol
+from src.services.active_tenant import get_active_user_id, note_missing_active_user
 
 logger = logging.getLogger(__name__)
 
@@ -156,44 +157,60 @@ class MarketDataEngine:
                     self._connectors[p] = get_mt5_connector()
 
                 elif p == "crypto":
-                    from src.services.crypto_manager import get_crypto_manager
-                    from src.live.crypto_connector import get_connector
-                    try:
-                        manager  = get_crypto_manager()
-                        accounts = manager.get_accounts()
-                        master   = next(
-                            (acc for acc in accounts if acc.get("is_master")), None
-                        ) or (accounts[0] if accounts else None)
-                        if master:
-                            self._connectors[p] = get_connector(master["id"])
-                            logger.info(
-                                f"MarketDataEngine connected to Crypto via account {master['id']}"
-                            )
-                        else:
-                            self._connectors[p] = None
-                    except Exception as e:
-                        logger.error(f"Error initializing Crypto connector in MDE: {e}")
+                    # The feed has no request context: it may only use the account
+                    # the user actually selected or connected, never another's.
+                    user_id = get_active_user_id()
+                    if not user_id:
+                        note_missing_active_user("market-data-engine:crypto", logger)
                         self._connectors[p] = None
+                    else:
+                        from src.services.crypto_manager import get_crypto_manager
+                        from src.live.crypto_connector import get_connector
+                        try:
+                            manager  = get_crypto_manager()
+                            accounts = manager.get_accounts(user_id=user_id)
+                            master   = next(
+                                (acc for acc in accounts if acc.get("is_master")), None
+                            ) or (accounts[0] if accounts else None)
+                            if master:
+                                self._connectors[p] = get_connector(
+                                    master["id"], user_id=user_id
+                                )
+                                logger.info(
+                                    f"MarketDataEngine connected to Crypto via account {master['id']}"
+                                )
+                            else:
+                                self._connectors[p] = None
+                        except Exception as e:
+                            logger.error(f"Error initializing Crypto connector in MDE: {e}")
+                            self._connectors[p] = None
 
                 elif p == "tradovate":
-                    from src.services.tradovate_manager import get_tradovate_manager
-                    from src.live.tradovate_connector import get_tradovate_connector
-                    try:
-                        manager  = get_tradovate_manager()
-                        accounts = manager.get_accounts()
-                        master   = next(
-                            (acc for acc in accounts if acc.get("is_master")), None
-                        ) or (accounts[0] if accounts else None)
-                        if master:
-                            self._connectors[p] = get_tradovate_connector(master["id"])
-                            logger.info(
-                                f"MarketDataEngine connected to Tradovate via account {master['id']}"
-                            )
-                        else:
-                            self._connectors[p] = None
-                    except Exception as e:
-                        logger.error(f"Error initializing tradovate connector: {e}")
+                    user_id = get_active_user_id()
+                    if not user_id:
+                        note_missing_active_user("market-data-engine:tradovate", logger)
                         self._connectors[p] = None
+                    else:
+                        from src.services.tradovate_manager import get_tradovate_manager
+                        from src.live.tradovate_connector import get_tradovate_connector
+                        try:
+                            manager  = get_tradovate_manager()
+                            accounts = manager.get_accounts(user_id=user_id)
+                            master   = next(
+                                (acc for acc in accounts if acc.get("is_master")), None
+                            ) or (accounts[0] if accounts else None)
+                            if master:
+                                # src/live/tradovate_connector.py takes no tenant yet,
+                                # so this call fails closed (TypeError, logged below).
+                                self._connectors[p] = get_tradovate_connector(master["id"])
+                                logger.info(
+                                    f"MarketDataEngine connected to Tradovate via account {master['id']}"
+                                )
+                            else:
+                                self._connectors[p] = None
+                        except Exception as e:
+                            logger.error(f"Error initializing tradovate connector: {e}")
+                            self._connectors[p] = None
 
                 else:
                     raise ValueError(
@@ -799,13 +816,17 @@ class MarketDataEngine:
         now, s_upper = time.time(), symbol.upper()
         connector = self._crypto_connector_cache.get(s_upper)
         if not connector:
+            user_id = get_active_user_id()
+            if not user_id:
+                note_missing_active_user("market-data-engine:crypto-poll", logger)
+                return
             master_conn = self._get_connector("crypto")
             all_conns = [master_conn] if master_conn else []
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            for acc in manager.get_accounts():
-                c = get_connector(acc["id"])
+            for acc in manager.get_accounts(user_id=user_id):
+                c = get_connector(acc["id"], user_id=user_id)
                 if c and c not in all_conns: all_conns.append(c)
             for c in all_conns:
                 try:
