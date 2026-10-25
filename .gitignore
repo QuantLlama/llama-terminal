@@ -91,3 +91,8 @@ src/config/*accounts.json
 src/config/default_account.json
 mt5_debug.json
 .broker_accounts_master_key
+
+# Runtime UI/workspace state and the broker symbol map: written by the app while
+# the operator works, so they are per-machine state and not repository content.
+src/config/live_config.json
+src/config/symbols_mt5.json
