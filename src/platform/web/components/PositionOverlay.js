@@ -276,7 +276,7 @@ const PositionOverlay = ({
         if (which === "SL") payload.sl = currentPrice;else
         payload.tp = currentPrice;
         try {
-          const res = await fetch("/api/modify", {
+          const res = await window.authFetch("/api/modify", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
@@ -312,7 +312,7 @@ const PositionOverlay = ({
       if (snap.sl) payload.sl = snap.sl;
       if (snap.tp) payload.tp = snap.tp;
       try {
-        const res = await fetch("/api/modify", {
+        const res = await window.authFetch("/api/modify", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
@@ -343,7 +343,7 @@ const PositionOverlay = ({
     const action = newVol === 0 || delta < 0 ? "CLOSE" : "OPEN";
     const vol = newVol === 0 ? p.volume : Math.abs(delta);
     try {
-      const res = await fetch("/api/order", {
+      const res = await window.authFetch("/api/order", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform, action, symbol: activeSymbol || p.symbol, volume: vol, ticket: p.ticket, type: p.type, account_id: status?.selected_account_id || null })
       });
@@ -360,7 +360,7 @@ const PositionOverlay = ({
       const payload = { platform, symbol: activeSymbol || p.symbol, ticket: p.ticket };
       if (p.type === "SL") payload.sl = 0;else payload.tp = 0;
       try {
-        const res = await fetch("/api/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const res = await window.authFetch("/api/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await res.json();
         if (data.status !== "success" && data.status !== "modified")
         addNotification("error", "Failed", data.message);
@@ -368,7 +368,7 @@ const PositionOverlay = ({
       return;
     }
     try {
-      const res = await fetch("/api/order", {
+      const res = await window.authFetch("/api/order", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform, action: "CLOSE", symbol: activeSymbol || p.symbol, volume: p.volume || 0, ticket: p.ticket, account_id: status?.selected_account_id || null })
       });
@@ -387,7 +387,7 @@ const PositionOverlay = ({
     if (which === "SL") payload.sl = isBuy ? p.entry_price - defaultDist : p.entry_price + defaultDist;
     if (which === "TP") payload.tp = isBuy ? p.entry_price + defaultDist : p.entry_price - defaultDist;
     try {
-      const res = await fetch("/api/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await window.authFetch("/api/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (data.status !== "success" && data.status !== "modified")
       addNotification("error", "Failed", data.message);

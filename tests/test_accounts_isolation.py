@@ -65,7 +65,6 @@ HANDLERS = {
     "search_servers",
     "_account_manager",
     "_owned_account",
-    "_tenant_connector_unavailable",
 }
 MODELS = {"AccountCreate", "AccountResponse", "AccountUpdate", "ConnectionTestResponse"}
 

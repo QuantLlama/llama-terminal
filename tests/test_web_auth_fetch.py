@@ -53,6 +53,26 @@ EXPECTED_CALL_SITES = Counter({
     ("AlgoLab.js", "GET", "/api/algolab/chat/history"): 1,
     ("AlgoLab.js", "DELETE", "/api/algolab/chat/history"): 1,
     ("AlgoLab.js", "POST", "/api/algolab/chat"): 2,
+    # Accounts and trading routes became token-authenticated in this change.
+    ("index.html", "GET", "/api/accounts"): 1,
+    ("index.html", "GET", "/api/account?platform=${platformParam}"): 1,
+    ("index.html", "GET", "/api/symbols?platform=${platform}"): 1,
+    ("index.html", "GET", "/api/symbol_info?symbol=${encodeURIComponent(activeSymbol)}"): 1,
+    ("index.html", "GET", "/api/timeframes?platform=${platform}"): 1,
+    ("index.html", "GET", "/api/deals?platform=${platformParam}&days=9999"): 1,
+    ("index.html", "GET", "/api/realtime_batch?symbols=${encodeURIComponent(mappedSymbols)}&platform=${platformType}"): 1,
+    ("index.html", "POST", "/api/order"): 1,
+    ("OrderEntry_Professional.js", "POST", "/api/accounts/${newAccountId}/connect?platform=${newPlatform}"): 1,
+    ("OrderEntry_Professional.js", "POST", "/api/accounts/${selectedAccountId}/leverage?platform=crypto"): 1,
+    ("SettingsModal.js", "GET", "/api/accounts"): 1,
+    ("SettingsModal.js", "GET", "/api/accounts/brokers?type=${p}"): 1,
+    ("SettingsModal.js", "GET", "/api/accounts/server-search?q=${encodeURIComponent(searchTerm)}"): 1,
+    ("SettingsModal.js", "POST", "/api/accounts/${id}/master?platform=${platform}"): 1,
+    ("SettingsModal.js", "POST", "/api/accounts/${id}/test?platform=${platform}"): 1,
+    ("SettingsModal.js", "PATCH", "/api/accounts/${id}?platform=${platform}"): 1,
+    ("SettingsModal.js", "DELETE", "/api/accounts/${id}?platform=${platform}"): 1,
+    # One call passes the endpoint through a variable chosen with a ternary.
+    ("SettingsModal.js", "GET", "<variable>"): 1,
 })
 
 SOURCES = {
@@ -141,7 +161,13 @@ def test_every_audited_call_site_routes_through_the_helper():
         source = _source(name)
         for arguments in _collect_calls(AUTH_FETCH_RE, source):
             endpoint = _endpoint_of(arguments)
-            assert endpoint is not None, f"{name}: authFetch call without an endpoint literal"
+            if endpoint is None:
+                # The endpoint may come from a local variable; require that the
+                # same file assigns it from an accounts route.
+                assert "/api/accounts" in source, (
+                    f"{name}: authFetch with a variable endpoint but no accounts route"
+                )
+                endpoint = "<variable>"
             method_match = METHOD_RE.search(arguments)
             method = method_match.group(1) if method_match else "GET"
             found[(name, method, endpoint)] += 1

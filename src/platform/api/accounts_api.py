@@ -74,8 +74,9 @@ class ConnectionTestResponse(BaseModel):
 def _account_manager(platform: str):
     """Resolve the manager for one platform.
 
-    The four repository-backed managers store accounts per authenticated user.
-    Tradovate still uses its legacy single-file manager, which takes no tenant.
+    All four managers store accounts per authenticated user in PostgreSQL, and
+    every storage method they expose takes ``user_id`` as a required keyword-only
+    argument, so this route layer always has to pass the caller's tenant down.
     """
     if platform == "mt5":
         return get_manager()
@@ -91,25 +92,10 @@ def _account_manager(platform: str):
 def _owned_account(platform: str, account_id: str, user_id: str) -> Dict[str, Any]:
     """Return the caller's own account or raise 404, before any side effect runs."""
     manager = _account_manager(platform)
-    if platform == "tradovate":
-        account = manager.get_account(account_id)
-    else:
-        account = manager.get_account(account_id, user_id=user_id)
+    account = manager.get_account(account_id, user_id=user_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     return account
-
-
-def _tenant_connector_unavailable(platform: str) -> HTTPException:
-    """The exchange connectors still resolve credentials outside a tenant scope."""
-    return HTTPException(
-        status_code=503,
-        detail=(
-            f"{platform} connectors do not accept per-user credentials yet; "
-            "account listing, creation, update and deletion are tenant scoped. "
-            "See docs/DATA.md."
-        ),
-    )
 
 
 @router.get("", response_model=List[AccountResponse])
@@ -121,7 +107,7 @@ async def get_accounts(user_id: str = Depends(get_authenticated_user_id)):
     for acc in get_crypto_manager().get_accounts(user_id=user_id):
         acc["platform"] = "crypto"
         accounts.append(acc)
-    for acc in get_tradovate_manager().get_accounts():
+    for acc in get_tradovate_manager().get_accounts(user_id=user_id):
         acc["platform"] = "tradovate"
         accounts.append(acc)
     for acc in get_nt8_manager().get_accounts(user_id=user_id):
@@ -186,7 +172,9 @@ async def add_account(
                 app_version=account.app_version or "1.0.0",
                 cid=account.cid,
                 sec=account.sec,
-                environment=account.environment or "demo"
+                environment=account.environment or "demo",
+                account_type=account.account_type,
+                user_id=user_id,
             )
             new_account["platform"] = "tradovate"
             return new_account
@@ -219,12 +207,9 @@ async def update_account(
     user_id: str = Depends(get_authenticated_user_id),
 ):
     manager = _account_manager(platform)
-    if platform == "tradovate":
-        updated = manager.update_account(account_id, update.dict(exclude_unset=True))
-    else:
-        updated = manager.update_account(
-            account_id, update.dict(exclude_unset=True), user_id=user_id
-        )
+    updated = manager.update_account(
+        account_id, update.dict(exclude_unset=True), user_id=user_id
+    )
     if updated:
         return updated
     raise HTTPException(status_code=404, detail="Account not found")
@@ -235,10 +220,7 @@ async def remove_account(
     user_id: str = Depends(get_authenticated_user_id),
 ):
     manager = _account_manager(platform)
-    if platform == "tradovate":
-        removed = manager.remove_account(account_id)
-    else:
-        removed = manager.remove_account(account_id, user_id=user_id)
+    removed = manager.remove_account(account_id, user_id=user_id)
     if removed:
         return {"status": "deleted", "id": account_id}
     raise HTTPException(status_code=404, detail="Account not found")
@@ -253,10 +235,7 @@ async def test_existing_account_connection(
         return manager.test_connection(account_id, user_id=user_id)
     elif platform == "crypto":
         _owned_account("crypto", account_id, user_id)
-        try:
-            connector = get_connector(account_id)
-        except TypeError:
-            raise _tenant_connector_unavailable("crypto")
+        connector = get_connector(account_id, user_id=user_id)
         if not connector:
             return {"success": False, "error": "Could not create crypto connector. Check your credentials."}
         try:
@@ -273,10 +252,7 @@ async def test_existing_account_connection(
     elif platform == "tradovate":
         _owned_account("tradovate", account_id, user_id)
         from src.live.tradovate_connector import get_tradovate_connector
-        try:
-            connector = get_tradovate_connector(account_id)
-        except TypeError:
-            raise _tenant_connector_unavailable("tradovate")
+        connector = get_tradovate_connector(account_id, user_id=user_id)
         if not connector:
             return {"success": False, "error": "Could not create Tradovate connector. Check your credentials."}
         try:
@@ -310,12 +286,14 @@ async def set_master_account(
     platform: str = Query("mt5"),
     user_id: str = Depends(get_authenticated_user_id),
 ):
+    from src.services.active_tenant import set_active_user_id
+
     manager = _account_manager(platform)
-    if platform == "tradovate":
-        promoted = manager.set_master_account(account_id)
-    else:
-        promoted = manager.set_master_account(account_id, user_id=user_id)
+    promoted = manager.set_master_account(account_id, user_id=user_id)
     if promoted:
+        # Choosing the account that trades is what activates a tenant for the
+        # background loops, which have no request to read a token from.
+        set_active_user_id(user_id)
         return {"status": "success", "master_account_id": account_id}
     raise HTTPException(status_code=400, detail="Failed to set master account")
 @router.post("/{account_id}/connect")
@@ -325,6 +303,8 @@ async def connect_account(
     data: Dict[str, Any] = Body(None),
     user_id: str = Depends(get_authenticated_user_id),
 ):
+    from src.services.active_tenant import set_active_user_id
+
     connector = None
     actual_platform = platform
     if platform == "mt5" and data and "platform" in data:
@@ -332,28 +312,26 @@ async def connect_account(
     if actual_platform == "mt5":
         manager = get_manager()
         if manager.start_instance(account_id, user_id=user_id):
+            set_active_user_id(user_id)
             return {"status": "connected", "account_id": account_id, "platform": "mt5"}
     elif actual_platform == "crypto":
         _owned_account("crypto", account_id, user_id)
-        try:
-            connector = get_connector(account_id)
-        except TypeError:
-            raise _tenant_connector_unavailable("crypto")
+        connector = get_connector(account_id, user_id=user_id)
         if connector and connector.connected:
+            set_active_user_id(user_id)
             return {"status": "connected", "account_id": account_id, "platform": "crypto"}
     elif actual_platform == "tradovate":
         _owned_account("tradovate", account_id, user_id)
         from src.live.tradovate_connector import get_tradovate_connector
-        try:
-            connector = get_tradovate_connector(account_id)
-        except TypeError:
-            raise _tenant_connector_unavailable("tradovate")
+        connector = get_tradovate_connector(account_id, user_id=user_id)
         if connector and connector.connected:
+            set_active_user_id(user_id)
             return {"status": "connected", "account_id": account_id, "platform": "tradovate"}
     elif actual_platform == "nt8":
         manager = get_nt8_manager()
         account = manager.get_account(account_id, user_id=user_id)
         if account and os.path.exists(account.get("exchange_dir", "")):
+             set_active_user_id(user_id)
              return {"status": "connected", "account_id": account_id, "platform": "nt8"}
         raise HTTPException(status_code=400, detail="Failed to connect to nt8 account. Exchange directory not found or inaccessible.")
     error_detail = "Check your API credentials or network connection."
@@ -406,10 +384,7 @@ async def set_leverage_account(
 ):
     if platform == "crypto":
         _owned_account("crypto", account_id, user_id)
-        try:
-            connector = get_connector(account_id)
-        except TypeError:
-            raise _tenant_connector_unavailable("crypto")
+        connector = get_connector(account_id, user_id=user_id)
         if not connector:
             raise HTTPException(status_code=503, detail="Connector not available")
         if not connector.connect():

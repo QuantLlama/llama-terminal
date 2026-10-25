@@ -92,7 +92,7 @@ const AlgoPanel = ({ indicators, refreshIndicators, onClose, isLocked }) => {
   const [accounts, setAccounts] = useState([]);
   useEffect(() => {
     const fetchAccounts = () => {
-      fetch("/api/accounts").
+      window.authFetch("/api/accounts").
       then((r) => r.json()).
       then((d) => setAccounts(d)).
       catch((e) => console.error("Accounts Fetch Error:", e));
