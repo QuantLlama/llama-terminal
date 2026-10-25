@@ -65,7 +65,10 @@ Wants=network-online.target
 
 [Service]
 EnvironmentFile=/etc/default/qllama-crypto-relay
-ExecStart=/usr/bin/socat TCP-LISTEN:${LISTEN_PORT},bind=${LISTEN_HOST},reuseaddr,fork TCP:${PROXY_TARGET}
+# nodelay disables Nagle on the relay socket. The crypto feed is request/response
+# heavy (ticker, trades and book every poll), so a stalled second segment turns
+# into visible tape/DOM latency.
+ExecStart=/usr/bin/socat TCP-LISTEN:${LISTEN_PORT},bind=${LISTEN_HOST},reuseaddr,fork,nodelay TCP:${PROXY_TARGET}
 Restart=always
 RestartSec=5
 TimeoutStopSec=5
