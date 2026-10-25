@@ -363,9 +363,14 @@ def test_guide_documents_each_env_var_with_its_real_default(content_src, var, de
 
 
 def test_guide_documents_the_token_requirement(content_src):
+    # The placeholder is prose, so each language spells it its own way. Asserting
+    # the English literal everywhere would hide a translation regression.
+    placeholders = {"es": "(sin definir)", "en": "(unset)"}
     for language in LANGUAGES:
         block = _language_block(content_src, language)
-        assert re.search(r"\[\s*'MT5_BRIDGE_TOKEN',\s*'\(unset\)'", block)
+        assert re.search(
+            r"\[\s*'MT5_BRIDGE_TOKEN',\s*'%s'" % re.escape(placeholders[language]), block
+        ), f"{language} lost its own unset placeholder"
         assert "0.0.0.0" in block
         assert "127.0.0.1" in block
     assert re.search(r"obligatorio", content_src, re.IGNORECASE)
