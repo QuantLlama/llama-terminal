@@ -174,9 +174,10 @@ Wait for one sentinel push without an error (up to a minute;
 `sentinel_updated_at` must be current) and redeploy. A healthy server logs only
 `pushing url=...` and the deploy row appears with `status = in_progress`.
 
-- The VPS has 2 vCPU and 3.7 GB of RAM. The image excludes `torch`; set the
-  build arg `WITH_TORCH=true` only if live AI-model inference is required
-  (adds roughly 2 GB to the image and a CPU-only torch build).
+- The VPS has 2 vCPU and 3.7 GB of RAM. The image includes CPU-only `torch`
+  (`WITH_TORCH=true` by default) because training runs in the container; the
+  build is roughly 2 GB larger and training is slow on those two vCPUs. Pass
+  `--build-arg WITH_TORCH=false` only for a data/execution-only image.
 - Back up the `qllama-config` volume before changing account or workspace
   configuration; it holds the SQLite database.
 - `src/config/*.json` is tracked in git. Editing configuration from the UI

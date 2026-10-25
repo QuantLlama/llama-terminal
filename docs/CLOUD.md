@@ -195,9 +195,9 @@ curl -s -H "X-Bridge-Token: $MT5_BRIDGE_TOKEN" http://10.0.0.1:8081/api/balance
 | Restart a local service | `systemctl --user restart qllama-mt5-bridge qllama-crypto-proxy` |
 | Rotate the bridge token | Change `MT5_BRIDGE_TOKEN` on both sides, restart the bridge, redeploy the app |
 
-Capacity: 2 vCPU / 3.7 GB. The image excludes `torch`; `WITH_TORCH=true` at build time adds
-roughly 2 GB and CPU-only inference. Without it, model *training* is not available in the
-container — only data, charting, backtesting and execution.
+Capacity: 2 vCPU / 3.7 GB. The image ships CPU-only `torch` (`WITH_TORCH=true` by default,
+roughly 2 GB) because training runs in the container. Training on those two vCPUs is slow;
+build with `--build-arg WITH_TORCH=false` for a data/execution-only image.
 
 ---
 
@@ -227,8 +227,9 @@ hostile.** Nothing in the container needs to know that MT5 is Windows-only.
 
 - **No Electron shell.** The browser tab is the interface; desktop-only affordances (native
   menus, tray, local file dialogs) are not available.
-- **No training in the container by default.** Inference needs `WITH_TORCH=true`; training
-  belongs on a workstation with a GPU.
+- **Training runs on the container's CPU.** `torch` is included (`WITH_TORCH=true`), so
+  training works but is slow on 2 vCPU. A workstation with a GPU is still the better place for
+  long runs; the data, charting, backtesting and execution paths do not depend on it.
 - **One SQLite writer.** The deployment is single-node by design; scaling out would need a
   server database.
 - **Single shared bridge token** with no per-user authorization (see section 6).
