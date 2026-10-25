@@ -85,9 +85,57 @@ class FuturesDataset(Dataset):
 
 # ── Data loading ─────────────────────────────────────────────────────────────
 
+#: Symbols Yahoo publishes under a different code than the trading platform.
+#: Checked before the crypto rule, because XAUUSD also ends in USD.
+YAHOO_ALIASES = {
+    "XAUUSD": "GC=F",   # gold spot -> gold futures
+    "XAGUSD": "SI=F",   # silver spot -> silver futures
+    "XPTUSD": "PL=F",   # platinum -> platinum futures
+    "XPDUSD": "PA=F",   # palladium -> palladium futures
+}
+
+#: Stable quotes a platform appends to a crypto base asset.
+STABLE_QUOTES = ("USDT", "USDC", "FDUSD", "TUSD", "BUSD", "USD")
+
+
+def yahoo_symbol(ticker):
+    """Translate a platform symbol into the one Yahoo Finance publishes.
+
+    The wizard sends the symbol the chart is showing, so crypto arrives as
+    ``BTCUSDT`` / ``BTC/USDT:USDT`` (Yahoo knows it as ``BTC-USD``) and MT5 metal
+    spot pairs arrive as ``XAUUSD`` (Yahoo publishes ``GC=F``). Passing those
+    through untouched made the download answer "Quote not found for symbol" and
+    every training run died before the first epoch.
+    """
+    if not ticker or not ticker.strip():
+        return ticker
+    raw = ticker.strip()
+    upper = raw.upper()
+
+    # Already a Yahoo symbol: index caret, explicit quote suffix (=F, =X) or a
+    # hyphenated pair such as BTC-USD. Returning early also keeps this idempotent.
+    if upper.startswith("^") or "=" in upper or "-" in upper:
+        return raw
+
+    # Broker decorations: EURUSD.r, BTCUSDT.P. The settle suffix of a perpetual
+    # contract is not part of the base pair: BTC/USDT:USDT is BTC/USDT.
+    base = upper.split(".", 1)[0].split(":", 1)[0]
+
+    if base in YAHOO_ALIASES:
+        return YAHOO_ALIASES[base]
+
+    compact = base.replace("/", "").replace(":", "").replace("_", "")
+    for quote in STABLE_QUOTES:
+        if compact.endswith(quote) and len(compact) > len(quote):
+            return f"{compact[:-len(quote)]}-USD"
+    return raw
+
+
 def load_data(ticker, period='2y', interval='1h'):
     """Download OHLCV data from Yahoo Finance with automatic period adjustment."""
-    print(f"Downloading data for {ticker}...")
+    symbol = yahoo_symbol(ticker)
+    print(f"Downloading data for {ticker}..." if symbol == ticker
+          else f"Downloading data for {ticker} (Yahoo: {symbol})...")
 
     intraday_intervals = ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h']
     if interval in intraday_intervals:
@@ -96,7 +144,7 @@ def load_data(ticker, period='2y', interval='1h'):
                   f"by source. Adjusting period from {period} to 59d.")
             period = "59d"
 
-    df = yf.download(ticker, period=period, interval=interval, progress=False)
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
 
     if df.empty:
         raise ValueError(
