@@ -15,6 +15,8 @@ WORKDIR ${APP_HOME}
 # libraries required by the scientific stack.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        postgresql-client \
+        gzip \
         wget \
         curl \
         libgomp1 \
