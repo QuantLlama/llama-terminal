@@ -17,6 +17,60 @@ from src.services.active_tenant import get_active_user_id, note_missing_active_u
 
 logger = logging.getLogger(__name__)
 
+# ── Crypto poll cadence ───────────────────────────────────────────────────────
+# The crypto feed polls public REST endpoints. Through the deployment's egress
+# relay one round trip costs hundreds of milliseconds, so a fixed 80 ms cadence
+# can never complete a cycle: the polls overlap and starve the socket. The
+# interval therefore follows the cycle duration that was actually measured, never
+# below a per-symbol floor and never above CRYPTO_POLL_MAX_MS.
+CRYPTO_POLL_MIN_MS = 80
+CRYPTO_POLL_MAX_MS = 1000
+CRYPTO_POLL_MS_PER_SYMBOL = 40
+CRYPTO_POLL_SHRINK_THRESHOLD = 0.5
+
+#: Consecutive cycles without usable data before a symbol's connector is dropped.
+CRYPTO_FAILURE_LIMIT = 3
+
+
+def crypto_poll_floor_ms(symbols: int = 1) -> int:
+    """Coarsest interval allowed for ``symbols`` subscribed crypto symbols.
+
+    One symbol may poll as fast as CRYPTO_POLL_MIN_MS, but many symbols share the
+    same thread and the same relay, so they start at a coarser floor instead of
+    thrashing between overrun and recovery.
+    """
+    count = max(1, int(symbols or 1))
+    floor = max(CRYPTO_POLL_MIN_MS, CRYPTO_POLL_MS_PER_SYMBOL * count)
+    return min(CRYPTO_POLL_MAX_MS, floor)
+
+
+def next_crypto_poll_interval(current_ms, cycle_ms, symbols: int = 1) -> float:
+    """Next crypto poll interval in ms, from the current one and the last cycle.
+
+    * The cycle overran its interval (the loop could not keep up): grow, at least
+      doubling and never shorter than the measured cycle, clamped at the maximum.
+    * The cycle used less than half the interval: shrink towards the floor.
+    * Anything in between keeps the current interval, so the cadence does not
+      oscillate around the measurement.
+    """
+    floor = float(crypto_poll_floor_ms(symbols))
+    try:
+        current = float(current_ms)
+    except (TypeError, ValueError):
+        current = floor
+    current = min(max(current, floor), float(CRYPTO_POLL_MAX_MS))
+
+    try:
+        cycle = float(cycle_ms)
+    except (TypeError, ValueError):
+        return current
+
+    if cycle > current:
+        return min(float(CRYPTO_POLL_MAX_MS), max(current * 2.0, cycle))
+    if cycle < current * CRYPTO_POLL_SHRINK_THRESHOLD:
+        return max(floor, current / 2.0)
+    return current
+
 
 class MarketDataEngine:
     _instance: Optional['MarketDataEngine'] = None
@@ -91,6 +145,7 @@ class MarketDataEngine:
         self._last_crypto_book_poll_strict: Dict[str, float] = {}
         self._crypto_last_emitted_ohlcv_ts: Dict[str, int]   = {}  # Track last closed bar emitted
         self._crypto_connector_cache:      Dict[str, Any]   = {}  # Cache: symbol_upper -> connector_instance
+        self._crypto_feed_failures:        Dict[str, int]   = {}  # Consecutive cycles without usable data
 
         # ── Live candle cache (built from trades between OHLCV polls) ─────────
         # Keyed by symbol_upper. Each value: {open, high, low, close}
@@ -218,6 +273,93 @@ class MarketDataEngine:
                     )
 
             return self._connectors[p]
+
+    def _is_public_crypto_connector(self, connector) -> bool:
+        """True when ``connector`` is the public fallback, not an account one."""
+        if connector is None:
+            return False
+        if connector is self._connectors.get("crypto_public"):
+            return True
+        try:
+            from src.live.crypto_public_connector import PublicMarketDataConnector
+        except Exception:
+            return False
+        return isinstance(connector, PublicMarketDataConnector)
+
+    def _record_crypto_cycle(
+        self, symbol: str, s_upper: str, connector, usable: bool, reason: str
+    ) -> None:
+        """Track consecutive crypto cycles without usable data.
+
+        A cycle that produced data resets the counter. CRYPTO_FAILURE_LIMIT
+        consecutive empty or raising cycles drop the symbol's cached connector so
+        the next cycle resolves it again, count one error and log one WARNING -
+        silently returning empty structures is what kept the cloud feed blank with
+        ``status ONLINE``. When the public fallback is what failed, it is reset so
+        the next cycle builds a fresh one.
+        """
+        failures = getattr(self, "_crypto_feed_failures", None)
+        if failures is None:
+            failures = self._crypto_feed_failures = {}
+        if usable:
+            failures.pop(s_upper, None)
+            return
+
+        count = failures.get(s_upper, 0) + 1
+        failures[s_upper] = count
+        if count < CRYPTO_FAILURE_LIMIT:
+            logger.debug(
+                f"[CRYPTO_FEED] {symbol} cycle {count}/{CRYPTO_FAILURE_LIMIT} "
+                f"without usable data: {reason}"
+            )
+            return
+
+        failures.pop(s_upper, None)
+        self._crypto_connector_cache.pop(s_upper, None)
+        self._metrics.errors_count += 1
+        logger.warning(
+            f"[CRYPTO_FEED] Dropped crypto connector for {symbol} after {count} "
+            f"consecutive cycles without usable data: {reason or 'unknown reason'}"
+        )
+        if self._is_public_crypto_connector(connector):
+            with self._connector_lock:
+                self._connectors.pop("crypto_public", None)
+            try:
+                from src.live.crypto_public_connector import reset_public_data_connector
+                reset_public_data_connector()
+            except Exception as e:
+                logger.error(f"Could not reset the public crypto connector: {e}")
+
+    def _public_crypto_connector(self):
+        """Read-only crypto connector for the two unauthenticated feed endpoints.
+
+        The tape (``/api/v2/feed/trades/*``) and the DOM (``/api/v2/feed/dom/*``,
+        ``/api/v2/ws/feed``) have no request context, so when nobody has selected
+        a trading tenant their data can only come from public market data. The
+        connector is built outside ``_connector_lock`` because the first call
+        loads the exchange markets, and cached under ``crypto_public``.
+        """
+        cached = self._connectors.get("crypto_public")
+        if cached is not None:
+            return cached
+        try:
+            from src.live.crypto_public_connector import get_public_data_connector
+            connector = get_public_data_connector()
+        except Exception as e:
+            logger.error(f"Error initializing public crypto connector in MDE: {e}")
+            return None
+        if not connector:
+            return None
+        with self._connector_lock:
+            existing = self._connectors.get("crypto_public")
+            if existing is None:
+                self._connectors["crypto_public"] = connector
+                logger.info(
+                    "MarketDataEngine crypto feed using public market data "
+                    "(no active trading tenant)"
+                )
+                existing = connector
+        return existing
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -484,19 +626,26 @@ class MarketDataEngine:
 
     def _crypto_feed_loop(self) -> None:
         """Independent feed loop for crypto symbols. Runs at its own cadence
-        without being blocked by MT5/Wine latency."""
-        crypto_poll_ms = 80  # Slightly slower than main loop, respects exchange rate limits
+        without being blocked by MT5/Wine latency, and adapts that cadence to the
+        cycle it actually measured, so a slow link cannot pile up a backlog."""
+        crypto_poll_ms = float(crypto_poll_floor_ms(1))
         while not self._should_stop.is_set():
             try:
                 poll_start = time.time()
                 with self._symbols_lock:
                     current_symbols = list(self._symbols)
+                crypto_symbols = [
+                    symbol for symbol in current_symbols
+                    if self._detect_platform(symbol) == "crypto"
+                ]
 
-                for symbol in current_symbols:
-                    if self._detect_platform(symbol) == "crypto":
-                        self._poll_symbol(symbol)
+                for symbol in crypto_symbols:
+                    self._poll_symbol(symbol)
 
                 poll_duration = (time.time() - poll_start) * 1000
+                crypto_poll_ms = next_crypto_poll_interval(
+                    crypto_poll_ms, poll_duration, len(crypto_symbols)
+                )
                 sleep_time = max(0, (crypto_poll_ms - poll_duration) / 1000)
                 if sleep_time > 0:
                     time.sleep(sleep_time)
@@ -814,33 +963,59 @@ class MarketDataEngine:
 
     def _poll_crypto_symbol(self, symbol: str, broker_symbol: str, should_poll_book: bool = True) -> None:
         now, s_upper = time.time(), symbol.upper()
+        user_id = get_active_user_id()
         connector = self._crypto_connector_cache.get(s_upper)
+        if connector is not None and user_id and self._is_public_crypto_connector(connector):
+            # A trading tenant appeared after the public fallback took over: the
+            # account connector must win again.
+            connector = self._crypto_connector_cache.pop(s_upper, None)
         if not connector:
-            user_id = get_active_user_id()
             if not user_id:
+                # Operators grep this line to learn why account data is idle; the
+                # tape and the DOM stay live from public market data instead.
                 note_missing_active_user("market-data-engine:crypto-poll", logger)
-                return
-            master_conn = self._get_connector("crypto")
-            all_conns = [master_conn] if master_conn else []
-            from src.services.crypto_manager import get_crypto_manager
-            from src.live.crypto_connector import get_connector
-            manager = get_crypto_manager()
-            for acc in manager.get_accounts(user_id=user_id):
-                c = get_connector(acc["id"], user_id=user_id)
-                if c and c not in all_conns: all_conns.append(c)
-            for c in all_conns:
-                try:
-                    if not c.connected: c.connect()
-                    test_sym = c._resolve_sym(symbol)
-                    if test_sym: connector, broker_symbol = c, test_sym; self._crypto_connector_cache[s_upper] = c; break
-                except: continue
+                # No trading tenant: the tape and the DOM are unauthenticated and
+                # must keep flowing, so serve them from public market data while
+                # leaving the account connectors untouched.
+                public_connector = self._public_crypto_connector()
+                if public_connector:
+                    try:
+                        public_sym = public_connector._resolve_sym(symbol)
+                    except Exception as e:
+                        logger.debug(f"Public crypto resolve failed for {symbol}: {e}")
+                        public_sym = None
+                    if public_sym:
+                        connector, broker_symbol = public_connector, public_sym
+                        self._crypto_connector_cache[s_upper] = public_connector
+            else:
+                master_conn = self._get_connector("crypto")
+                all_conns = [master_conn] if master_conn else []
+                from src.services.crypto_manager import get_crypto_manager
+                from src.live.crypto_connector import get_connector
+                manager = get_crypto_manager()
+                for acc in manager.get_accounts(user_id=user_id):
+                    c = get_connector(acc["id"], user_id=user_id)
+                    if c and c not in all_conns: all_conns.append(c)
+                for c in all_conns:
+                    try:
+                        if not c.connected: c.connect()
+                        test_sym = c._resolve_sym(symbol)
+                        if test_sym: connector, broker_symbol = c, test_sym; self._crypto_connector_cache[s_upper] = c; break
+                    except: continue
         if not connector: return
+        checks = 0
+        usable = True
+        problems: List[str] = []
         try:
             # Always refresh a quote once per second so the chart can keep moving
             # even if no new public trades were emitted in this polling window.
             last_ticker_poll = self._last_crypto_ticker_poll.get(s_upper, 0)
             if now - last_ticker_poll >= 1.0:
                 self._last_crypto_ticker_poll[s_upper] = now
+                # The ticker is the cycle's primary signal: count it, so a cycle
+                # where trades and book happen to be rate-limited still records
+                # whether the connector answered.
+                checks += 1
                 try:
                     ticker_data = connector.get_tick(broker_symbol)
                     if ticker_data and ticker_data.get('last') and ticker_data['last'] > 0:
@@ -876,13 +1051,26 @@ class MarketDataEngine:
                             self._symbol_buffer.update(quote_event)
                             self._metrics.messages_received += 1
                             self._metrics.last_message_time = time.time()
-                except Exception:
-                    pass
+                    else:
+                        usable = False
+                        problems.append("ticker last <= 0")
+                except Exception as exc:
+                    usable = False
+                    problems.append(f"ticker raised {type(exc).__name__}: {exc}")
 
             last_trade_poll = self._last_crypto_trade_poll.get(s_upper, 0)
             if now - last_trade_poll >= 2.0:
                 self._last_crypto_trade_poll[s_upper] = now
-                trades = connector.get_trades(broker_symbol, limit=50)
+                checks += 1
+                try:
+                    trades = connector.get_trades(broker_symbol, limit=50)
+                except Exception as exc:
+                    usable = False
+                    problems.append(f"trades raised {type(exc).__name__}: {exc}")
+                    trades = None
+                if trades is not None and not trades:
+                    usable = False
+                    problems.append("no trades returned")
             else: trades = None
             current_bar_ts = self._crypto_delta_bar_ts.get(s_upper, 0)
             if trades:
@@ -956,9 +1144,20 @@ class MarketDataEngine:
                         self._symbol_buffer.update(live_ev)
                         if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(live_ev)
                 except: pass
-            if should_poll_book: self._poll_crypto_book(symbol, s_upper, broker_symbol, connector, now)
+            if should_poll_book:
+                book_ok = self._poll_crypto_book(symbol, s_upper, broker_symbol, connector, now)
+                if book_ok is not None:
+                    checks += 1
+                    if not book_ok:
+                        usable = False
+                        problems.append("empty order book")
         except Exception as e:
             logger.debug(f"Error in crypto poll for {symbol}: {e}")
+            checks += 1
+            usable = False
+            problems.append(f"poll raised {type(e).__name__}: {e}")
+        if checks:
+            self._record_crypto_cycle(symbol, s_upper, connector, usable, "; ".join(problems))
 
     def _normalize_crypto_val(self, symbol: str, val: float, price: float, broker: str = "") -> float:
         if val is None or val == 0 or price is None or price <= 0: return val or 0.0
@@ -980,17 +1179,23 @@ class MarketDataEngine:
             return potential_base
         return val
 
-    def _poll_crypto_book(self, symbol: str, s_upper: str, broker_symbol: str, connector, now: float) -> None:
+    def _poll_crypto_book(self, symbol: str, s_upper: str, broker_symbol: str, connector, now: float) -> Optional[bool]:
+        """Poll the DOM for ``symbol``.
+
+        Returns ``True`` when a usable book was stored, ``False`` when the
+        connector answered with nothing usable (or raised), and ``None`` when the
+        cycle skipped the request because of its own rate limit.
+        """
         depth = self._symbol_depths.get(s_upper, 50)
         valid_limits = [5, 10, 20, 50, 100, 500, 1000]
         binance_limit = next((lim for lim in valid_limits if depth <= lim), 1000)
         req_delay = 1.0 if binance_limit <= 100 else 1.5 if binance_limit <= 500 else 2.0 if binance_limit <= 1000 else 3.0
         if not hasattr(self, '_last_crypto_book_poll_strict'): self._last_crypto_book_poll_strict = {}
-        if now - self._last_crypto_book_poll_strict.get(s_upper, 0) < req_delay: return
+        if now - self._last_crypto_book_poll_strict.get(s_upper, 0) < req_delay: return None
         self._last_crypto_book_poll_strict[s_upper] = now
         try:
             book = connector.get_book_snapshot(broker_symbol, limit=binance_limit)
-            if not book or not book.get("bids") or not book.get("asks"): return
+            if not book or not book.get("bids") or not book.get("asks"): return False
             bids_raw, asks_raw = book.get("bids", []), book.get("asks", [])
             with self._pb_lock:
                 if s_upper not in self._persistent_books: self._persistent_books[s_upper] = {"bids": {}, "asks": {}, "last_update": 0}
@@ -1009,7 +1214,10 @@ class MarketDataEngine:
             self._symbol_buffer.update_book(snapshot)
             midpoint, spread = (float(bids_raw[0]["price"]) + float(asks_raw[0]["price"])) / 2, float(asks_raw[0]["price"]) - float(bids_raw[0]["price"]) if bids_raw and asks_raw else (0, 0)
             if self._status in (FeedStatus.ONLINE, FeedStatus.DEGRADED): self._event_buffer.push(MarketDataEvent(symbol=symbol, timestamp=book.get("timestamp", now), event_type="BOOK_UPDATE", bids=[{"price": b["price"], "size": b["size"], "count": 1} for b in bids_raw], asks=[{"price": a["price"], "size": a["size"], "count": 1} for a in asks_raw], midpoint=midpoint, spread=spread, source="CRYPTO"))
-        except: pass
+            return True
+        except Exception as e:
+            logger.debug(f"Error polling book for {symbol}: {e}")
+            return False
 
     def _detect_platform(self, symbol: str) -> str:
         s = symbol.upper()

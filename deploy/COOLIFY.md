@@ -44,7 +44,9 @@ so Coolify can clone but never push.
 | --- | --- | --- |
 | `APP_PORT` | `8050` | Port uvicorn binds and Traefik forwards to |
 | `MT5_AUTO_LAUNCH` | `false` | There is no Wine/MT5 inside the container; never try to boot it |
-| `MT5_BRIDGE_URL` | *(unset)* | Set it to the tunnel URL when the local MT5 bridge is exposed |
+| `MT5_BRIDGE_URL` | `http://10.0.0.1:8081` | The VPS relay, never the tailnet address: the container has no route to the tailnet |
+| `MT5_BRIDGE_TOKEN` | deployment secret | Same value as `~/.config/qllama/mt5_bridge_token` on the operator machine |
+| `CRYPTO_HTTP_PROXY` | `http://10.0.0.1:3128` | Same relay pattern for crypto: the venue answers HTTP 451 to this region |
 | `TZ` | `America/Argentina/Buenos_Aires` | Market session / chart time handling |
 | `SUPABASE_URL` | from the Supabase project | Required for authentication; no code default |
 | `SUPABASE_ANON_KEY` | from the Supabase project | Required for authentication; no code default |
@@ -98,15 +100,29 @@ Expected: `200 application/json` for `/health`, `200 text/html` for `/`,
 ## MT5 bridge (local broker, cloud UI)
 
 `MetaTrader5` is a Windows-only Python package, so the terminal keeps running
-where the broker terminal lives and the cloud app talks to it over HTTP:
+where the broker terminal lives and the cloud app talks to it over HTTP. The
+container never reaches the tailnet directly: it calls a socat relay on the VPS
+that forwards to the operator machine.
+
+```
+container (MT5_BRIDGE_URL=http://10.0.0.1:8081)
+   -> socat relay on the VPS
+   -> <operator-tailnet-ip>:8081 bridge (mt5_server.py)
+   -> MetaTrader 5 terminal
+```
 
 1. On the machine that runs MT5, start the bridge (`mt5_server.py`, default
-   `127.0.0.1:8081`).
-2. Expose it with a private tunnel (WireGuard/Tailscale is the safest option;
-   Cloudflare Tunnel works too) and terminate TLS in front of it.
-3. Set `MT5_BRIDGE_URL` on the Coolify application to that tunnel URL, e.g.
-   `https://mt5.internal.example.com`.
-4. Redeploy so the container picks up the variable.
+   `127.0.0.1:8081`; `MT5_BRIDGE_BIND=0.0.0.0` to accept tailnet traffic) and
+   run it as the user service described below.
+2. Install the relay on the VPS with `sudo ./deploy/vps/setup-mt5-relay.sh`;
+   it writes `/etc/default/qllama-mt5-relay` and enables
+   `qllama-mt5-relay.service`.
+3. Set `MT5_BRIDGE_URL=http://10.0.0.1:8081` and `MT5_BRIDGE_TOKEN` on the
+   Coolify application.
+4. Redeploy so the container picks up the variables.
+
+`deploy/MT5_BRIDGE.md` holds the full procedure, including the same relay
+pattern for crypto egress (`CRYPTO_HTTP_PROXY`).
 
 Security requirements for the bridge: `mt5_server.py` requires an
 `X-Bridge-Token` header on every request and refuses to serve a non-loopback
@@ -118,9 +134,11 @@ private network (tailnet, VPN) or an authenticated tunnel.
 The full topology, security model and the problems solved during the rollout are
 documented in [`../docs/CLOUD.md`](../docs/CLOUD.md).
 
-Until `MT5_BRIDGE_URL` is configured, the container runs with
-`MT5_AUTO_LAUNCH=false`, the MT5 connector reports a connection error, and the
-platform continues serving crypto, analysis and backtesting features.
+`MT5_AUTO_LAUNCH=false` always stays set in the container: the terminal is never
+started there. If the relay or the operator machine is down, the MT5 connector
+reports a connection error and the platform keeps serving crypto, analysis and
+backtesting until the bridge returns. The crypto feed needs the operator machine
+too, because every exchange request leaves through the tailnet proxy.
 
 ## Operational notes
 
