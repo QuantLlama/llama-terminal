@@ -147,16 +147,29 @@ curl -s https://llama.nbmsystemas.com/api/symbols      # symbols resolved from M
 
 ## Running the local pieces as services
 
-The MT5 bridge and the crypto egress proxy run on the operator machine. Install
-both as user services so they survive terminal closes and reboots:
+The MT5 bridge and the crypto egress proxy run on the operator machine. They
+must not depend on the repository path: the repository usually lives on an
+encrypted removable volume, and a unit whose working directory is there fails
+with `status=200/CHDIR` until that volume is unlocked (`systemd` reports
+`Changing to the requested working directory failed: No such file or directory`).
+
+Install the six runtime files on the system disk first, then the units:
 
 ```bash
+./scripts/install_bridge_runtime.sh            # copies to ~/.local/share/qllama/runtime
+./scripts/install_bridge_runtime.sh --check    # exits 1 when the copy is stale
 mkdir -p ~/.config/systemd/user
 cp deploy/local/*.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now qllama-mt5-bridge.service qllama-crypto-proxy.service
 sudo loginctl enable-linger "$USER"   # keep them running without an active login
 ```
+
+Re-run `install_bridge_runtime.sh` after changing `mt5_server.py`, the
+`src/live/mt5_bridge_*` modules or `scripts/local_crypto_proxy.py`; the units
+keep running the installed copy, not the repository. Both units retry forever
+(`StartLimitIntervalSec=0`) because they are the cloud deployment's only route
+to MT5 and the exchange.
 
 Check them with `systemctl --user status qllama-mt5-bridge qllama-crypto-proxy`
 and follow logs with `journalctl --user -u qllama-mt5-bridge -f`.
