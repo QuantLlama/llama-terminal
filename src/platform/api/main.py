@@ -13,7 +13,6 @@ import sys
 import time
 import traceback
 import webbrowser
-from asyncio import subprocess
 from contextlib import asynccontextmanager
 import mimetypes
 import httpx
