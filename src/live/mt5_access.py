@@ -384,6 +384,16 @@ def rates_from_pos(symbol, timeframe="1m", count=100):
     method = getattr(module, "copy_rates_from_pos", None)
     if method is None:
         return None
+    # MT5 needs initialize() before it will answer, and the package is idempotent,
+    # so calling it when a terminal is already up costs nothing. Without it a
+    # local install that nothing else initialised returns None instead of candles.
+    initialize = getattr(module, "initialize", None)
+    if initialize is not None:
+        try:
+            initialize()
+        except Exception as exc:
+            logger.warning("MetaTrader5 initialize() failed: %s", exc)
+            return None
     try:
         raw = method(symbol, timeframe, 0, count)
     except Exception as exc:
