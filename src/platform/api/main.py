@@ -2037,7 +2037,7 @@ async def get_vix(timeframe: str = Query("5m"), limit: int = Query(200)):
         except Exception:
             pass
         try:
-            v_ticker = yf.Ticker("^VIX", session=session)
+            v_ticker = yf.Ticker("^VIX")
             price = v_ticker.info.get("regularMarketPrice")
             if price:
                 return float(price), None
@@ -2204,7 +2204,7 @@ async def get_vix_live():
             # Fallback to Yahoo Finance (Fast Info)
             try:
                 import yfinance as yf
-                ticker = yf.Ticker("^VIX", session=VIX_SESSION)
+                ticker = yf.Ticker("^VIX")
                 # fast_info is much faster than .info
                 p = ticker.fast_info.get("last_price")
                 if p: return float(p), int(time.time())
@@ -2213,7 +2213,7 @@ async def get_vix_live():
             # Fallback to Yahoo Finance (Download)
             try:
                 import yfinance as yf
-                df = yf.download("^VIX", period="1d", interval="1m", progress=False, session=VIX_SESSION)
+                df = yf.download("^VIX", period="1d", interval="1m", progress=False)
                 if df is not None and not df.empty:
                     p = float(df["Close"].iloc[-1])
                     return p, int(time.time())

@@ -9,7 +9,8 @@ pytest==7.4.0
 pyarmor==8.2.33
 
 MetaTrader5==5.0.6231; sys_platform == 'win32'
-yfinance==0.2.40
+yfinance==1.7.0
+curl_cffi==0.16.3
 pytz==2024.1
 gym==0.26.2
 ta-lib==0.8.2
