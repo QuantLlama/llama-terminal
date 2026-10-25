@@ -288,7 +288,7 @@ const ChartPane = React.memo(({
         }
         const historyLimit = candleLimits[tf] || 2500;
         const url = `/api/history?symbol=${encodeURIComponent(mappedSymbol)}&timeframe=${tf}&limit=${historyLimit}&platform=${platformType}`;
-        const res = await fetch(url, { signal: ctrl.signal });
+        const res = await window.authFetch(url, { signal: ctrl.signal });
         if (!res.ok) {
           clearTimeout(loadingTimeoutRef.current);
           setLoadingError({
