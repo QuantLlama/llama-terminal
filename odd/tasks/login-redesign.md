@@ -89,6 +89,13 @@ ATAS and comparable terminals look dense and technical, not decorative:
   390x844: no horizontal overflow, one column below `lg`, the switch keeps both labels on screen,
   and both languages read the same scale. Two defects were found this way and fixed: sections that
   collided in the guide, and a guide title collapsing to nothing at 390px.
+- **L8** — Evidence, and a process miss: CI failed on the first push. `tests/test_login_and_guide.py`
+  asserts the *source shape* of both components (literal copy, `lg:grid-cols-2`, inline SVG, the
+  modal's backdrop). Moving the copy into the dictionaries and turning the modal into a full screen
+  broke 18 of them. The JS suite could not see this: it tests behaviour, not source shape. The rules
+  are now asserted against the file that owns them (component renders the key, every language
+  defines it). Never ship a change to these two components without running
+  `python -m pytest tests/test_login_and_guide.py`.
 - **L7** — Delivery slices on `feat/login-redesign`: `4e01603` dictionaries (i18n only), `8c808f9`
-  login surface, `846a2b5` setup guide. Each slice carries its tests and its `?v=` bump, so every
-  commit is loadable on its own.
+  login surface, `846a2b5` setup guide, `53669b0` review findings, `63b908d` contract tests. Each
+  slice carries its tests and its `?v=` bump, so every commit is loadable on its own.
