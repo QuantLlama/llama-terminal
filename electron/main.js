@@ -262,8 +262,10 @@ if (!gotTheLock) {
   });
 
   app.on('ready', async () => {
-    // Si estamos en Linux, creamos los accesos directos de forma automatizada
-    if (process.platform === 'linux') {
+    // Launchers are opt-in: writing into the user's application menu and Desktop
+    // on every launch is intrusive, so nothing is created unless the operator asks
+    // for it with QLLAMA_INSTALL_SHORTCUTS=1 (or scripts/setup_shortcuts.sh).
+    if (process.platform === 'linux' && process.env.QLLAMA_INSTALL_SHORTCUTS === '1') {
       try {
         const scriptPath = path.join(__dirname, '..', 'scripts', 'setup_shortcuts.sh');
         if (fs.existsSync(scriptPath)) {

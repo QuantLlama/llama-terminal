@@ -185,6 +185,12 @@ token), you only need the desktop build:
 npm start          # Electron shell + local backend on 127.0.0.1:8050
 ```
 
+`npm start` does not write anything outside the project. The Linux launchers
+(menu and Desktop entries) are opt-in: set `QLLAMA_INSTALL_SHORTCUTS=1` when you
+want them, or run `scripts/setup_shortcuts.sh` directly. Earlier versions created
+them on every launch, which left four entries behind for anyone who just wanted
+to try the app.
+
 In that mode the bridges are optional and local: leave `MT5_BRIDGE_URL` unset so
 the platform uses the terminal directly, and the crypto proxy is unnecessary
 because the requests leave from your own connection. The desktop needs a `.env`
