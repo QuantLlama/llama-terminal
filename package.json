@@ -83,7 +83,7 @@
   "author": "Trae <contacto@quantumllama.com>",
   "license": "MIT",
   "devDependencies": {
-    "@babel/core": "^7.29.0",
+    "@babel/core": "^8.0.9",
     "@babel/parser": "^7.29.0",
     "@babel/preset-env": "^7.24.0",
     "@babel/preset-react": "^7.24.0",
