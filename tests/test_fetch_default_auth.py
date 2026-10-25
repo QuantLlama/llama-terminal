@@ -5,6 +5,7 @@ separate breakages: the request 401'd and the renderer crashed spreading the
 error body. The page therefore wraps the global fetch.
 """
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -56,7 +57,8 @@ vm.runInContext(source, sandbox);
 def test_global_fetch_authenticates_api_calls_by_default():
     result = subprocess.run(
         ["node", "-e", NODE_HARNESS],
-        env={"HELPER": str(HELPER), "PATH": "/usr/bin:/bin"},
+        # Keep the real environment: overriding PATH hid the runner's node binary.
+        env={**os.environ, "HELPER": str(HELPER)},
         capture_output=True,
         text=True,
         timeout=30,
