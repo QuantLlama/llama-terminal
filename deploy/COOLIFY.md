@@ -142,6 +142,38 @@ too, because every exchange request leaves through the tailnet proxy.
 
 ## Operational notes
 
+### Deploys answer "Server is not functional"
+
+Coolify stops deploying when it decides the server is unhealthy, and the failure is
+self-locking: the sentinel heartbeat is refused with `401 {"message":"Server is not
+functional"}` every minute, so the server can never prove it recovered.
+
+Symptoms:
+
+- The manual GitHub webhook answers
+  `[{"application":"quantum-llama-web","status":"failed","message":"Server is not functional."}]`
+  and no row appears in `application_deployment_queues`.
+- `docker logs coolify-sentinel` repeats `push operation failed ... returned 401`.
+
+Check and repair (both mutations are health state only, nothing is deleted):
+
+```bash
+sudo docker exec coolify-db psql -U coolify -d coolify -c \
+  "select unreachable_count, sentinel_updated_at from servers;"
+sudo docker exec coolify-db psql -U coolify -d coolify -c \
+  "select is_reachable, is_usable from server_settings;"
+
+# reset the counter and both settings together, or the deadlock returns
+sudo docker exec coolify-db psql -U coolify -d coolify -c \
+  "update servers set unreachable_count = 0;"
+sudo docker exec coolify-db psql -U coolify -d coolify -c \
+  "update server_settings set is_reachable = true, is_usable = true;"
+```
+
+Wait for one sentinel push without an error (up to a minute;
+`sentinel_updated_at` must be current) and redeploy. A healthy server logs only
+`pushing url=...` and the deploy row appears with `status = in_progress`.
+
 - The VPS has 2 vCPU and 3.7 GB of RAM. The image excludes `torch`; set the
   build arg `WITH_TORCH=true` only if live AI-model inference is required
   (adds roughly 2 GB to the image and a CPU-only torch build).
