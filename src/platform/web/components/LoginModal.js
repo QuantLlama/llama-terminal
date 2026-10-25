@@ -128,8 +128,7 @@ const LoginModal = ({ onLogin, updateInfo }) => {
 
       // ---- Form ----
       React.createElement("section", {
-        role: "dialog",
-        "aria-modal": "true",
+        role: "main",
         "aria-label": t('dialog.label'),
         className: "border-b border-border px-5 py-10 sm:px-10 lg:border-b-0 lg:border-r" },
 

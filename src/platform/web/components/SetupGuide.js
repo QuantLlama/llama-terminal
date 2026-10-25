@@ -41,11 +41,20 @@ const GuideBlock = ({ block }) => {
 };
 
 const SetupGuide = ({ onClose, language: languageProp, onLanguageChange }) => {
-  const { useEffect, useRef } = React;
+  const { useEffect, useRef, useState } = React;
   const i18n = window.LoginI18n;
-  const language = languageProp || i18n.getLanguage();
-  const changeLanguage = onLanguageChange || ((next) => i18n.setLanguage(next));
+
+  // The guide is normally controlled by the login. When it is mounted on its own
+  // it keeps a local language, so the switch still repaints instead of writing
+  // localStorage and leaving the screen on the previous language.
+  const [ownLanguage, setOwnLanguage] = useState(() => i18n.getLanguage());
+  const language = languageProp || ownLanguage;
+  const changeLanguage = onLanguageChange || ((next) => {
+    i18n.setLanguage(next);
+    setOwnLanguage(next);
+  });
   const doc = window.SetupGuideContent[language];
+  const titleId = React.useId();
 
   const panelRef = useRef(null);
 
@@ -110,7 +119,7 @@ const SetupGuide = ({ onClose, language: languageProp, onLanguageChange }) => {
     ref: panelRef,
     role: "dialog",
     "aria-modal": "true",
-    "aria-labelledby": "setup-guide-title",
+    "aria-labelledby": titleId,
     className: "fixed inset-0 z-[10001] overflow-y-auto bg-bg font-sans text-text antialiased",
     style: { animation: 'ql-fade 160ms ease-out both' } },
 
@@ -124,7 +133,7 @@ const SetupGuide = ({ onClose, language: languageProp, onLanguageChange }) => {
       React.createElement("p", { className: "hidden shrink-0 font-mono text-[11px] uppercase tracking-[0.22em] text-muted sm:block" },
         doc.eyebrow),
       React.createElement("span", { className: "hidden h-4 w-px shrink-0 bg-border sm:block", "aria-hidden": "true" }),
-      React.createElement("h1", { id: "setup-guide-title", className: "line-clamp-2 text-[15px] font-semibold leading-tight text-text" },
+      React.createElement("h1", { id: titleId, className: "line-clamp-2 text-[15px] font-semibold leading-tight text-text" },
         doc.title)
     ),
 

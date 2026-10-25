@@ -11,7 +11,7 @@
     es: {
       eyebrow: 'Guía de instalación',
       title: 'Conecta la plataforma con tu máquina',
-      subtitle: 'Siete pasos. Tu terminal sigue corriendo en tu máquina; la plataforma habla con él por HTTP.',
+      subtitle: 'Tu terminal sigue corriendo en tu máquina; la plataforma habla con él por HTTP.',
       indexTitle: 'Contenido',
       sections: {
         overview: 'Resumen',
@@ -131,7 +131,7 @@
     en: {
       eyebrow: 'Setup guide',
       title: 'Connect this platform to your machine',
-      subtitle: 'Seven steps. Your terminal keeps running locally; the platform talks to it over HTTP.',
+      subtitle: 'Your terminal keeps running locally; the platform talks to it over HTTP.',
       indexTitle: 'Contents',
       sections: {
         overview: 'Overview',

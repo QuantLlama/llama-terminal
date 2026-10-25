@@ -48,8 +48,14 @@ const setBrowserLanguage = (language) => {
     });
 };
 
+// Compiling the component is the slow part; do it once and render it many times.
+let LoginModal;
+beforeAll(() => {
+    global.React = React;
+    LoginModal = loadLoginModal();
+});
+
 const renderLogin = ({ onLogin = jest.fn(), updateInfo } = {}) => {
-    const LoginModal = loadLoginModal();
     const utils = render(React.createElement(LoginModal, { onLogin, updateInfo }));
     return { ...utils, onLogin };
 };
