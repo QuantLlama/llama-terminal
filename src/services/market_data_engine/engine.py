@@ -219,6 +219,37 @@ class MarketDataEngine:
 
             return self._connectors[p]
 
+    def _public_crypto_connector(self):
+        """Read-only crypto connector for the two unauthenticated feed endpoints.
+
+        The tape (``/api/v2/feed/trades/*``) and the DOM (``/api/v2/feed/dom/*``,
+        ``/api/v2/ws/feed``) have no request context, so when nobody has selected
+        a trading tenant their data can only come from public market data. The
+        connector is built outside ``_connector_lock`` because the first call
+        loads the exchange markets, and cached under ``crypto_public``.
+        """
+        cached = self._connectors.get("crypto_public")
+        if cached is not None:
+            return cached
+        try:
+            from src.live.crypto_public_connector import get_public_data_connector
+            connector = get_public_data_connector()
+        except Exception as e:
+            logger.error(f"Error initializing public crypto connector in MDE: {e}")
+            return None
+        if not connector:
+            return None
+        with self._connector_lock:
+            existing = self._connectors.get("crypto_public")
+            if existing is None:
+                self._connectors["crypto_public"] = connector
+                logger.info(
+                    "MarketDataEngine crypto feed using public market data "
+                    "(no active trading tenant)"
+                )
+                existing = connector
+        return existing
+
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
     # ─────────────────────────────────────────────────────────────────────────
@@ -818,22 +849,36 @@ class MarketDataEngine:
         if not connector:
             user_id = get_active_user_id()
             if not user_id:
+                # Operators grep this line to learn why account data is idle; the
+                # tape and the DOM stay live from public market data instead.
                 note_missing_active_user("market-data-engine:crypto-poll", logger)
-                return
-            master_conn = self._get_connector("crypto")
-            all_conns = [master_conn] if master_conn else []
-            from src.services.crypto_manager import get_crypto_manager
-            from src.live.crypto_connector import get_connector
-            manager = get_crypto_manager()
-            for acc in manager.get_accounts(user_id=user_id):
-                c = get_connector(acc["id"], user_id=user_id)
-                if c and c not in all_conns: all_conns.append(c)
-            for c in all_conns:
-                try:
-                    if not c.connected: c.connect()
-                    test_sym = c._resolve_sym(symbol)
-                    if test_sym: connector, broker_symbol = c, test_sym; self._crypto_connector_cache[s_upper] = c; break
-                except: continue
+                # No trading tenant: the tape and the DOM are unauthenticated and
+                # must keep flowing, so serve them from public market data while
+                # leaving the account connectors untouched.
+                public_connector = self._public_crypto_connector()
+                if public_connector:
+                    try:
+                        public_sym = public_connector._resolve_sym(symbol)
+                    except Exception as e:
+                        logger.debug(f"Public crypto resolve failed for {symbol}: {e}")
+                        public_sym = None
+                    if public_sym:
+                        connector, broker_symbol = public_connector, public_sym
+            else:
+                master_conn = self._get_connector("crypto")
+                all_conns = [master_conn] if master_conn else []
+                from src.services.crypto_manager import get_crypto_manager
+                from src.live.crypto_connector import get_connector
+                manager = get_crypto_manager()
+                for acc in manager.get_accounts(user_id=user_id):
+                    c = get_connector(acc["id"], user_id=user_id)
+                    if c and c not in all_conns: all_conns.append(c)
+                for c in all_conns:
+                    try:
+                        if not c.connected: c.connect()
+                        test_sym = c._resolve_sym(symbol)
+                        if test_sym: connector, broker_symbol = c, test_sym; self._crypto_connector_cache[s_upper] = c; break
+                    except: continue
         if not connector: return
         try:
             # Always refresh a quote once per second so the chart can keep moving
