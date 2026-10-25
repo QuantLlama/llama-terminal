@@ -881,6 +881,16 @@ async def calculate_indicators(
         import pandas as pd
         from src.indicators import get_indicator
         actual_symbol = resolve_symbol(symbol)
+        # A workspace can outlive a futures contract: the broker drops the expired
+        # one and the request would answer "No history found". Resolve the root (or
+        # the expired contract) to whatever the broker lists today.
+        try:
+            from src.live.connector import get_mt5_connector
+            history_connector = get_mt5_connector()
+            if hasattr(history_connector, "resolve_contract"):
+                actual_symbol = history_connector.resolve_contract(actual_symbol)
+        except Exception:
+            pass
         df = None
         try:
             if platform == 'crypto' or platform == 'futures':
@@ -2693,6 +2703,13 @@ async def get_realtime(
     user_id: str = Depends(get_authenticated_user_id),
 ):
     actual_symbol = resolve_symbol(symbol)
+    try:
+        from src.live.connector import get_mt5_connector
+        realtime_connector = get_mt5_connector()
+        if hasattr(realtime_connector, "resolve_contract"):
+            actual_symbol = realtime_connector.resolve_contract(actual_symbol)
+    except Exception:
+        pass
     try:
         cache_key = f"{symbol}"
         if not force and cache_key in _realtime_cache:

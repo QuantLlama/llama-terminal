@@ -85,6 +85,54 @@ class MT5ApiConnector:
             for name, value in headers.items():
                 request.headers[name] = value
 
+    #: A broker catalogue is thousands of symbols; keep it for a few minutes.
+    _CATALOGUE_TTL_SECONDS = 600
+
+    @staticmethod
+    def _symbol_name(entry):
+        if isinstance(entry, str):
+            return entry
+        if isinstance(entry, dict):
+            return entry.get("name") or entry.get("symbol")
+        return getattr(entry, "name", None)
+
+    def _catalogue(self, force=False):
+        """Names the broker currently lists, cached to avoid a call per request."""
+        now = time.time()
+        cached = getattr(self, "_catalogue_cache", None)
+        if cached and not force and now - cached[0] < self._CATALOGUE_TTL_SECONDS:
+            return cached[1]
+        names = []
+        for entry in self.symbols_get() or []:
+            name = self._symbol_name(entry)
+            if name:
+                names.append(name)
+        self._catalogue_cache = (now, names)
+        return names
+
+    def resolve_contract(self, symbol, force=False):
+        """Resolve a futures root or an expired contract against the catalogue.
+
+        A workspace saved months ago keeps asking for the contract that was
+        current then; the broker drops it and the request answers "No history
+        found". Anything that cannot be resolved is returned untouched.
+        """
+        if not symbol:
+            return symbol
+        try:
+            catalogue = self._catalogue(force=force)
+        except Exception as exc:
+            logger.warning(f"Could not read the symbol catalogue: {exc}")
+            return symbol
+        if not catalogue:
+            return symbol
+        try:
+            from src.utils.futures_contract import resolve_active_contract
+            return resolve_active_contract(symbol, catalogue) or symbol
+        except Exception as exc:
+            logger.warning(f"Could not resolve the active contract for {symbol}: {exc}")
+            return symbol
+
     def _is_server_up(self):
         import socket
         try:
