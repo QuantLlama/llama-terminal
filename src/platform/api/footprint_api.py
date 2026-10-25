@@ -58,8 +58,13 @@ def _compute_incremental_volume(df: pd.DataFrame, v_col: str, group_col: str) ->
     return result
 def _classify_sides(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["is_buy"]  = (df["flags"] & 32) > 0
-    df["is_sell"] = (df["flags"] & 64) > 0
+    # The bridge path builds the ticks frame with every field as float64, so a
+    # bitwise test on the raw column raised "Cannot perform 'and_' with a dtyped
+    # [float64] array" and killed the whole footprint backfill. Coerce, drop the
+    # gaps to 0, and only then test the side bits.
+    flags = pd.to_numeric(df["flags"], errors="coerce").fillna(0).astype("int64")
+    df["is_buy"]  = (flags & 32) > 0
+    df["is_sell"] = (flags & 64) > 0
     ambiguous = (df["v"] > 0) & ~(df["is_buy"] | df["is_sell"])
     if ambiguous.any():
         prev_last = df["last"].shift(1).fillna(df["last"])
