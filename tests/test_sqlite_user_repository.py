@@ -553,3 +553,60 @@ def test_the_report_prints_counts_and_never_a_credential(
     assert "broker_accounts" in printed
     assert "ciphertext-for-user-a" not in printed
     assert target.exists()
+
+
+# ── the migration must be idempotent against real PostgreSQL values ────────
+
+def _chat_spec():
+    return next(spec for spec in migration.TABLE_SPECS if spec.name == "ai_chat_history")
+
+
+class _FakeSourceCursor:
+    """A source cursor that returns rows exactly as psycopg2 does, datetime included."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def execute(self, *args, **kwargs):
+        return self
+
+    def fetchall(self):
+        return list(self._rows)
+
+
+def test_same_treats_a_real_datetime_and_its_stored_text_as_equal():
+    """psycopg2 returns datetime for timestamp; sqlite3 stores text."""
+    import datetime as dt
+
+    moment = dt.datetime(2026, 10, 25, 12, 34, 56, 789012)
+    stored = str(moment)
+
+    assert migration._same(stored, moment) is True
+
+
+def test_chat_rows_are_skipped_on_a_second_run_with_real_datetimes(sqlite_repo):
+    """The key of a chat row is every column, so there is nothing to UPDATE.
+
+    A stored TEXT timestamp compared against a psycopg2 datetime used to look
+    changed, so the code built `UPDATE ai_chat_history SET  WHERE ...` and the
+    documented idempotent re-run aborted with a SQLite syntax error.
+    """
+    import datetime as dt
+
+    spec = _chat_spec()
+    row = {column: "" for column in spec.columns}
+    row.update({
+        "user_id": "user-a",
+        "role": "user",
+        "content": "hola",
+        "skill": None,
+        "agent_actions": None,
+        "timestamp": dt.datetime(2026, 10, 25, 12, 34, 56, 789012),
+    })
+
+    with sqlite_repo._cursor() as target:
+        first = migration._copy_table(_FakeSourceCursor([row]), target, spec)
+        second = migration._copy_table(_FakeSourceCursor([row]), target, spec)
+
+    assert first["inserted"] == 1
+    assert second == {"inserted": 0, "updated": 0, "skipped": 1}

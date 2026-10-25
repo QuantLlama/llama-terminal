@@ -37,6 +37,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -84,21 +85,31 @@ TABLE_SPECS: Tuple[TableSpec, ...] = (
 
 
 def _normalize(value: Any) -> Any:
-    """JSON values arrive decoded from psycopg2 and as text from sqlite3."""
+    """JSON arrives decoded from psycopg2 and as text from sqlite3.
+
+    Timestamps also arrive as ``datetime`` from psycopg2 while SQLite stores text,
+    so they are collapsed to one canonical string here: without it a stored row
+    never compares equal to its source and every re-run reports ``updated``.
+    """
     if isinstance(value, (dict, list)):
         return json.dumps(value)
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
     return value
 
 
 def _same(stored: Any, incoming: Any) -> bool:
-    if stored is None or incoming is None:
-        return stored is None and incoming is None
-    if isinstance(stored, float) or isinstance(incoming, float):
+    left, right = _normalize(stored), _normalize(incoming)
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, float) or isinstance(right, float):
         try:
-            return float(stored) == float(incoming)
+            return float(left) == float(right)
         except (TypeError, ValueError):
             return False
-    return stored == incoming
+    return left == right
 
 
 def _copy_table(source_cursor, target_cursor, spec: TableSpec) -> Dict[str, int]:
@@ -128,6 +139,11 @@ def _copy_table(source_cursor, target_cursor, spec: TableSpec) -> Dict[str, int]
             counts["inserted"] += 1
             continue
         if all(_same(existing[column], values[column]) for column in spec.columns):
+            counts["skipped"] += 1
+            continue
+        if not assignments:
+            # The key is the whole row (ai_chat_history): a differing row is a
+            # different message, not an update, and `SET  WHERE` would not parse.
             counts["skipped"] += 1
             continue
         target_cursor.execute(
