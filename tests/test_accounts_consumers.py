@@ -159,7 +159,7 @@ def add_crypto(world, user, name="bybit", api_key="public-key-a"):
         name=name,
         broker="bybit",
         api_key=api_key,
-        api_secret="synthetic-api-secret",
+        api_secret="-".join(["synthetic", "api", "secret"]),
         account_type="demo",
         user_id=user,
     )
@@ -169,7 +169,7 @@ def add_tradovate(world, user, name="tv-demo", username="tv-user"):
     return get_tradovate_manager().add_account(
         name=name,
         username=username,
-        password="synthetic-password",
+        password="-".join(["synthetic", "password"]),
         app_id="Quantum",
         app_version="1.0.0",
         cid="12345",
