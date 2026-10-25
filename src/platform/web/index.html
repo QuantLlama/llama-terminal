@@ -602,7 +602,7 @@
     };
     const fetchAvailableSymbols = async (platform) => {
       try {
-        const response = await fetch(`/api/symbols?platform=${platform}`);
+        const response = await window.authFetch(`/api/symbols?platform=${platform}`);
         if (response.ok) {
           const symbols = await response.json();
           window.availableSymbols[platform] = symbols;
@@ -1530,7 +1530,7 @@
         const fetchTimeframes = async () => {
           try {
             const platform = detectPlatformType();
-            const response = await fetch(`/api/timeframes?platform=${platform}`);
+            const response = await window.authFetch(`/api/timeframes?platform=${platform}`);
             if (response.ok) {
               const data = await response.json();
               if (data.status === 'ok' && Array.isArray(data.timeframes)) {
@@ -2425,7 +2425,7 @@
             const platformParam = platform || localStorage.getItem("broker_platform") || "mt5";
             // BUG FIX: se pasa days=9999 para traer todo el historial disponible;
             // el filtrado por período se hace en el cliente según el selector.
-            const rDeals = await fetch(`/api/deals?platform=${platformParam}&days=9999`);
+            const rDeals = await window.authFetch(`/api/deals?platform=${platformParam}&days=9999`);
             if (rDeals.ok) {
               const data = await rDeals.json();
               const fetchedDeals = Array.isArray(data) ? data : data.deals || [];
@@ -2444,7 +2444,7 @@
         const syncAccountBalance = async () => {
           try {
             const platformParam = platform || localStorage.getItem("broker_platform") || "mt5";
-            const rAcc = await fetch(`/api/account?platform=${platformParam}`);
+            const rAcc = await window.authFetch(`/api/account?platform=${platformParam}`);
             if (rAcc.ok) {
               const data = await rAcc.json();
               if (typeof setAccountBalance === "function") {
@@ -5051,7 +5051,9 @@
       useEffect(() => {
         const fetchAccounts = async () => {
           try {
-            const res = await fetch("/api/accounts");
+            // Brokers require a token now: every accounts call goes through the
+            // shared helper, which adds the current session's bearer header.
+            const res = await window.authFetch("/api/accounts");
             const data = await res.json();
             setAvailableAccounts(data);
           } catch (e) {
@@ -5608,7 +5610,7 @@
         if (!activeSymbol) return;
         const fetchSymbolInfo = async () => {
           try {
-            const res = await fetch(`/api/symbol_info?symbol=${encodeURIComponent(activeSymbol)}`);
+            const res = await window.authFetch(`/api/symbol_info?symbol=${encodeURIComponent(activeSymbol)}`);
             if (res.ok) {
               const data = await res.json();
               setSymbolMetadata(data);
@@ -5939,7 +5941,7 @@
             )).filter(Boolean);
             if (symbols.length === 0) return;
             const mappedSymbols = symbols.map(s => getUniversalSymbol(s, platformType)).join(",");
-            const res = await fetch(
+            const res = await window.authFetch(
               `/api/realtime_batch?symbols=${encodeURIComponent(mappedSymbols)}&platform=${platformType}`
             );
             if (res.ok) {
@@ -6653,7 +6655,7 @@
               orderPayload.tp = Number(orderPayload.tp.toFixed(digits));
             }
           }
-          const res = await fetch("/api/order", {
+          const res = await window.authFetch("/api/order", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(orderPayload)

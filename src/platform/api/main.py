@@ -101,6 +101,7 @@ from src.services.database import (
     DatabaseNotConfigured,
 )
 from src.services.replication_service import replicate_to_nt8_background, replicate_to_nt8_sync, log_diag
+from src.services.active_tenant import get_active_user_id, note_missing_active_user
 from src.services.database import (
     init_db,
     save_ai_chat_message,
@@ -330,7 +331,9 @@ class LiveStartRequest(BaseModel):
 # Esto garantiza que ninguna ruta comodín ni sub-router lo sombree.
 @app.post("/api/modify")
 @app.post("/api/modify/")
-async def modify_position(req: ModifyRequest):
+async def modify_position(
+    req: ModifyRequest, user_id: str = Depends(get_authenticated_user_id)
+):
     logger.info(f"[MODIFY] Request received: platform={req.platform}, symbol={req.symbol}, ticket={req.ticket}, sl={req.sl}, tp={req.tp}")
     try:
         actual_platform = req.platform.lower() if req.platform else "mt5"
@@ -345,7 +348,7 @@ async def modify_position(req: ModifyRequest):
             from src.live.crypto_connector import get_connector as get_crypto_connector
             from src.services.crypto_manager import get_crypto_manager
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             master_acc = next((acc for acc in accounts if acc.get("is_master")), None)
             if not master_acc and accounts:
                 master_acc = accounts[0]
@@ -355,7 +358,7 @@ async def modify_position(req: ModifyRequest):
             # LOG ACCOUNT INFO
             logger.debug(f"[MODIFY] Using Account: {master_acc.get('id')} ({master_acc.get('broker')}) Type: {master_acc.get('account_type')}")
             
-            connector = get_crypto_connector(master_acc["id"])
+            connector = get_crypto_connector(master_acc["id"], user_id=user_id)
             if not connector:
                 raise HTTPException(status_code=500, detail="Failed to initialize crypto connector")
             
@@ -474,18 +477,28 @@ app.include_router(backtesting_router)
 
 # ── CRYPTO MONITORING TASK ──────────────────────────────────────────
 async def monitor_crypto_accounts():
-    """Background task to update crypto account status for the UI."""
+    """Background task to update crypto account status for the UI.
+
+    Runs outside any request, so the tenant comes from the active-tenant holder:
+    the account the user selected or connected. With nobody active it reports
+    nothing at all rather than inventing an account.
+    """
     while True:
+        user_id = get_active_user_id()
+        if not user_id:
+            note_missing_active_user("crypto-account-monitor", logger)
+            await asyncio.sleep(2)  # Poll every 2 seconds
+            continue
         try:
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             master_acc = next((a for a in accounts if a.get("is_master")), None)
             
             if master_acc:
-                connector = get_connector(master_acc["id"])
+                connector = get_connector(master_acc["id"], user_id=user_id)
                 if connector and connector.connected:
                     balance = await asyncio.to_thread(connector.get_balance)
                     equity = await asyncio.to_thread(connector.get_equity)
@@ -615,17 +628,18 @@ async def get_symbols(
     platform: str = Query("mt5", description="Platform type: mt5, crypto"),
     query: Optional[str] = Query(None, description="Search term"),
     force: bool = Query(False, description="Force re-initialization of broker connection"),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
     logger.info(f"[SYMBOLS] Request: platform={platform}, query={query}, force={force}")
     if platform == "crypto":
         try:
             crypto_manager = get_crypto_manager()
-            accounts = crypto_manager.get_accounts()
+            accounts = crypto_manager.get_accounts(user_id=user_id)
             if not accounts:
                 logger.warning("[SYMBOLS/CRYPTO] No crypto accounts configured")
                 return []
             master = next((a for a in accounts if a.get('is_master')), None) or accounts[0]
-            connector = get_connector(master['id'])
+            connector = get_connector(master['id'], user_id=user_id)
             if not connector:
                 logger.warning(f"[SYMBOLS/CRYPTO] Connector not available for account {master['id']}")
                 return []
@@ -725,18 +739,21 @@ async def get_symbols(
         logger.error(f"SYMBOL FETCH ERROR: {e}")
         return []
 @app.get("/api/symbol_info")
-async def get_symbol_info(symbol: str = Query(..., description="Symbol ticker")):
+async def get_symbol_info(
+    symbol: str = Query(..., description="Symbol ticker"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         if detect_platform_for_symbol(symbol) == "crypto":
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             master_acc = next((acc for acc in accounts if acc.get("is_master")), None)
             if not master_acc and accounts:
                 master_acc = accounts[0]
             if master_acc:
-                crypto_conn = get_connector(master_acc["id"])
+                crypto_conn = get_connector(master_acc["id"], user_id=user_id)
                 if crypto_conn:
                     info = crypto_conn.get_symbol_info(symbol)
                     if info:
@@ -1816,18 +1833,21 @@ async def remove_workspace(name: str, user_id: str = Depends(get_authenticated_u
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/timeframes")
-async def get_timeframes(platform: str = Query("mt5", description="crypto or mt5")):
+async def get_timeframes(
+    platform: str = Query("mt5", description="crypto or mt5"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         if platform.lower() == "crypto":
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             master_acc = next((acc for acc in accounts if acc.get("is_master")), None)
             if not master_acc and accounts:
                 master_acc = accounts[0]
             if master_acc:
-                conn = get_connector(master_acc["id"])
+                conn = get_connector(master_acc["id"], user_id=user_id)
                 if conn and conn.exchange and conn.exchange.timeframes:
                     return {"status": "ok", "timeframes": list(conn.exchange.timeframes.keys())}
             return {"status": "ok", "timeframes": ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]}
@@ -1842,6 +1862,7 @@ async def get_history(
     timeframe: str = Query("1m"),
     limit: int = 10000,
     platform: Optional[str] = Query(None),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
     try:
         if timeframe.endswith("s"):
@@ -1865,14 +1886,14 @@ async def get_history(
         if target_platform == "crypto":
             # Optimization: Try accounts in parallel or just enough to get data
             manager = get_crypto_manager()
-            all_accounts = manager.get_accounts()
+            all_accounts = manager.get_accounts(user_id=user_id)
             all_accounts.sort(key=lambda x: x.get("is_master", False), reverse=True)
             
             ohlcv = None
             # Limit to top 3 accounts to prevent long timeouts if many exist
             for acc in all_accounts[:3]:
                 try:
-                    curr_conn = get_crypto_connector(acc["id"])
+                    curr_conn = get_crypto_connector(acc["id"], user_id=user_id)
                     if not curr_conn: continue
                     fetch_sym = curr_conn._resolve_sym(actual_symbol)
                     ohlcv = await asyncio.to_thread(curr_conn.get_ohlcv, fetch_sym, timeframe, limit=fetch_limit)
@@ -2224,7 +2245,8 @@ async def get_vix_live():
 async def get_deals(
     days: int = Query(365),
     symbol: Optional[str] = Query(None),
-    platform: Optional[str] = Query(None)
+    platform: Optional[str] = Query(None),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
 
     try:
@@ -2249,13 +2271,13 @@ async def get_deals(
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or (accounts[0] if accounts else None)
             
             logger.info(f"[DEALS] Target Platform: crypto, Master Account: {master_acc['id'] if master_acc else 'None'}")
             
             if master_acc:
-                crypto_conn = get_connector(master_acc["id"])
+                crypto_conn = get_connector(master_acc["id"], user_id=user_id)
                 if crypto_conn:
                     date_from = None
                     if days:
@@ -2319,7 +2341,8 @@ async def debug_mt5():
 @app.get("/api/positions")
 async def get_positions(
     symbol: str = Query(None),
-    platform: str = Query(None)
+    platform: str = Query(None),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
     try:
         target_platform = platform or _connection_state.get("platform") or "mt5"
@@ -2329,11 +2352,11 @@ async def get_positions(
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             if not accounts:
                 return []
             master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or accounts[0]
-            crypto_conn = get_connector(master_acc["id"])
+            crypto_conn = get_connector(master_acc["id"], user_id=user_id)
             if not crypto_conn:
                 return []
             
@@ -2361,7 +2384,8 @@ async def get_positions(
 
 @app.get("/api/account")
 async def get_account(
-    platform: str = Query(None)
+    platform: str = Query(None),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
     try:
         target_platform = platform or _connection_state.get("platform") or "mt5"
@@ -2370,11 +2394,11 @@ async def get_account(
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            accounts = manager.get_accounts()
+            accounts = manager.get_accounts(user_id=user_id)
             if not accounts:
                 raise HTTPException(status_code=404, detail="No crypto accounts")
             master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or accounts[0]
-            crypto_conn = get_connector(master_acc["id"])
+            crypto_conn = get_connector(master_acc["id"], user_id=user_id)
             
             balance = await asyncio.to_thread(crypto_conn.get_balance)
             equity = await asyncio.to_thread(crypto_conn.get_equity)
@@ -2482,7 +2506,8 @@ _batch_response_lock = asyncio.Lock()
 @app.get("/api/realtime_batch")
 async def get_realtime_batch(
     symbols: str = Query(...),
-    platform: Optional[str] = Query(None)
+    platform: Optional[str] = Query(None),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
     """
     Batched version of /api/realtime to reduce HTTP requests.
@@ -2513,11 +2538,12 @@ async def get_realtime_batch(
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            master_acc = next((acc for acc in manager.get_accounts() if acc.get("is_master")), None) or (manager.get_accounts()[0] if manager.get_accounts() else None)
+            accounts = manager.get_accounts(user_id=user_id)
+            master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or (accounts[0] if accounts else None)
             if not master_acc:
                 acc_data = {"account": {}, "positions": [], "pending_orders": []}
             else:
-                crypto_conn = get_connector(master_acc["id"])
+                crypto_conn = get_connector(master_acc["id"], user_id=user_id)
                 if crypto_conn is None or not hasattr(crypto_conn, 'get_balance'):
                     logger.warning(f"[CRYPTO] Connector not available for account {master_acc['id']}")
                     acc_data = {"account": {}, "positions": [], "pending_orders": []}
@@ -2664,7 +2690,8 @@ async def get_realtime_batch(
 async def get_realtime(
     symbol: str, 
     platform: Optional[str] = Query(None),
-    force: bool = Query(False)
+    force: bool = Query(False),
+    user_id: str = Depends(get_authenticated_user_id),
 ):
     actual_symbol = resolve_symbol(symbol)
     try:
@@ -2679,11 +2706,10 @@ async def get_realtime(
             from src.services.crypto_manager import get_crypto_manager
             from src.live.crypto_connector import get_connector
             manager = get_crypto_manager()
-            master_acc = next((acc for acc in manager.get_accounts() if acc.get("is_master")), None)
-            if not master_acc:
-                accounts = manager.get_accounts()
-                if accounts:
-                    master_acc = accounts[0]
+            accounts = manager.get_accounts(user_id=user_id)
+            master_acc = next((acc for acc in accounts if acc.get("is_master")), None)
+            if not master_acc and accounts:
+                master_acc = accounts[0]
             if not master_acc:
                 # Si no hay cuenta, devolver datos vacíos o una estructura por defecto en vez de abortar la gráfica
                 return {
@@ -2694,7 +2720,7 @@ async def get_realtime(
                     "type": "error",
                     "msg": "No crypto account connected"
                 }
-            crypto_conn = get_connector(master_acc["id"])
+            crypto_conn = get_connector(master_acc["id"], user_id=user_id)
             if not crypto_conn:
                 return {
                     "symbol": symbol,
@@ -2876,7 +2902,9 @@ async def get_realtime(
 
         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/api/order")
-async def place_order(order: OrderRequest):
+async def place_order(
+    order: OrderRequest, user_id: str = Depends(get_authenticated_user_id)
+):
     try:
         if order.action.upper() == "FLAT":
             order.volume = 0.0
@@ -2947,16 +2975,21 @@ async def place_order(order: OrderRequest):
             from src.live.crypto_connector import get_connector as get_crypto_connector
             from src.services.crypto_manager import get_crypto_manager
             manager = get_crypto_manager()
+            accounts = manager.get_accounts(user_id=user_id)
             account_id = order.account_id
+            if account_id and not any(acc["id"] == account_id for acc in accounts):
+                # An account id in the body is only a selection, never a tenant:
+                # it must belong to the token, or it does not exist.
+                raise HTTPException(status_code=404, detail="Account not found")
             if not account_id:
-                master = next((acc for acc in manager.get_accounts() if acc.get("is_master")), None)
-                if not master and manager.get_accounts():
-                    master = manager.get_accounts()[0]
+                master = next((acc for acc in accounts if acc.get("is_master")), None)
+                if not master and accounts:
+                    master = accounts[0]
                 if master:
                     account_id = master["id"]
             if not account_id:
                 raise HTTPException(status_code=400, detail="No crypto account specified or available")
-            connector = get_crypto_connector(account_id)
+            connector = get_crypto_connector(account_id, user_id=user_id)
             if not connector:
                 raise HTTPException(status_code=503, detail="Could not connect to crypto exchange")
             if not connector.connect():

@@ -244,7 +244,7 @@ const SettingsModal = ({
     const fetchBrokers = async () => {
       try {
         const p = isAddingAccount ? newAccount.platform : platform;
-        const res = await fetch(`/api/accounts/brokers?type=${p}`);
+        const res = await window.authFetch(`/api/accounts/brokers?type=${p}`);
         if (res.ok) {
           const data = await res.json();
           setAvailableBrokers(Array.isArray(data) ? data : []);
@@ -266,7 +266,7 @@ const SettingsModal = ({
         return;
       }
       try {
-        const res = await fetch(`/api/accounts/server-search?q=${encodeURIComponent(searchTerm)}`);
+        const res = await window.authFetch(`/api/accounts/server-search?q=${encodeURIComponent(searchTerm)}`);
         if (res.ok) {
           const data = await res.json();
           setAvailableServers(Array.isArray(data) ? data : []);
@@ -280,7 +280,7 @@ const SettingsModal = ({
   const fetchAccounts = async () => {
     setLoadingAccounts(true);
     try {
-      const res = await fetch("/api/accounts");
+      const res = await window.authFetch("/api/accounts");
       if (res.ok) {
         const data = await res.json();
         setAccounts(data);
@@ -308,7 +308,7 @@ const SettingsModal = ({
     };
     if (isEdit) delete payload.id;
     try {
-      const res = await fetch(url, {
+      const res = await window.authFetch(url, {
         method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -359,7 +359,7 @@ const SettingsModal = ({
   };
   const handleSetMaster = async (id, platform = "mt5") => {
     try {
-      const res = await fetch(`/api/accounts/${id}/master?platform=${platform}`, { method: "POST" });
+      const res = await window.authFetch(`/api/accounts/${id}/master?platform=${platform}`, { method: "POST" });
       if (res.ok) {
         addNotification("success", "Master Account", "Active account switched successfully");
       } else {
@@ -372,7 +372,7 @@ const SettingsModal = ({
   };
   const handleToggleMirror = async (id, platform, currentVal) => {
     try {
-      const res = await fetch(`/api/accounts/${id}?platform=${platform}`, {
+      const res = await window.authFetch(`/api/accounts/${id}?platform=${platform}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mirror_trading: !currentVal })
@@ -392,7 +392,7 @@ const SettingsModal = ({
     const id = confirmDelete.accountId;
     const platform = confirmDelete.platform || "mt5";
     try {
-      const res = await fetch(`/api/accounts/${id}?platform=${platform}`, { method: "DELETE" });
+      const res = await window.authFetch(`/api/accounts/${id}?platform=${platform}`, { method: "DELETE" });
       if (res.ok) {
         addNotification("success", "Account Removed", "The credentials have been deleted");
         fetchAccounts();
@@ -406,7 +406,7 @@ const SettingsModal = ({
   const handleTestConnection = async (id, platform = "mt5") => {
     setTestResult({ id, status: "testing" });
     try {
-      const res = await fetch(`/api/accounts/${id}/test?platform=${platform}`, { method: "POST" });
+      const res = await window.authFetch(`/api/accounts/${id}/test?platform=${platform}`, { method: "POST" });
       const data = await res.json();
       setTestResult({ id, ...data });
     } catch (e) {

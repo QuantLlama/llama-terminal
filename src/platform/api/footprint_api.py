@@ -3,11 +3,12 @@ import logging
 import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 import pandas as pd
 import numpy as np
 from src.live.connector import get_mt5_connector
 from src.services.market_data_engine.engine import get_market_data_engine
+from src.services.auth import get_authenticated_user_id
 import os
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/footprint", tags=["Footprint Chart"])
@@ -360,17 +361,22 @@ async def get_mt5_footprint(symbol: str, timeframe: str, limit: int) -> list:
         "candles":     result[-1000:],
     }
     return result[-limit:]
-async def get_crypto_footprint(symbol: str, timeframe: str, limit: int) -> list:
+async def get_crypto_footprint(
+    symbol: str, timeframe: str, limit: int, *, user_id: str
+) -> list:
+    """Build crypto footprint candles from one tenant's master account only."""
     from src.live.crypto_connector import get_connector
     from src.services.crypto_manager import get_crypto_manager
     manager = get_crypto_manager()
-    accounts = manager.get_accounts()
+    accounts = manager.get_accounts(user_id=user_id)
     master = next((acc for acc in accounts if acc.get("is_master")), None)
     if not master and accounts:
         master = accounts[0]
     if not master:
         return []
-    connector = await asyncio.to_thread(get_connector, master["id"])
+    connector = await asyncio.to_thread(
+        get_connector, master["id"], user_id=user_id
+    )
     if not connector:
         return []
     resolved_symbol = None
@@ -445,6 +451,7 @@ async def get_footprint(
     timeframe: str = Query("1m", description="Candle timeframe"),
     limit:     int = Query(100,  description="Number of candles", ge=1, le=2000),
     platform:  Optional[str] = Query(None, description="Target platform"),
+    user_id:   str = Depends(get_authenticated_user_id),
 ):
     try:
         target_platform = (platform or "").lower().strip() or "mt5"
@@ -457,7 +464,9 @@ async def get_footprint(
             target_platform = "crypto"
             c_tick_size = 0.01
             c_digits = 2
-            candles = await get_crypto_footprint(symbol, timeframe, limit)
+            candles = await get_crypto_footprint(
+                symbol, timeframe, limit, user_id=user_id
+            )
             return {
                 "symbol":    symbol,
                 "timeframe": timeframe,
