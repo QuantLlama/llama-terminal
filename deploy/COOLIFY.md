@@ -75,13 +75,25 @@ volume, so the shipped default configuration files are preserved.
 ## Deploying a new version
 
 1. Push the reviewed commit to the tracked branch (`main`).
-2. Redeploy from Coolify:
+2. Automatic deployment picks the push up and starts the build by itself. To deploy a
+   commit that is already on `main`, trigger it by hand:
    - UI: *Application → quantum-llama-web → Deploy*.
    - API: `POST /api/v1/deploy` with body `{"uuid":"zzkdpzudy7gp42gfxcffday4"}`.
 3. Watch the deployment until `status: finished` and confirm
    `https://llama.nbmsystemas.com/health` returns `200`.
 
-Automatic deployment was confirmed enabled on `main`, then paused during the authorized history purge. Keep `is_auto_deploy_enabled=false` until the runtime authentication migration in PR #28 has completed its required security review. The running container was not restarted. See [`../docs/SECURITY-REMEDIATION.md`](../docs/SECURITY-REMEDIATION.md) before any manual redeployment.
+Automatic deployment on `main` was paused during the authorized history purge and was
+switched back on by the operator on 2026-10-25, after the runtime authentication migration
+in PR #28 had been merged and reviewed. The first post-purge deployment was observed end to
+end: merging PR #80 produced a push to `main`, the webhook started deployment
+`mi7k2edrw8y7onpdnhfam52w` against `2ef53a7`, and it finished clean.
+
+A green `/health` is not proof that a deployment is usable: this backend answers `200` with
+`index.html` for any path that does not exist (SPA fallback), so a missing asset looks
+healthy. Verify content types and content, as the section below does.
+
+Read [`../docs/SECURITY-REMEDIATION.md`](../docs/SECURITY-REMEDIATION.md) before any
+redeployment, and keep confirming that interactive login works: `/health` does not cover it.
 
 ## Verifying a deployment
 
@@ -90,6 +102,11 @@ curl -s https://llama.nbmsystemas.com/health
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://llama.nbmsystemas.com/
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://llama.nbmsystemas.com/lib/babel.min.js
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://llama.nbmsystemas.com/images/QuantumLLama.png
+
+# The content type is the real signal: an asset that is not deployed comes back as
+# text/html from the SPA fallback, with status 200.
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://llama.nbmsystemas.com/lib/loginI18n.js
+curl -s https://llama.nbmsystemas.com/ | grep -o 'LoginModal\.js?v=[0-9.]*'
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://llama.nbmsystemas.com/components/ChartPane.js
 ```
 
