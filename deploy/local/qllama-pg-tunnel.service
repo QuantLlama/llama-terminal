@@ -1,0 +1,18 @@
+[Unit]
+Description=Quantum Llama Postgres tunnel (self-resolving remote address)
+After=network-online.target
+Wants=network-online.target
+# The cloud Postgres IP changes when Coolify recreates the container; the script
+# resolves it on every start, so a restart fixes itself instead of needing an edit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=QLLAMA_VPS_HOST=qllama-vps
+Environment=QLLAMA_PG_PORT=5433
+ExecStart=%h/.local/share/qllama/runtime/scripts/qllama-pg-tunnel.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

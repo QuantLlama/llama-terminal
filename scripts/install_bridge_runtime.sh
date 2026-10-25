@@ -30,6 +30,7 @@ RUNTIME_FILES=(
     "mt5_server.py"
     "scripts/start_mt5_bridge.sh"
     "scripts/local_crypto_proxy.py"
+    "scripts/qllama-pg-tunnel.sh"
     "src/__init__.py"
     # src/live has no __init__.py: it is a namespace package.
     "src/live/mt5_native_connector.py"

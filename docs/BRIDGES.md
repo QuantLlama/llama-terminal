@@ -218,37 +218,50 @@ Two ways out. A **local database** is isolated: you load the accounts again. A
 what this section describes.
 
 The cloud Postgres is a container inside the VPS docker network with no public
-port, so reach it through SSH:
+port, and **its address changes whenever Coolify recreates it**. Hardcoding the
+address means the tunnel dies silently and every per-user route starts answering
+`500`. `scripts/qllama-pg-tunnel.sh` therefore asks the VPS for the current
+address on every start, finding the database through the application's own
+`DATABASE_URL` instead of guessing by container name:
+
+```bash
+./scripts/qllama-pg-tunnel.sh --print-target   # show what it would forward to
+```
+
+It looks for a usable key in `~/.ssh/qllama_vps`, `~/.ssh/id_ed25519_vps`,
+`~/Descargas/awspass.pem` and `~/.ssh/id_ed25519`, keeping the first that
+authenticates, so moving a key does not break it. Point it at your host with an
+`~/.ssh/config` entry:
+
+```ini
+Host qllama-vps
+    HostName <vps-address>
+    User <user>
+    IdentityFile <your-key>
+```
+
+Run it as a user service so it re-resolves the address on every boot and after
+every failure:
 
 ```ini
 # ~/.config/systemd/user/qllama-pg-tunnel.service
-[Unit]
-Description=Quantum Llama Postgres tunnel (localhost:5433 -> VPS postgres container)
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=0
-
 [Service]
-Type=simple
-ExecStart=/usr/bin/ssh -i <your-key.pem> -o BatchMode=yes -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=30 -N -L 127.0.0.1:5433:<postgres-container-ip>:5432 <user>@<vps>
+Environment=QLLAMA_VPS_HOST=qllama-vps
+Environment=QLLAMA_PG_PORT=5433
+ExecStart=%h/.local/share/qllama/runtime/scripts/qllama-pg-tunnel.sh
 Restart=always
 RestartSec=10
-
-[Install]
-WantedBy=default.target
 ```
 
+`scripts/install_bridge_runtime.sh` copies the script to that path, so install
+the runtime first (see above), then:
+
 ```bash
+cp deploy/local/qllama-pg-tunnel.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now qllama-pg-tunnel.service
 psql "postgresql://<user>:<pass>@127.0.0.1:5433/postgres" -c 'select 1'
 ```
-
-Find `<postgres-container-ip>` with
-`docker inspect <postgres-container> --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`
-**on the VPS**. It changes if Coolify recreates that container; update the unit
-when it does.
 
 Then in `.env` (never in the repository):
 
