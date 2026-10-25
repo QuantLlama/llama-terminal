@@ -80,6 +80,25 @@ def test_auto_launch_still_default_when_env_missing(monkeypatch):
     assert launches == ["http://127.0.0.1:8081"]
 
 
+def _headers_sent_by(connector, module):
+    """Return the headers a real request would carry, without a network call."""
+    import httpx
+
+    seen = {}
+
+    def handler(request):
+        seen.update({key.lower(): value for key, value in request.headers.items()})
+        return httpx.Response(200, json={"success": True})
+
+    connector._client = httpx.Client(
+        base_url=connector.base_url,
+        transport=httpx.MockTransport(handler),
+        event_hooks={"request": [connector._attach_bridge_auth]},
+    )
+    connector.connect()
+    return seen
+
+
 def test_bridge_token_header_sent_when_configured(monkeypatch):
     module, _ = _fresh_connector(
         monkeypatch, {"MT5_BRIDGE_TOKEN": "s3cret", "MT5_AUTO_LAUNCH": "false"}
@@ -87,7 +106,8 @@ def test_bridge_token_header_sent_when_configured(monkeypatch):
 
     connector = module.MT5ApiConnector()
 
-    assert connector._client.headers.get("X-Bridge-Token") == "s3cret"
+    # The contract is what travels on the wire, not where the value is stored.
+    assert _headers_sent_by(connector, module).get("x-bridge-token") == "s3cret"
 
 
 def test_no_token_header_when_unset(monkeypatch):
@@ -95,7 +115,7 @@ def test_no_token_header_when_unset(monkeypatch):
 
     connector = module.MT5ApiConnector()
 
-    assert "X-Bridge-Token" not in connector._client.headers
+    assert "x-bridge-token" not in _headers_sent_by(connector, module)
 
 
 class _RecordingClient:
