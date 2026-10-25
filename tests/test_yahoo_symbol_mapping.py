@@ -12,7 +12,7 @@ translation, which is pure and needs no network.
 """
 import pytest
 
-from src.data.loader import yahoo_symbol
+from src.data.yahoo_symbols import yahoo_symbol
 
 
 @pytest.mark.parametrize(
@@ -47,7 +47,7 @@ def test_is_idempotent():
 
 # ── per-request history limits ──────────────────────────────────────────────
 
-from src.data.loader import yahoo_period
+from src.data.yahoo_symbols import yahoo_period
 
 
 @pytest.mark.parametrize(
