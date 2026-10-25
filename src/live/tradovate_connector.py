@@ -117,14 +117,18 @@ class TradovateConnector:
             logger.error(f"Tradovate Error place_order: {e}")
             return None
 GLOBAL_CONNECTORS: Dict[str, TradovateConnector] = {}
-def get_tradovate_connector(account_id: str) -> Optional[TradovateConnector]:
+def get_tradovate_connector(account_id: str, *, user_id: str) -> Optional[TradovateConnector]:
+    """Resolve a Tradovate connector for one tenant only."""
+    if not user_id:
+        raise ValueError("user_id is required to resolve a Tradovate connector")
     from src.services.tradovate_manager import get_tradovate_manager
     manager = get_tradovate_manager()
-    acc = manager.get_account_full(account_id)
+    acc = manager.get_account_full(account_id, user_id=user_id)
     if not acc:
         return None
-    if account_id in GLOBAL_CONNECTORS:
-        return GLOBAL_CONNECTORS[account_id]
+    cache_key = f"{user_id}:{account_id}"
+    if cache_key in GLOBAL_CONNECTORS:
+        return GLOBAL_CONNECTORS[cache_key]
     try:
         connector = TradovateConnector(
             account_id=account_id,

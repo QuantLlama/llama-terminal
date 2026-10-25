@@ -206,7 +206,8 @@
   <script type="text/babel" src="/components/useTradeStream.js?v=2.4.7"></script>
   <script type="text/babel" src="/components/TapeConfigModal.js?v=2.4.7"></script>
   <script type="text/babel" src="/components/TapePanel.js?v=2.4.7"></script>
-  <script type="text/babel" src="/components/LoginModal.js?v=2.4.7"></script>
+  <script type="text/babel" src="/components/SetupGuide.js?v=1.0.0"></script>
+  <script type="text/babel" src="/components/LoginModal.js?v=2.5.0"></script>
   <script>
     window.addEventListener('error', function (e) {
       console.error('[GLOBAL_ERROR]', e.message, 'at', e.filename, ':', e.lineno);
@@ -375,6 +376,27 @@
 
       50% {
         opacity: 0.5;
+      }
+    }
+    @keyframes ql-fade {
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes ql-rise {
+      from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.985);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
       }
     }
   </style>

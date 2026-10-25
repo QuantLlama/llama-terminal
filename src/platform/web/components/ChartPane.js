@@ -225,7 +225,7 @@ const ChartPane = React.memo(({
   useEffect(() => {
     const fetchTFs = async (plat) => {
       try {
-        const res = await fetch(`/api/timeframes?platform=${plat}`);
+        const res = await window.authFetch(`/api/timeframes?platform=${plat}`);
         if (res.ok) {
           const data = await res.json();
           if (data.timeframes) setAvailableTimeframes(data.timeframes);

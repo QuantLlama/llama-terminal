@@ -26,7 +26,7 @@ const PerformanceModal = ({ isOpen, onClose }) => {
         try {
             // BUG FIX: se pasa days=9999 para traer todo el historial disponible;
             // el filtrado por período se hace en el cliente.
-            const response = await fetch('/api/deals?days=9999');
+            const response = await window.authFetch('/api/deals?days=9999');
             const data = await response.json();
             const rawDeals = Array.isArray(data) ? data : (data.deals || []);
             // MT5 retorna solo los deals de cierre con profit; filtramos los de entrada

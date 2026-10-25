@@ -23,6 +23,7 @@ DEFAULT_USER_ID = "default_user"
 DATABASE_URL_ENV = "DATABASE_URL"
 LEGACY_IMPORT_DISABLE_ENV = "QL_DISABLE_LEGACY_SQLITE_IMPORT"
 LEGACY_IMPORT_MARKER = "legacy_sqlite_default_user_v1"
+LEGACY_ACCOUNT_IMPORT_MARKER = "legacy_broker_accounts_json_v1"
 LEGACY_IMPORT_TARGET_ENV = "QL_LEGACY_IMPORT_USER_ID"
 
 
@@ -108,6 +109,11 @@ ALGOLAB_COLUMNS: Tuple[str, ...] = (
     "is_chat_open", "chat_width", "updated_at",
 )
 
+BROKER_ACCOUNT_COLUMNS: Tuple[str, ...] = (
+    "user_id", "platform", "account_id", "metadata", "credential_blob",
+    "created_at", "updated_at",
+)
+
 _ALGOLAB_DEFAULTS: Dict[str, Any] = {
     "open_files": "[]", "file_contents": "{}", "active_file_path": None,
     "is_chat_open": 0, "chat_width": 350,
@@ -169,6 +175,33 @@ _WORKSPACE_LEGACY_INSERT = _insert_sql(
 _CHAT_INSERT = _insert_sql("ai_chat_history", CHAT_COLUMNS, (), False)
 _ALGOLAB_UPSERT = _insert_sql("algolab_state", ALGOLAB_COLUMNS, ("user_id",), True)
 _ALGOLAB_LEGACY_INSERT = _insert_sql("algolab_state", ALGOLAB_COLUMNS, ("user_id",), False)
+
+# Broker accounts carry a JSONB column, so the generated upsert cannot be reused:
+# the metadata payload is bound as a parameter and cast in the static SQL text.
+# ``created_at`` is deliberately absent from the DO UPDATE list, so re-saving an
+# account keeps the timestamp of its first insert.
+_BROKER_ACCOUNT_UPSERT = """
+INSERT INTO broker_accounts
+    (user_id, platform, account_id, metadata, credential_blob, created_at, updated_at)
+VALUES (
+    %(user_id)s, %(platform)s, %(account_id)s, %(metadata)s::jsonb,
+    %(credential_blob)s, %(created_at)s, %(updated_at)s
+)
+ON CONFLICT (user_id, platform, account_id) DO UPDATE SET
+    metadata = excluded.metadata,
+    credential_blob = excluded.credential_blob,
+    updated_at = excluded.updated_at
+"""
+
+_BROKER_ACCOUNT_LEGACY_INSERT = """
+INSERT INTO broker_accounts
+    (user_id, platform, account_id, metadata, credential_blob, created_at, updated_at)
+VALUES (
+    %(user_id)s, %(platform)s, %(account_id)s, %(metadata)s::jsonb,
+    %(credential_blob)s, %(created_at)s, %(updated_at)s
+)
+ON CONFLICT (user_id, platform, account_id) DO NOTHING
+"""
 
 SCHEMA_STATEMENTS: Tuple[str, ...] = (
     """
@@ -248,6 +281,20 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS broker_accounts (
+        id BIGSERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        credential_blob TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CONSTRAINT broker_accounts_user_platform_account_key
+            UNIQUE (user_id, platform, account_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS migration_state (
         name TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL
@@ -257,6 +304,7 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_workspaces_user_id ON workspaces (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_ai_chat_history_user_id ON ai_chat_history (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_algolab_state_user_id ON algolab_state (user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_broker_accounts_user_id ON broker_accounts (user_id)",
     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS extra_settings TEXT DEFAULT '{}'",
     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS risk_max_daily_loss REAL DEFAULT 500.0",
     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS risk_max_contracts INTEGER DEFAULT 1",
@@ -286,6 +334,29 @@ def _settings_row(row: Dict[str, Any]) -> Dict[str, Any]:
         settings[column] = _flag(value) if column in _BOOLEAN_SETTINGS else value
     settings["updated_at"] = row.get("updated_at")
     return settings
+
+
+def _json_value(value: Any, fallback: Any) -> Any:
+    """JSONB comes back decoded from psycopg2 and as text from a text driver."""
+    if isinstance(value, (dict, list)):
+        return value
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _broker_account_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "platform": row.get("platform"),
+        "account_id": row.get("account_id"),
+        "metadata": _json_value(row.get("metadata"), {}),
+        "credential_blob": row.get("credential_blob") or "",
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
 
 
 def _workspace_row(row: Dict[str, Any], *, detail: bool) -> Dict[str, Any]:
@@ -542,6 +613,144 @@ class PostgresUserRepository:
         with self._cursor() as cursor:
             cursor.execute(_ALGOLAB_UPSERT, values)
 
+    # ── broker accounts ───────────────────────────────────────────
+
+    def list_accounts(self, *, user_id: str) -> List[Dict[str, Any]]:
+        """Every account owned by one tenant, across all broker platforms."""
+        with self._cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM broker_accounts
+                WHERE user_id = %(user_id)s
+                ORDER BY platform ASC, account_id ASC
+                """,
+                {"user_id": user_id},
+            )
+            rows = cursor.fetchall()
+        return [_broker_account_row(row) for row in rows]
+
+    def get_account(
+        self, *, user_id: str, platform: str, account_id: str
+    ) -> Optional[Dict[str, Any]]:
+        with self._cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM broker_accounts
+                WHERE user_id = %(user_id)s
+                  AND platform = %(platform)s
+                  AND account_id = %(account_id)s
+                """,
+                {"user_id": user_id, "platform": platform, "account_id": account_id},
+            )
+            row = cursor.fetchone()
+        return _broker_account_row(row) if row else None
+
+    def upsert_account(
+        self,
+        *,
+        user_id: str,
+        platform: str,
+        account_id: str,
+        metadata: Dict[str, Any],
+        credential_blob: str = "",
+    ) -> bool:
+        """Create or update one account of one tenant."""
+        now = datetime.now().isoformat()
+        values = {
+            "user_id": user_id,
+            "platform": platform,
+            "account_id": account_id,
+            "metadata": json.dumps(metadata or {}),
+            "credential_blob": credential_blob or "",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._cursor() as cursor:
+            cursor.execute(_BROKER_ACCOUNT_UPSERT, values)
+        return True
+
+    def delete_account(self, *, user_id: str, platform: str, account_id: str) -> bool:
+        with self._cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM broker_accounts
+                WHERE user_id = %(user_id)s
+                  AND platform = %(platform)s
+                  AND account_id = %(account_id)s
+                """,
+                {"user_id": user_id, "platform": platform, "account_id": account_id},
+            )
+            return cursor.rowcount > 0
+
+    def import_legacy_accounts(
+        self,
+        files: Optional[Dict[str, str]] = None,
+        *,
+        marker: str = LEGACY_ACCOUNT_IMPORT_MARKER,
+        blob_builder=None,
+    ) -> Dict[str, Any]:
+        """Copy the legacy ``*_accounts.json`` files into Postgres exactly once.
+
+        Same marker discipline as :meth:`import_legacy_sqlite`: the marker row and
+        every account row share one transaction, existing Postgres rows are never
+        overwritten, and a missing or unreadable file is skipped rather than
+        raising. ``blob_builder`` supplies the credential blob for one legacy
+        entry; without it the accounts are imported with an empty blob.
+        """
+        sources = dict(files or {})
+        loaded = {
+            platform: _read_legacy_account_file(path)
+            for platform, path in sources.items()
+        }
+        imported = {platform: 0 for platform in sources}
+        if not any(entries is not None for entries in loaded.values()):
+            return {"status": "skipped_missing_file", "imported": imported}
+
+        identity = legacy_import_user_id()
+        now = datetime.now().isoformat()
+        connection, cursor_factory = _open_connection(self.url)
+        try:
+            cursor = connection.cursor(cursor_factory=cursor_factory)
+            cursor.execute(
+                """
+                INSERT INTO migration_state (name, applied_at)
+                VALUES (%(name)s, %(applied_at)s)
+                ON CONFLICT (name) DO NOTHING
+                """,
+                {"name": marker, "applied_at": now},
+            )
+            if cursor.rowcount == 0:
+                connection.rollback()
+                return {"status": "skipped_already_applied", "imported": {}}
+
+            for platform, entries in loaded.items():
+                for entry in entries or []:
+                    account_id = str(entry.get("id") or "").strip()
+                    if not account_id:
+                        continue
+                    values = {
+                        "user_id": identity,
+                        "platform": platform,
+                        "account_id": account_id,
+                        "metadata": json.dumps(
+                            _legacy_account_metadata(platform, entry)
+                        ),
+                        "credential_blob": blob_builder(platform, entry)
+                        if blob_builder
+                        else "",
+                        "created_at": str(entry.get("created_at") or now),
+                        "updated_at": now,
+                    }
+                    cursor.execute(_BROKER_ACCOUNT_LEGACY_INSERT, values)
+                    imported[platform] += cursor.rowcount
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+        return {"status": "applied", "imported": imported}
+
     # ── legacy SQLite compatibility import ────────────────────────
 
     def clear_legacy_import_marker(self, marker: str = LEGACY_IMPORT_MARKER) -> None:
@@ -655,6 +864,41 @@ class PostgresUserRepository:
         finally:
             connection.close()
         return {"status": "applied", "imported": imported}
+
+
+def _legacy_account_secret_fields(platform: str) -> Tuple[str, ...]:
+    """Secret field names live with the encryption code, not with storage."""
+    from src.services.credential_manager import SECRET_FIELDS
+
+    return SECRET_FIELDS.get(platform, ())
+
+
+def _legacy_account_metadata(platform: str, entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Public account fields only: ciphertext never becomes account metadata."""
+    secret_fields = _legacy_account_secret_fields(platform)
+    return {
+        key: value
+        for key, value in entry.items()
+        if key not in secret_fields and key != "credential_blob"
+    }
+
+
+def _read_legacy_account_file(path: Optional[str]) -> Optional[List[Dict[str, Any]]]:
+    """Read one legacy accounts file; ``None`` means it cannot be used at all."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if isinstance(data, dict):
+        entries = list(data.values())
+    elif isinstance(data, list):
+        entries = data
+    else:
+        return None
+    return [entry for entry in entries if isinstance(entry, dict)]
 
 
 def _legacy_values(

@@ -387,7 +387,7 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
     const loadData = async (retryCount = 0) => {
       try {
         if (!isMounted || !resolvedPrimarySymbol) return;
-        const resSym = await fetch(
+        const resSym = await window.authFetch(
           `/api/history?symbol=${encodeURIComponent(resolvedPrimarySymbol)}&timeframe=${activeTimeframe}&limit=200`
         );
         if (!resSym.ok) throw new Error(`Symbol history: ${resSym.status}`);
@@ -396,7 +396,7 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
         let rawSecondary = [];
         if (secondaryIsVix) {
           try {
-            const r = await fetch(`/api/vix?timeframe=${activeTimeframe}&limit=200`);
+            const r = await window.authFetch(`/api/vix?timeframe=${activeTimeframe}&limit=200`);
             if (r.ok) {
               const j = await r.json();
               if (Array.isArray(j)) rawSecondary = j.map((d) => ({ time: d.time, value: d.Close }));
@@ -404,7 +404,7 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
           } catch (_) {}
         } else {
           try {
-            const r = await fetch(
+            const r = await window.authFetch(
               `/api/history?symbol=${encodeURIComponent(resolvedSecondarySymbol)}&timeframe=${activeTimeframe}&limit=200`
             );
             if (r.ok) {
@@ -681,7 +681,7 @@ const VixCorrelationPanel = ({ activeSymbol, currentPrice, currentPriceTime, act
       if (!chartRef.current || vixFetchingRef.current) return;
       vixFetchingRef.current = true;
       try {
-        const res = await fetch('/api/vix/live');
+        const res = await window.authFetch('/api/vix/live');
         if (!res.ok) return;
         const data = await res.json();
         const lv = data?.vix;

@@ -81,7 +81,7 @@ const HistoryPanel = ({ activeSymbol }) => {
       try {
         // BUG FIX: se pasa days=9999 para traer todo el historial disponible;
         // el filtrado por período se hace en el cliente según el selector.
-        const response = await fetch('/api/deals?days=9999');
+        const response = await window.authFetch('/api/deals?days=9999');
         if (response.ok) {
           const data = await response.json();
           const fetchedDeals = Array.isArray(data) ? data : data.deals || [];

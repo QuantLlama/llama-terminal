@@ -58,3 +58,13 @@ def test_deploy_requirements_are_not_empty_and_stay_minimal():
     # The container must not drag the training stack in.
     for heavy in ("torch", "transformers", "xgboost"):
         assert heavy not in deploy
+
+
+def test_image_ships_the_tools_offsite_backup_needs():
+    """The nightly backup runs inside the container, so its tools must be in the image."""
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    for package in ("postgresql-client", "gzip"):
+        assert package in dockerfile, (
+            f"{package} is required by scripts/backup_to_r2.py at runtime but is not "
+            "installed in the image"
+        )

@@ -42,6 +42,15 @@ except ImportError as e:
 import argparse
 import joblib
 console = Console()
+def _require_active_user_id() -> str:
+    """The local runner must know whose account it is trading."""
+    from src.services.active_tenant import get_active_user_id
+    user_id = get_active_user_id()
+    if not user_id:
+        raise RuntimeError("no active trading user is set; sign in and select a master account")
+    return user_id
+
+
 def load_model_and_scaler(ticker, timeframe="1h"):
     safe_ticker = ticker.replace("=", "").replace("-", "")
     from src.services.database import get_outputs_dir
@@ -132,10 +141,10 @@ def run_live_trading(sys_ticker, asset_type, platform="mt5", timeframe=None, alg
         connector = get_mt5_connector()
     elif platform.lower() == "crypto":
         from src.live.crypto_connector import get_connector
-        connector = get_connector(account_id)
+        connector = get_connector(account_id, user_id=_require_active_user_id())
     elif platform.lower() in ["tradovate", "nt8"]:
         from src.live.tradovate_connector import get_tradovate_connector
-        connector = get_tradovate_connector(account_id)
+        connector = get_tradovate_connector(account_id, user_id=_require_active_user_id())
     else:
         console.print(f"[red]Plataforma {platform} no tiene un conector configurado en live_trade.py[/red]")
         return

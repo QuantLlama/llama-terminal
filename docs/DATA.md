@@ -11,7 +11,10 @@ All per-user state lives in PostgreSQL. The connection string comes from the
 
 | Variable | Meaning |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL DSN for per-user storage. Required for `/api/config`, `/api/workspace/*`, AlgoLab state and AlgoLab chat history. |
+| `DATABASE_URL` | PostgreSQL DSN for per-user storage. Required for `/api/config`, `/api/workspace/*`, AlgoLab state, AlgoLab chat history and `/api/accounts/*`. |
+| `QL_LEGACY_IMPORT_USER_ID` | Account that receives the one-time legacy imports (SQLite rows and `*_accounts.json` files). |
+| `QL_CREDENTIAL_MASTER_KEY` | Installation master secret the per-user broker-credential keys are derived from. |
+| `QUANTUM_LLAMA_KEY_DIR` | Writable directory holding the Fernet key material when `QL_CREDENTIAL_MASTER_KEY` is unset. |
 | `QL_DISABLE_LEGACY_SQLITE_IMPORT` | Set to `1`/`true`/`yes`/`on` to skip the one-time SQLite import described below. |
 
 `psycopg2-binary` is the driver (`requirements.txt`, `requirements.ci.txt`). It is
@@ -21,9 +24,11 @@ imported lazily, so a process that never touches storage does not need it loaded
 
 The app no longer falls back to SQLite. `db_get_settings`, workspace reads and
 writes, AlgoLab state and chat history raise `DatabaseNotConfigured`, and the API
-answers **503** with the reason instead of returning or storing shared data.
-Startup keeps running (the lifespan logs the error), so the failure is visible per
-request rather than as a silently degraded deployment with two sources of truth.
+answers **503** with the reason instead of returning or storing shared data. Every
+`/api/accounts/*` route answers the same way: broker accounts are PostgreSQL rows
+now, so there is no JSON file to fall back to. Startup keeps running (the lifespan
+logs the error), so the failure is visible per request rather than as a silently
+degraded deployment with two sources of truth.
 
 SQLite at `config/quantum_llama.db` is therefore no longer a system of record. It
 is only read once by the compatibility import.
@@ -41,6 +46,7 @@ The schema is created idempotently on startup by `init_db()` →
 | `workspaces` | `user_id TEXT NOT NULL` | `UNIQUE (user_id, session_name)` |
 | `ai_chat_history` | `user_id TEXT NOT NULL` | append-only log; one row per message, indexed on `user_id` |
 | `algolab_state` | `user_id TEXT NOT NULL` | `UNIQUE (user_id)` |
+| `broker_accounts` | `user_id TEXT NOT NULL` | `UNIQUE (user_id, platform, account_id)` |
 | `migration_state` | n/a | `name` is the primary key; records completed one-time steps |
 
 Every table has an index on `user_id`. `ai_chat_history` is deliberately *not*
@@ -94,6 +100,44 @@ path: call it with `window.authFetch(...)` and extend
 `tests/test_web_auth_fetch.py`. A new public endpoint (readiness, version,
 robots, sitemap) keeps plain `fetch`.
 
+### Broker accounts
+
+Broker accounts left the JSON files. `MT5AccountManager`, `CryptoAccountManager`
+and `NinjaTraderAccountManager` read and write `broker_accounts` through
+`src/services/database.py`, and every storage method takes `user_id` as a required
+keyword-only argument, so one user's account list is unreachable from another's
+request. Each row is `(user_id, platform, account_id)` plus a `metadata JSONB`
+column for the public fields and a `credential_blob` column for the encrypted
+secrets.
+
+The blob is encrypted with a **per-user key**, derived with HMAC-SHA256 from one
+installation master secret (`QL_CREDENTIAL_MASTER_KEY`, or the key file under
+`QUANTUM_LLAMA_KEY_DIR` when the variable is unset) and the `user_id`. Ciphertext
+written for one user therefore cannot be decrypted for another, and there is no
+installation-wide account key left to leak a whole deployment at once. Losing the
+master secret means every stored broker credential must be re-entered, so keep it
+in the deployment secret store rather than in the image.
+
+`GET /api/accounts`, `POST /api/accounts`, `PATCH /api/accounts/{id}`,
+`DELETE /api/accounts/{id}`, `POST /api/accounts/{id}/{test,master,connect,leverage}`,
+`GET /api/accounts/brokers` and `GET /api/accounts/server-search` all require the
+bearer token: an anonymous call is a 401 and changes nothing, and a `user_id` in a
+body or query string is ignored in favour of the token.
+
+**Not yet tenant scoped (follow-up required):** `src/services/tradovate_manager.py`
+still uses its legacy single-file store, so tradovate rows listed or created
+through these routes are shared by every user; protecting that platform needs the
+same refactor plus the file's own edit surface. The crypto and tradovate exchange
+connectors (`src/live/*_connector.py`) also resolve credentials without a tenant
+argument, so `test`, `connect` and `leverage` for those platforms answer **503**
+("connectors do not accept per-user credentials yet") instead of serving another
+tenant's credentials. The trading routes in `src/platform/api/main.py` that pick a
+global "master" crypto account (order placement, symbols, deals, positions) and the
+consumers in `src/services/order_gateway/`, `src/services/market_data_engine/`,
+`src/platform/api/footprint_api.py` and `src/services/replication_service.py` still
+call the managers without `user_id` and must be migrated before those features work
+again; they now fail loudly instead of trading on a shared account.
+
 ## One-time legacy import
 
 `init_db()` calls `PostgresUserRepository.import_legacy_sqlite()` with the SQLite
@@ -119,6 +163,30 @@ Behaviour:
 The imported `default_user` rows are a compatibility bridge, not an account:
 authenticated users have their own rows and never fall back to that namespace.
 
+### One-time broker-account import
+
+`init_db()` also imports the JSON account files the previous release wrote
+(`src/config/mt5_accounts.json`, `src/config/crypto_accounts.json`,
+`src/config/nt8_accounts.json`; inside a container that is `/app/src/config`, which
+is **not** a mounted volume, which is why those files were lost on every deploy).
+
+The import uses the same marker discipline as the SQLite import, with its own
+marker (`legacy_broker_accounts_json_v1`):
+
+1. Every account lands under `QL_LEGACY_IMPORT_USER_ID`, the same option used for
+the SQLite rows.
+2. The marker row and every account row share one transaction; a second run
+returns `skipped_already_applied` and changes nothing.
+3. Inserts use `ON CONFLICT (user_id, platform, account_id) DO NOTHING`, so rows
+that already exist in PostgreSQL are never overwritten.
+4. A missing or unreadable file is skipped with a status instead of crashing, and
+an import where nothing was readable leaves the marker untouched so a later
+restart can still succeed.
+5. Legacy secrets are re-encrypted under the owner's per-user key when the old
+installation key file is still present. When it is gone the account is still
+imported with an empty credential blob and the credentials must be re-entered;
+nothing undecryptable is ever stored.
+
 ## Tests
 
 `tests/test_database_postgres.py` drives the real repository against a fake
@@ -126,8 +194,11 @@ DB-API connection (`FakePostgres`) that records SQL text and bound parameters, s
 schema, parameterization and tenant filters are asserted without a real database.
 `tests/test_tenant_isolation.py` composes the real route handlers with a stubbed
 Supabase client and the same fake store to assert 401s, cross-tenant isolation and
-client-supplied `user_id` rejection on HTTP responses. No test opens a socket or a
-real database connection.
+client-supplied `user_id` rejection on HTTP responses. `tests/test_accounts_repository.py`
+covers the `broker_accounts` schema, the mandatory `user_id`, the per-user key
+derivation and the JSON import; `tests/test_accounts_isolation.py` does the same
+for every `/api/accounts/*` route. No test opens a socket or a real database
+connection.
 
 ## Migrating a desktop installation to one hosted account
 

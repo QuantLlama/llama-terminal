@@ -1,9 +1,20 @@
+"""Accounts API.
+
+Every route here operates on one user's broker accounts, so every route depends on
+``get_authenticated_user_id``: an anonymous call is a 401 and changes nothing, and
+a ``user_id`` sent in a body or query string is ignored in favour of the token.
+Account rows live in PostgreSQL through the per-user managers; when
+``DATABASE_URL`` is missing the repository raises ``DatabaseNotConfigured`` and the
+app answers 503 instead of falling back to the legacy JSON files.
+"""
 import asyncio
 import os
 import logging
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
+from src.services.auth import get_authenticated_user_id
+from src.services.database import DatabaseNotConfigured
 from src.services.mt5_manager import get_manager
 from src.services.crypto_manager import get_crypto_manager
 from src.live.crypto_connector import get_connector
@@ -58,41 +69,62 @@ class ConnectionTestResponse(BaseModel):
     equity: Optional[float] = None
     server: Optional[str] = None
     error: Optional[str] = None
+
+
+def _account_manager(platform: str):
+    """Resolve the manager for one platform.
+
+    All four managers store accounts per authenticated user in PostgreSQL, and
+    every storage method they expose takes ``user_id`` as a required keyword-only
+    argument, so this route layer always has to pass the caller's tenant down.
+    """
+    if platform == "mt5":
+        return get_manager()
+    if platform == "crypto":
+        return get_crypto_manager()
+    if platform == "nt8":
+        return get_nt8_manager()
+    if platform == "tradovate":
+        return get_tradovate_manager()
+    raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
+
+
+def _owned_account(platform: str, account_id: str, user_id: str) -> Dict[str, Any]:
+    """Return the caller's own account or raise 404, before any side effect runs."""
+    manager = _account_manager(platform)
+    account = manager.get_account(account_id, user_id=user_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
 @router.get("", response_model=List[AccountResponse])
-async def get_accounts():
-    mt5_manager = get_manager()
-    crypto_manager = get_crypto_manager()
-    tradovate_manager = get_tradovate_manager()
+async def get_accounts(user_id: str = Depends(get_authenticated_user_id)):
     accounts = []
-    for acc in mt5_manager.get_accounts():
+    for acc in get_manager().get_accounts(user_id=user_id):
         acc["platform"] = "mt5"
         accounts.append(acc)
-    for acc in crypto_manager.get_accounts():
+    for acc in get_crypto_manager().get_accounts(user_id=user_id):
         acc["platform"] = "crypto"
         accounts.append(acc)
-    for acc in tradovate_manager.get_accounts():
+    for acc in get_tradovate_manager().get_accounts(user_id=user_id):
         acc["platform"] = "tradovate"
         accounts.append(acc)
-    nt8_manager = get_nt8_manager()
-    for acc in nt8_manager.get_accounts():
+    for acc in get_nt8_manager().get_accounts(user_id=user_id):
         acc["platform"] = "nt8"
         accounts.append(acc)
     return accounts
 @router.post("", response_model=AccountResponse)
-async def add_account(account: AccountCreate):
+async def add_account(
+    account: AccountCreate, user_id: str = Depends(get_authenticated_user_id)
+):
     try:
-        # Wrap manager getting in try/except to catch instantiation errors
         try:
-            if account.platform == "mt5":
-                manager = get_manager()
-            elif account.platform == "crypto":
-                manager = get_crypto_manager()
-            elif account.platform == "tradovate":
-                manager = get_tradovate_manager()
-            elif account.platform == "nt8":
-                manager = get_nt8_manager()
-            else:
-                raise HTTPException(status_code=400, detail=f"Unsupported platform: {account.platform}")
+            manager = _account_manager(account.platform)
+        except DatabaseNotConfigured:
+            raise
+        except HTTPException:
+            raise
         except Exception as manager_exc:
             logger.error(f"Failed to initialize {account.platform} manager: {manager_exc}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Manager init failure: {str(manager_exc)}")
@@ -100,7 +132,7 @@ async def add_account(account: AccountCreate):
         if account.platform == "mt5":
             if not account.login or not account.server or not account.password:
                 raise HTTPException(status_code=400, detail="Missing MT5 credentials")
-            existing = manager.get_accounts()
+            existing = manager.get_accounts(user_id=user_id)
             for acc in existing:
                 if acc["login"] == account.login and acc["server"] == account.server:
                     raise HTTPException(status_code=400, detail="Account already exists")
@@ -111,6 +143,7 @@ async def add_account(account: AccountCreate):
                 login=account.login,
                 password=account.password,
                 account_type=account.account_type,
+                user_id=user_id,
             )
             new_account["platform"] = "mt5"
             return new_account
@@ -123,7 +156,8 @@ async def add_account(account: AccountCreate):
                 api_key=account.api_key,
                 api_secret=account.api_secret,
                 passphrase=account.passphrase,
-                account_type=account.account_type
+                account_type=account.account_type,
+                user_id=user_id,
             )
             new_account["platform"] = "crypto"
             return new_account
@@ -138,7 +172,9 @@ async def add_account(account: AccountCreate):
                 app_version=account.app_version or "1.0.0",
                 cid=account.cid,
                 sec=account.sec,
-                environment=account.environment or "demo"
+                environment=account.environment or "demo",
+                account_type=account.account_type,
+                user_id=user_id,
             )
             new_account["platform"] = "tradovate"
             return new_account
@@ -149,7 +185,8 @@ async def add_account(account: AccountCreate):
                 name=account.name,
                 exchange_dir=account.exchange_dir,
                 account_type=account.account_type,
-                mirror_trading=account.mirror_trading if account.mirror_trading is not None else True
+                mirror_trading=account.mirror_trading if account.mirror_trading is not None else True,
+                user_id=user_id,
             )
             new_account["platform"] = "nt8"
             return new_account
@@ -157,55 +194,55 @@ async def add_account(account: AccountCreate):
             raise HTTPException(status_code=400, detail=f"Unsupported platform: {account.platform}")
     except HTTPException:
         raise
+    except DatabaseNotConfigured:
+        raise
     except Exception as e:
         logger.error(f"Error adding account: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 @router.patch("/{account_id}")
-async def update_account(account_id: str, update: AccountUpdate, platform: str = Query("mt5")):
-    if platform == "mt5":
-        manager = get_manager()
-    elif platform == "crypto":
-        manager = get_crypto_manager()
-    elif platform == "tradovate":
-        manager = get_tradovate_manager()
-    elif platform == "nt8":
-        manager = get_nt8_manager()
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
-    updated = manager.update_account(account_id, update.dict(exclude_unset=True))
+async def update_account(
+    account_id: str,
+    update: AccountUpdate,
+    platform: str = Query("mt5"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
+    manager = _account_manager(platform)
+    updated = manager.update_account(
+        account_id, update.dict(exclude_unset=True), user_id=user_id
+    )
     if updated:
         return updated
     raise HTTPException(status_code=404, detail="Account not found")
 @router.delete("/{account_id}")
-async def remove_account(account_id: str, platform: str = Query("mt5")):
-    if platform == "mt5":
-        manager = get_manager()
-    elif platform == "crypto":
-        manager = get_crypto_manager()
-    elif platform == "tradovate":
-        manager = get_tradovate_manager()
-    elif platform == "nt8":
-        manager = get_nt8_manager()
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
-    if manager.remove_account(account_id):
+async def remove_account(
+    account_id: str,
+    platform: str = Query("mt5"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
+    manager = _account_manager(platform)
+    removed = manager.remove_account(account_id, user_id=user_id)
+    if removed:
         return {"status": "deleted", "id": account_id}
     raise HTTPException(status_code=404, detail="Account not found")
 @router.post("/{account_id}/test", response_model=ConnectionTestResponse)
-async def test_existing_account_connection(account_id: str, platform: str = Query("mt5")):
+async def test_existing_account_connection(
+    account_id: str,
+    platform: str = Query("mt5"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     if platform == "mt5":
         manager = get_manager()
-        return manager.test_connection(account_id)
+        return manager.test_connection(account_id, user_id=user_id)
     elif platform == "crypto":
-        from src.live.crypto_connector import get_connector
-        connector = get_connector(account_id)
+        _owned_account("crypto", account_id, user_id)
+        connector = get_connector(account_id, user_id=user_id)
         if not connector:
             return {"success": False, "error": "Could not create crypto connector. Check your credentials."}
         try:
             balance = connector.get_balance()
             equity = connector.get_equity()
             return {
-                "success": True, 
+                "success": True,
                 "balance": balance,
                 "equity": equity,
                 "server": connector.exchange_id.upper()
@@ -213,8 +250,9 @@ async def test_existing_account_connection(account_id: str, platform: str = Quer
         except Exception as e:
             return {"success": False, "error": str(e)}
     elif platform == "tradovate":
+        _owned_account("tradovate", account_id, user_id)
         from src.live.tradovate_connector import get_tradovate_connector
-        connector = get_tradovate_connector(account_id)
+        connector = get_tradovate_connector(account_id, user_id=user_id)
         if not connector:
             return {"success": False, "error": "Could not create Tradovate connector. Check your credentials."}
         try:
@@ -229,67 +267,83 @@ async def test_existing_account_connection(account_id: str, platform: str = Quer
             return {"success": False, "error": str(e)}
     elif platform == "nt8":
         manager = get_nt8_manager()
-        account = manager.get_account(account_id)
+        account = manager.get_account(account_id, user_id=user_id)
         if not account:
-             return {"success": False, "error": "Account not found"}
+            return {"success": False, "error": "Account not found"}
         ex_dir = account.get("exchange_dir")
         if not ex_dir or not os.path.exists(ex_dir):
-             return {"success": False, "error": f"Exchange directory not found: {ex_dir}"}
+            return {"success": False, "error": f"Exchange directory not found: {ex_dir}"}
         return {
             "success": True,
             "balance": 0,
             "equity": 0,
             "server": "NinjaTrader Local Bridge"
         }
-    return {"success": False, "error": f"Platform {platform} not supported for testing"}
+    raise HTTPException(status_code=400, detail=f"Platform {platform} not supported for testing")
 @router.post("/{account_id}/master")
-async def set_master_account(account_id: str, platform: str = Query("mt5")):
-    if platform == "mt5":
-        manager = get_manager()
-    elif platform == "crypto":
-        manager = get_crypto_manager()
-    elif platform == "tradovate":
-        manager = get_tradovate_manager()
-    elif platform == "nt8":
-        manager = get_nt8_manager()
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
-    if manager.set_master_account(account_id):
+async def set_master_account(
+    account_id: str,
+    platform: str = Query("mt5"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
+    from src.services.active_tenant import set_active_user_id
+
+    manager = _account_manager(platform)
+    promoted = manager.set_master_account(account_id, user_id=user_id)
+    if promoted:
+        # Choosing the account that trades is what activates a tenant for the
+        # background loops, which have no request to read a token from.
+        set_active_user_id(user_id)
         return {"status": "success", "master_account_id": account_id}
     raise HTTPException(status_code=400, detail="Failed to set master account")
 @router.post("/{account_id}/connect")
-async def connect_account(account_id: str, platform: str = Query("mt5"), data: Dict[str, Any] = Body(None)):
+async def connect_account(
+    account_id: str,
+    platform: str = Query("mt5"),
+    data: Dict[str, Any] = Body(None),
+    user_id: str = Depends(get_authenticated_user_id),
+):
+    from src.services.active_tenant import set_active_user_id
+
+    connector = None
     actual_platform = platform
     if platform == "mt5" and data and "platform" in data:
         actual_platform = data["platform"]
     if actual_platform == "mt5":
         manager = get_manager()
-        if manager.start_instance(account_id):
+        if manager.start_instance(account_id, user_id=user_id):
+            set_active_user_id(user_id)
             return {"status": "connected", "account_id": account_id, "platform": "mt5"}
     elif actual_platform == "crypto":
-        from src.live.crypto_connector import get_connector
-        connector = get_connector(account_id)
+        _owned_account("crypto", account_id, user_id)
+        connector = get_connector(account_id, user_id=user_id)
         if connector and connector.connected:
+            set_active_user_id(user_id)
             return {"status": "connected", "account_id": account_id, "platform": "crypto"}
     elif actual_platform == "tradovate":
+        _owned_account("tradovate", account_id, user_id)
         from src.live.tradovate_connector import get_tradovate_connector
-        connector = get_tradovate_connector(account_id)
+        connector = get_tradovate_connector(account_id, user_id=user_id)
         if connector and connector.connected:
+            set_active_user_id(user_id)
             return {"status": "connected", "account_id": account_id, "platform": "tradovate"}
     elif actual_platform == "nt8":
         manager = get_nt8_manager()
-        account = manager.get_account(account_id)
+        account = manager.get_account(account_id, user_id=user_id)
         if account and os.path.exists(account.get("exchange_dir", "")):
+             set_active_user_id(user_id)
              return {"status": "connected", "account_id": account_id, "platform": "nt8"}
         raise HTTPException(status_code=400, detail="Failed to connect to nt8 account. Exchange directory not found or inaccessible.")
     error_detail = "Check your API credentials or network connection."
-    if not connector:
+    if connector is None:
         error_detail = f"Failed to initialize {actual_platform} connector."
     elif not connector.connected:
         error_detail = "Connection failed (timeout or invalid keys)."
     raise HTTPException(status_code=400, detail=f"Failed to connect to {actual_platform} account. {error_detail}")
 @router.get("/brokers")
-async def get_brokers(type: str = Query("mt5")):
+async def get_brokers(
+    type: str = Query("mt5"), user_id: str = Depends(get_authenticated_user_id)
+):
     try:
         logger.info(f"[ACCOUNTS] Fetching brokers for type: {type}")
         if type == "mt5":
@@ -303,11 +357,11 @@ async def get_brokers(type: str = Query("mt5")):
             verified = ["binance", "bybit", "okx", "bitget", "bingx", "blofin"]
             all_exchanges = set(ccxt.exchanges)
             all_exchanges.discard("bitmex")
-            
+
             # Combine verified (at top) with the rest of ccxt
             remaining = sorted(list(all_exchanges - set(verified)))
             exchanges = verified + remaining
-            
+
             logger.info(f"[ACCOUNTS] Returning {len(exchanges)} crypto exchanges (verified first)")
             return exchanges
         elif type == "tradovate":
@@ -321,9 +375,16 @@ async def get_brokers(type: str = Query("mt5")):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{account_id}/leverage")
-async def set_leverage_account(account_id: str, symbol: str = Body(...), leverage: int = Body(...), platform: str = Query("crypto")):
+async def set_leverage_account(
+    account_id: str,
+    symbol: str = Body(...),
+    leverage: int = Body(...),
+    platform: str = Query("crypto"),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     if platform == "crypto":
-        connector = get_connector(account_id)
+        _owned_account("crypto", account_id, user_id)
+        connector = get_connector(account_id, user_id=user_id)
         if not connector:
             raise HTTPException(status_code=503, detail="Connector not available")
         if not connector.connect():
@@ -340,7 +401,10 @@ async def set_leverage_account(account_id: str, symbol: str = Body(...), leverag
         raise HTTPException(status_code=400, detail=f"Leverage adjustment not supported for platform: {platform}")
 
 @router.get("/server-search")
-async def search_servers(q: str = Query(..., min_length=2)):
+async def search_servers(
+    q: str = Query(..., min_length=2),
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         logger.info(f"[ACCOUNTS] Searching servers for query: {q}")
         manager = get_manager()
