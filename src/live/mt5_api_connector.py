@@ -276,8 +276,13 @@ class MT5ApiConnector:
         Posting /api/shutdown here would tear down the Wine-side MT5 session
         for every other platform client on each request that finishes with a
         connector shutdown.
+
+        The pooled HTTP client is deliberately NOT closed here either: this runs
+        on every request that finishes with a connector shutdown, so closing it
+        would rebuild the connection — and pay the handshake through the relay
+        again — on every cycle, and could close the client under a concurrent
+        request. ``close()`` exists for an explicit teardown.
         """
-        self.close()
         self.connected = False
 
     def shutdown_bridge(self):

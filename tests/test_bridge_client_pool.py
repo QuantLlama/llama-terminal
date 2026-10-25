@@ -251,3 +251,23 @@ def test_latency_probe_surfaces_a_dead_bridge(connector, monkeypatch):
 
     with pytest.raises(RuntimeError):
         connector.probe_latency(count=3)
+
+
+def test_shutdown_does_not_close_the_pooled_client(connector):
+    """`shutdown()` finishes most requests, so it must not tear down the pool.
+
+    The connector's shutdown runs on every request that ends with a connector
+    shutdown (platform switch, symbol refresh, /api/tick). Closing the shared
+    client there would rebuild the connection — and pay the handshake through
+    the relay again — on every cycle, and could close it under a concurrent
+    request. Only an explicit close() may release the pool.
+    """
+    with connector._bridge_client() as client:
+        underlying = client._client
+
+    connector.shutdown()
+
+    assert underlying.closed is False, (
+        "shutdown() must not close the pooled client; it runs per request"
+    )
+    assert connector.connected is False
