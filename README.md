@@ -32,6 +32,7 @@
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
 - [Running modes](#running-modes)
+- [Connecting the bridges](#connecting-the-bridges)
 - [Testing](#testing)
 - [Deployment](#deployment)
 - [Documentation](#documentation)
@@ -298,6 +299,36 @@ Full setup, troubleshooting and the MT5 bridge are in
 
 ---
 
+## Connecting the bridges
+
+The web platform runs in the cloud, but your MetaTrader 5 terminal and your own
+network path to the exchanges only exist on your machine. Two small programs
+connect them. You need neither if you only chart and backtest.
+
+| Bridge | Needed for | Runs on |
+| --- | --- | --- |
+| **MT5 bridge** (`mt5_server.py`, port 8081) | MT5 charts, orders, account data | Windows natively; Linux and macOS through Wine (the `MetaTrader5` package is Windows-only) |
+| **Crypto proxy** (`scripts/local_crypto_proxy.py`, port 3128) | Crypto when the venue blocks the cloud region (`HTTP 451`) | Any OS with `python3` |
+
+Four steps:
+
+1. Install the runtime on the machine that has the terminal:
+   `./scripts/install_bridge_runtime.sh`
+2. Start both as user services (`deploy/local/*.service`) and keep the token the
+   MT5 bridge prints.
+3. Install the relay on the VPS: `deploy/vps/setup-mt5-relay.sh` and
+   `deploy/vps/setup-crypto-proxy-relay.sh`.
+4. Set `MT5_BRIDGE_URL=http://10.0.0.1:8081`, `MT5_BRIDGE_TOKEN` and
+   `CRYPTO_HTTP_PROXY=http://10.0.0.1:3128` in the deployment, then redeploy.
+
+Per-OS commands, verification and a troubleshooting table:
+**[`docs/BRIDGES.md`](docs/BRIDGES.md)**.
+
+Running the whole platform on your own machine instead? See
+[Running everything locally](docs/BRIDGES.md#running-everything-locally-instead).
+
+---
+
 ## Testing
 
 ```bash
@@ -347,6 +378,7 @@ docker run --rm -p 8050:8050 --env-file .env llama-terminal
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy, suites, fixtures, what must be tested |
 | [`docs/ML-PIPELINE.md`](docs/ML-PIPELINE.md) | Features, models, training loop, evaluation |
 | [`docs/CLOUD.md`](docs/CLOUD.md) | Cloud mode: topology, request paths, security, operations, integration problems |
+| [`docs/BRIDGES.md`](docs/BRIDGES.md) | Connecting your own machine: the MT5 bridge and the crypto proxy, step by step for Windows, Linux and macOS |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is planned and what is explicitly out of scope |
 | [`docs/RELEASES/v1.9.0.md`](docs/RELEASES/v1.9.0.md) | Release notes for the current version |
 | [`docs/RELEASES/v1.8.1.md`](docs/RELEASES/v1.8.1.md) | Previous release notes |
