@@ -15,7 +15,7 @@ WORKDIR ${APP_HOME}
 # libraries required by the scientific stack.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        postgresql-client \
+        gnupg \
         gzip \
         wget \
         curl \
@@ -38,6 +38,14 @@ RUN if [ "$WITH_TORCH" = "true" ]; then \
 COPY . .
 
 # Writable runtime directories (mount volumes over these in production).
+# The managed PostgreSQL runs major 16; a distro pg_dump (15) refuses to dump a
+# newer server, so the client comes from the PGDG repository at the same major.
+RUN install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p config outputs logs images \
     && useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser ${APP_HOME}
