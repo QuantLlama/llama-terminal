@@ -209,10 +209,12 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Error en limpieza de logs: {log_err}")
         # ---------------------------------------------------
 
-        await startup_services(platform="mt5")
-        # A restarted container keeps the state in memory, so publish what MT5
-        # answers now instead of leaving the previous session's "disconnected".
+        # Probe the broker before the live services start: the helper frees its
+        # own probe connector when it is done, so it has to run first. Running it
+        # afterwards tore down the connection startup had just established, which
+        # left the UI reporting "connected" over a dead MT5 session.
         await _publish_live_connection_state("mt5")
+        await startup_services(platform="mt5")
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Plataforma lista en {elapsed:.0f}ms (sin conexiones activas)")
     except Exception as e:
