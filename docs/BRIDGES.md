@@ -202,3 +202,70 @@ with `SUPABASE_URL` and `SUPABASE_ANON_KEY`; without them the interface stops at
 - Full topology and the security model: [`CLOUD.md`](CLOUD.md)
 - Cloud deployment operations: [`../deploy/COOLIFY.md`](../deploy/COOLIFY.md)
 - The guided onboarding tour: [`ONBOARDING.md`](ONBOARDING.md)
+
+## Using the cloud database while working locally
+
+Running the app locally needs a PostgreSQL for the per-user data (accounts,
+settings, workspaces). Without `DATABASE_URL` those routes answer `503`:
+
+```
+[DATABASE] DATABASE_URL is not set. Per-user storage requires PostgreSQL;
+there is no sqlite fallback for authenticated data. See docs/DATA.md.
+```
+
+Two ways out. A **local database** is isolated: you load the accounts again. A
+**tunnel to the cloud database** keeps the accounts you already have, which is
+what this section describes.
+
+The cloud Postgres is a container inside the VPS docker network with no public
+port, so reach it through SSH:
+
+```ini
+# ~/.config/systemd/user/qllama-pg-tunnel.service
+[Unit]
+Description=Quantum Llama Postgres tunnel (localhost:5433 -> VPS postgres container)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -i <your-key.pem> -o BatchMode=yes -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 -N -L 127.0.0.1:5433:<postgres-container-ip>:5432 <user>@<vps>
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now qllama-pg-tunnel.service
+psql "postgresql://<user>:<pass>@127.0.0.1:5433/postgres" -c 'select 1'
+```
+
+Find `<postgres-container-ip>` with
+`docker inspect <postgres-container> --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`
+**on the VPS**. It changes if Coolify recreates that container; update the unit
+when it does.
+
+Then in `.env` (never in the repository):
+
+```ini
+DATABASE_URL=postgresql://<user>:<pass>@127.0.0.1:5433/postgres
+QL_CREDENTIAL_MASTER_KEY=<contents of /app/config/keys/.broker_accounts_master_key on the cloud>
+```
+
+`QL_CREDENTIAL_MASTER_KEY` is not optional: broker credentials are encrypted per
+user with it, so a different key gives you the accounts with
+`DECRYPTION_FAILED` and no usable secret. The value is the same 44-byte file the
+cloud keeps under `QUANTUM_LLAMA_KEY_DIR`.
+
+Verification that does not need a login:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8050/api/accounts
+# 401 -> the database is reachable and the route wants a session
+# 503 -> DATABASE_URL is still missing or the tunnel is down
+```
