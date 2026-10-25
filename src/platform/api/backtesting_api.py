@@ -27,6 +27,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 
+from src.live import mt5_access
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -598,19 +600,29 @@ async def load_data(req: LoadDataRequest):
 
         elif req.source == "mt5":
             try:
-                import MetaTrader5 as mt5
-                if not mt5.initialize():
-                    raise HTTPException(status_code=500, detail="Could not initialize MT5")
+                # mt5_access answers from the bridge in the cloud and from the
+                # local package on Windows, so this path no longer needs the
+                # Windows-only import.
+                if not (mt5_access.bridge_enabled() or mt5_access.local_module() is not None):
+                    raise HTTPException(status_code=500, detail="MetaTrader5 not available")
 
-                tf_map = {
-                    "1m": mt5.TIMEFRAME_M1, "5m": mt5.TIMEFRAME_M5,
-                    "15m": mt5.TIMEFRAME_M15, "30m": mt5.TIMEFRAME_M30,
-                    "1h": mt5.TIMEFRAME_H1, "4h": mt5.TIMEFRAME_H4,
-                    "1d": mt5.TIMEFRAME_D1,
+                # Same map as before, including its missing "10m" entry: this
+                # route has always loaded 1-minute candles for that choice, and
+                # the migration must not change the candles a backtest runs on.
+                timeframe_values = {
+                    "1m": mt5_access.TIMEFRAME_M1, "5m": mt5_access.TIMEFRAME_M5,
+                    "15m": mt5_access.TIMEFRAME_M15, "30m": mt5_access.TIMEFRAME_M30,
+                    "1h": mt5_access.TIMEFRAME_H1, "4h": mt5_access.TIMEFRAME_H4,
+                    "1d": mt5_access.TIMEFRAME_D1,
                 }
-                mt5_tf = tf_map.get(req.timeframe, mt5.TIMEFRAME_M1)
-                rates = mt5.copy_rates_from_pos(req.symbol, tf_map.get(req.timeframe, mt5.TIMEFRAME_M1), 0, req.days * 1440)
-                if rates is None or len(rates) == 0:
+                rates = mt5_access.rates_from_pos(
+                    req.symbol,
+                    timeframe_values.get(req.timeframe, mt5_access.TIMEFRAME_M1),
+                    req.days * 1440,
+                )
+                if rates is None:
+                    raise HTTPException(status_code=500, detail="Could not initialize MT5")
+                if len(rates) == 0:
                     raise HTTPException(status_code=400, detail=f"No data returned from MT5 for {req.symbol} on {req.timeframe}")
 
                 df = pd.DataFrame(rates)
@@ -622,8 +634,6 @@ async def load_data(req: LoadDataRequest):
                     df['direction'] = np.where(df['close'] > df['open'], 1, np.where(df['close'] < df['open'], -1, 0))
                 _add_log(f"MT5 data loaded: {len(df)} candles for {req.symbol}")
 
-            except ImportError:
-                raise HTTPException(status_code=500, detail="MetaTrader5 not available")
             except HTTPException:
                 raise
             except Exception as e:

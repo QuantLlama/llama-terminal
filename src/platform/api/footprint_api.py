@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 import pandas as pd
 import numpy as np
 from src.live.connector import get_mt5_connector
+from src.live import mt5_access
 from src.services.market_data_engine.engine import get_market_data_engine
 from src.services.auth import get_authenticated_user_id
 import os
@@ -14,22 +15,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/footprint", tags=["Footprint Chart"])
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
 def _get_tick_size(symbol: str) -> float:
-    try:
-        import MetaTrader5 as mt5
-        info = mt5.symbol_info(symbol)
-        if info:
-            return info.trade_tick_size if info.trade_tick_size > 0 else info.point
-    except Exception:
-        pass
+    """Tick size from the bridge (cloud) or the local package (Windows).
+
+    The 0.25 default only applies when no runtime answers at all: swallowing a
+    failed import here used to hand every cloud symbol the same tick size.
+    """
+    info = mt5_access.symbol_info(symbol)
+    if info:
+        return info["trade_tick_size"] if info["trade_tick_size"] > 0 else info["point"]
     return 0.25
 def _get_digits(symbol: str) -> int:
-    try:
-        import MetaTrader5 as mt5
-        info = mt5.symbol_info(symbol)
-        if info:
-            return info.digits
-    except Exception:
-        pass
+    info = mt5_access.symbol_info(symbol)
+    if info:
+        return info["digits"]
     return 2
 def _round_to_tick(price: float, tick_size: float, digits: int) -> float:
     if tick_size <= 0:
@@ -280,7 +278,6 @@ def _get_crypto_footprint_ohlcv_limit(exchange_id: str, requested_limit: int) ->
     return min(requested_limit, 600)
 
 async def get_mt5_footprint(symbol: str, timeframe: str, limit: int) -> list:
-    import MetaTrader5 as mt5
     connector = get_mt5_connector()
     if not connector.connect():
         raise HTTPException(status_code=503, detail="MT5 not connected")
@@ -294,16 +291,16 @@ async def get_mt5_footprint(symbol: str, timeframe: str, limit: int) -> list:
     if cache_entry and (now_ts - cache_entry["last_update"]) < ttl:
         return cache_entry["candles"][-limit:]
     tf_map = {
-        "1m":  mt5.TIMEFRAME_M1,  "5m":  mt5.TIMEFRAME_M5,
-        "10m": mt5.TIMEFRAME_M10, "15m": mt5.TIMEFRAME_M15,
-        "30m": mt5.TIMEFRAME_M30, "1h":  mt5.TIMEFRAME_H1,
-        "4h":  mt5.TIMEFRAME_H4,  "1d":  mt5.TIMEFRAME_D1,
+        "1m":  mt5_access.TIMEFRAME_M1,  "5m":  mt5_access.TIMEFRAME_M5,
+        "10m": mt5_access.TIMEFRAME_M10, "15m": mt5_access.TIMEFRAME_M15,
+        "30m": mt5_access.TIMEFRAME_M30, "1h":  mt5_access.TIMEFRAME_H1,
+        "4h":  mt5_access.TIMEFRAME_H4,  "1d":  mt5_access.TIMEFRAME_D1,
     }
-    mt5_tf = tf_map.get(timeframe, mt5.TIMEFRAME_M1)
-    symbol_info = connector.symbol_info(symbol)
+    mt5_tf = tf_map.get(timeframe, mt5_access.TIMEFRAME_M1)
+    symbol_info = mt5_access.symbol_info(symbol)
     if symbol_info is None:
         return []
-    if not symbol_info.visible:
+    if not symbol_info["visible"]:
         connector.symbol_select(symbol, True)
     rates = connector.copy_rates_from_pos(symbol, mt5_tf, 0, limit)
     if rates is None or len(rates) == 0:
@@ -330,7 +327,7 @@ async def get_mt5_footprint(symbol: str, timeframe: str, limit: int) -> list:
         max(int(candles_df["time"].iloc[0]), fetch_start_ts)
     )
     end_dt   = datetime.utcfromtimestamp(last_ts)
-    raw_ticks = connector.copy_ticks_range(symbol, start_dt, end_dt, mt5.COPY_TICKS_ALL)
+    raw_ticks = connector.copy_ticks_range(symbol, start_dt, end_dt, mt5_access.COPY_TICKS_ALL)
     ticks_df  = pd.DataFrame(raw_ticks) if raw_ticks is not None and len(raw_ticks) > 0 else pd.DataFrame()
     tick_groups = _ticks_to_footprint_map(ticks_df, tf_seconds, tick_size, digits)
     cached_map = {c["time"]: c for c in cache_entry["candles"]} if cache_entry else {}
@@ -498,7 +495,6 @@ async def backfill_mt5_history(
     tick_size:  float,
     digits:     int,
 ):
-    import MetaTrader5 as mt5
     cache_key = f"{symbol}_{timeframe}"
     if cache_key in _backfill_tasks:
         return
@@ -533,7 +529,7 @@ async def backfill_mt5_history(
             start_dt = datetime.utcfromtimestamp(start_ts)
             end_dt   = datetime.utcfromtimestamp(end_ts)
             raw_ticks = connector.copy_ticks_range(
-                symbol, start_dt, end_dt, mt5.COPY_TICKS_ALL
+                symbol, start_dt, end_dt, mt5_access.COPY_TICKS_ALL
             )
             if raw_ticks is None or len(raw_ticks) == 0:
                 continue
