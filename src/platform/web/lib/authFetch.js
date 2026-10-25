@@ -73,9 +73,65 @@
     return global.fetch(input, options);
   }
 
+  // Routes that must stay anonymous: crawling, readiness and version probes.
+  const PUBLIC_PREFIXES = ['/api/readiness', '/api/platform/version'];
+
+  function needsAuthorization(input) {
+    let url;
+    try {
+      url = typeof input === 'string' ? input : (input && input.url) || '';
+    } catch (error) {
+      return false;
+    }
+    if (typeof url !== 'string' || url.indexOf('/api/') === -1) return false;
+    // Only same-origin API traffic; absolute URLs to other hosts keep their own rules.
+    if (/^[a-z]+:\/\//i.test(url)) {
+      try {
+        if (new URL(url).origin !== global.location.origin) return false;
+      } catch (error) {
+        return false;
+      }
+    }
+    return !PUBLIC_PREFIXES.some(function (prefix) { return url.indexOf(prefix) === 0; });
+  }
+
+  /*
+   * Install the helper as the page default.
+   *
+   * Requiring every call site to opt in was wrong three times in a row: a route
+   * became protected, one fetch kept the bare form, and the screen died on a 401
+   * body that was not the array the renderer expected. Wrapping the global fetch
+   * makes authentication the default and an omission impossible.
+   */
+  function installDefaultFetch() {
+    if (typeof global.fetch !== 'function' || global.fetch.__qlAuthWrapped) return;
+
+    const original = global.fetch;
+
+    async function wrappedFetch(input, init) {
+      if (!needsAuthorization(input)) return original(input, init);
+      const options = Object.assign({}, init || {});
+      const token = await currentAccessToken();
+      if (token) {
+        options.headers = withAuthorizationHeader(options.headers, token);
+      }
+      return original(input, options);
+    }
+
+    wrappedFetch.__qlAuthWrapped = true;
+    global.fetch = wrappedFetch;
+  }
+
   global.authFetch = authFetch;
 
+  if (typeof global.fetch === 'function') {
+    installDefaultFetch();
+  } else if (typeof global.addEventListener === 'function') {
+    // Defensive: only needed if the script somehow loads before fetch exists.
+    global.addEventListener('load', installDefaultFetch, { once: true });
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { authFetch: authFetch };
+    module.exports = { authFetch: authFetch, needsAuthorization: needsAuthorization };
   }
 })(typeof window !== 'undefined' ? window : globalThis);
