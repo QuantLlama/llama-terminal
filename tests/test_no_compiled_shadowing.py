@@ -14,8 +14,13 @@ COMPILED_SUFFIXES = (".so", ".pyd")
 
 def _shadowing_pairs():
     pairs = []
+    skip = {".git", "build", "dist", "node_modules", "venv", "venv_linux",
+            "venv_agent", "site-packages", "__pycache__"}
     for compiled in ROOT.rglob("*"):
-        if compiled.suffix not in COMPILED_SUFFIXES or ".git" in compiled.parts:
+        if compiled.suffix not in COMPILED_SUFFIXES:
+            continue
+        if any(part in skip for part in compiled.parts):
+            # Package-manager and vendored output legitimately ships both forms.
             continue
         # "database.cpython-311-x86_64-linux-gnu.so" shadows "database.py"
         stem = compiled.name.split(".")[0]
