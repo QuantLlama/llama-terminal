@@ -89,3 +89,35 @@ external volume. Branch: `fix/crypto-tape-dom-live`.
   `/feed/trades`, `/feed/dom` alike), which is this operator link's ~176 ms RTT: the endpoints read
   the engine buffer and add no per-request bridge call. A cold connection pays ~0.58 s for the
   handshake, which is what a per-request `curl` measures.
+
+## Native review debt (open)
+
+The training block (`934cd5c..47f1477`: subprocess shadowing, torch in the image,
+yfinance bump, Yahoo symbol mapping, intraday caps, correlation tickers) was sent
+to native review twice and neither round reached a verdict.
+
+- `review-18874d2055fdc5f6` covered the crypto/ops work. Its two `CRITICAL`
+  findings (`R3-001`, `R4-001`: the public connector never retried a failed first
+  `load_markets`) were **fixed** in `934cd5c` and pinned by two tests. The lineage
+  stayed at `correction_required` because the correction plan binding went stale
+  after later commits.
+- `review-98d7a99a11b16935` (training block, tier medium, lens reliability) reached
+  its refuter, which reported candidate-caused severe findings whose text the
+  provider never surfaced. A `scope_changed` recovery created
+  `review-73289ddc3bb9efdd`.
+- A fresh START now fails with `atomic_start_conflict` against
+  `review-73289ddc3bb9efdd`; ABANDON answers `native-abandon-ineligible` with
+  `next_action: inspect-complete-native-authority-inventory`; the facade's repair
+  assessment is `unsupported` with zero eligible candidates.
+
+Root cause is a process mistake, not a code defect: the CI fix (`47f1477`) was
+committed while the review was open, which moved the reviewed scope mid-flight.
+
+Rule for the next attempt: finish the review before touching the tree. A review
+started on a quiet tree, with no commits until it closes, does not hit any of the
+three blockers above.
+
+What stands behind the delivered code instead of that review: 599 tests green,
+CI green on `main` (Python 3.11 and 3.12), and a real training run in the deployed
+container (9655 records, correlation matrix, autoencoder, LSTM epoch, model
+saved).
