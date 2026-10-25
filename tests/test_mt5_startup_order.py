@@ -23,20 +23,30 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src" / "platform" / "api" / "main.py"
 
 
-def test_startup_probes_the_broker_before_starting_the_live_services():
-    """The probe frees its connector, so it has to run before the services connect.
+def test_startup_starts_the_live_services_before_probing_the_connection():
+    """A connection probe must never be able to keep the engine from starting.
 
-    Order matters: ``_publish_live_connection_state`` calls ``connector.shutdown``
-    when it succeeds. Running it after ``startup_services`` tears down the session
-    startup just established.
+    Reordering this so the probe ran first made it a hard prerequisite: an
+    exception there skipped ``startup_services`` entirely and the platform booted
+    with no live MT5 even when the broker was reachable.
     """
     source = MAIN.read_text(encoding="utf-8")
-    probe = source.index('await _publish_live_connection_state("mt5")')
     startup = source.index('await startup_services(platform="mt5")')
+    probe = source.index('await _publish_live_connection_state("mt5", release=False)')
 
-    assert probe < startup, (
-        "startup runs the state probe after startup_services; the probe shuts its "
-        "connector down and would kill the live MT5 session"
+    assert startup < probe, (
+        "startup probes the connection before starting the live services; a probe "
+        "failure would then leave the platform without live MT5"
+    )
+
+
+def test_startup_probe_does_not_release_the_live_connector():
+    """The probe frees its own connector, and by then the services own the session."""
+    source = MAIN.read_text(encoding="utf-8")
+
+    assert 'await _publish_live_connection_state("mt5", release=False)' in source, (
+        "the startup probe must pass release=False; releasing it tears down the "
+        "session startup_services just established"
     )
 
 
