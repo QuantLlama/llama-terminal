@@ -1991,7 +1991,19 @@
                 } catch (e) {
                   console.warn('[AUTH] sign out failed', e);
                 }
-                window.location.reload();
+                // Startup restores a session from more than the Supabase storage:
+                // a transferred session, a token in the URL, and (outside Electron)
+                // the Python side. Clear what this context owns, then reload onto a
+                // clean URL so nothing hands the session back.
+                try {
+                  localStorage.removeItem('ql_transfer_session');
+                  Object.keys(localStorage)
+                    .filter((key) => key.startsWith('sb-'))
+                    .forEach((key) => localStorage.removeItem(key));
+                } catch (e) {
+                  console.warn('[AUTH] could not clear the stored session', e);
+                }
+                window.location.replace(window.location.origin + window.location.pathname);
               },
               className: "p-2 text-muted hover:text-white transition-colors",
               title: "Cerrar sesión"
