@@ -131,6 +131,40 @@ def yahoo_symbol(ticker):
     return raw
 
 
+#: Longest history Yahoo serves per request, by interval. Asking for more makes
+#t the whole download fail: "Only 8 days worth of 1m granularity data are allowed".
+INTRADAY_LIMITS = {
+    "1m": "7d",
+    "2m": "59d",
+    "5m": "59d",
+    "15m": "59d",
+    "30m": "59d",
+    "60m": "59d",
+    "90m": "59d",
+    "1h": "59d",
+}
+
+
+def _period_days(period):
+    """Rough day count for a Yahoo period string (1d, 2w, 6mo, 1y, max)."""
+    text = str(period).strip().lower()
+    if text in ("max", "ytd"):
+        return 10 ** 6
+    if text.endswith("mo"):
+        return int(text[:-2] or 1) * 30
+    unit = text[-1:]
+    value = int(text[:-1] or 1)
+    return value * {"d": 1, "w": 7, "m": 30, "y": 365}.get(unit, 1)
+
+
+def yahoo_period(period, interval):
+    """Clamp ``period`` to the history Yahoo actually serves for ``interval``."""
+    limit = INTRADAY_LIMITS.get(str(interval).strip().lower())
+    if not limit:
+        return period
+    return limit if _period_days(period) > _period_days(limit) else period
+
+
 def load_data(ticker, period='2y', interval='1h'):
     """Download OHLCV data from Yahoo Finance with automatic period adjustment."""
     symbol = yahoo_symbol(ticker)
@@ -139,10 +173,12 @@ def load_data(ticker, period='2y', interval='1h'):
 
     intraday_intervals = ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h']
     if interval in intraday_intervals:
-        if period in ['1y', '2y', '5y', '10y', 'max']:
-            print(f"Warning: Intraday data ({interval}) limited to last 60 days "
-                  f"by source. Adjusting period from {period} to 59d.")
-            period = "59d"
+        capped = yahoo_period(period, interval)
+        if capped != period:
+            print(f"Warning: Yahoo serves at most {INTRADAY_LIMITS[interval]} of "
+                  f"{interval} history per request. Adjusting period from {period} "
+                  f"to {capped}.")
+            period = capped
 
     df = yf.download(symbol, period=period, interval=interval, progress=False)
 
