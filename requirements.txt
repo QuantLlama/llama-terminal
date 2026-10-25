@@ -29,7 +29,7 @@ websockets
 
 pydantic
 psutil
-Pillow==10.3.0
+Pillow==13.0.0
 GPUtil
 beautifulsoup4
 lxml

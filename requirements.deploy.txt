@@ -18,7 +18,7 @@ seaborn==0.13.2
 mplfinance
 cryptography
 psutil
-Pillow==10.3.0
+Pillow==13.0.0
 GPUtil
 beautifulsoup4
 lxml
