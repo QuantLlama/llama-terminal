@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from src.config import config
-from src.data.loader import load_data, preprocess_data
+from src.data.loader import load_data, preprocess_data, yahoo_symbol
 from src.features.indicators import add_technical_indicators
 from src.features.fourier import apply_fourier_transform
 from src.features.autoencoder import Autoencoder
@@ -145,7 +145,9 @@ def train_model(ticker, period, epochs, asset_type, train_timeframe="1h", trade_
     else: # Futures / ETF / Default
         tickers = [ticker, "ES=F", "GC=F", "CL=F", "^VIX"]
         
-    corr_data = yf.download(tickers, period="1y", interval="1d", progress=False)['Close']
+    # Yahoo does not know platform symbols: BTCUSDT is BTC-USD, XAUUSD is GC=F.
+    corr_tickers = [yahoo_symbol(t) for t in tickers]
+    corr_data = yf.download(corr_tickers, period="1y", interval="1d", progress=False)['Close']
     if not corr_data.empty:
         vis.plot_correlation_matrix(corr_data)
         
