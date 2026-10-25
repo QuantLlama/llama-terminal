@@ -1,10 +1,15 @@
-"""Per-user storage for the platform API, backed by PostgreSQL.
+"""Per-user storage for the platform API, backed by PostgreSQL by default.
 
 Every statement in this module is tenant-filtered and parameterized: identifiers
 come from the static column tuples below (never from a request) and every value,
-including ``user_id``, is bound as a statement parameter. There is no SQLite
-fallback here; when ``DATABASE_URL`` is absent the repository refuses to exist so
-callers fail loudly instead of writing to a second source of truth.
+including ``user_id``, is bound as a statement parameter. There is no implicit
+SQLite fallback: when ``DATABASE_URL`` is absent the repository refuses to exist
+so callers fail loudly instead of writing to a second source of truth mid-cloud.
+
+A local run can opt in to a SQLite file with ``QLLAMA_STORAGE=sqlite``; that path
+is served by :mod:`src.services.sqlite_user_repository`, which implements this
+same contract. The switch is explicit on purpose: a deployment that says nothing
+keeps one source of truth in PostgreSQL.
 
 ``import_legacy_sqlite`` is the one compatibility path that reads SQLite: it
 copies pre-migration rows into Postgres under ``default_user`` exactly once, and
@@ -17,7 +22,10 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
+    from src.services.sqlite_user_repository import SqliteUserRepository
 
 DEFAULT_USER_ID = "default_user"
 DATABASE_URL_ENV = "DATABASE_URL"
@@ -148,10 +156,16 @@ def _insert_sql(
     columns: Tuple[str, ...],
     conflict_columns: Tuple[str, ...],
     update_on_conflict: bool,
+    placeholder: str = "%({})s",
 ) -> str:
-    """Build a statement from static column names; values stay bound parameters."""
+    """Build a statement from static column names; values stay bound parameters.
+
+    ``placeholder`` only switches the driver dialect (``%({})s`` for psycopg2,
+    ``:{}`` for sqlite3); the column list and the upsert body stay identical so
+    both repositories insert exactly the same rows.
+    """
     column_list = ", ".join(columns)
-    placeholders = ", ".join("%(" + column + ")s" for column in columns)
+    placeholders = ", ".join(placeholder.format(column) for column in columns)
     conflict = ", ".join(conflict_columns)
     statement = f"INSERT INTO {table} ({column_list}) VALUES ({placeholders})"
     if not conflict_columns:
@@ -359,6 +373,96 @@ def _broker_account_row(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _settings_values(
+    user_id: str, data: Dict[str, Any], current: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Bind one settings upsert, keeping columns the caller did not send."""
+    values: Dict[str, Any] = {"user_id": user_id}
+    for column in SETTINGS_COLUMNS[1:]:
+        if column == "updated_at":
+            continue
+        value = data.get(column, current.get(column, _SETTINGS_DEFAULTS.get(column)))
+        values[column] = _stored_flag(value) if column in _BOOLEAN_SETTINGS else value
+    values["updated_at"] = datetime.now().isoformat()
+    return values
+
+
+def _workspace_values(
+    user_id: str, session_name: str, data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Bind one workspace upsert; JSON columns are stored as JSON text."""
+    return {
+        "user_id": user_id,
+        "session_name": session_name,
+        "layout": data.get("layout", "single"),
+        "charts": json.dumps(data.get("charts", [])),
+        "active_chart_id": data.get("active_chart_id", 1),
+        "symbol": data.get("symbol", "MNQ"),
+        "timeframe": data.get("timeframe", "1m"),
+        "show_tape": _stored_flag(data.get("show_tape", True)),
+        "show_order_entry": _stored_flag(data.get("show_order_entry", True)),
+        "drawings": json.dumps(data.get("drawings", [])),
+        "panel_sizes": json.dumps(data.get("panel_sizes", {})),
+        "symbol_settings": json.dumps(data.get("symbol_settings", {})),
+        "indicator_settings": json.dumps(data.get("indicator_settings", {})),
+        "visibility_settings": json.dumps(data.get("visibility_settings", {})),
+        "show_dom": _stored_flag(data.get("show_dom", False) or data.get("showDom", False)),
+        "chart_settings": json.dumps(data.get("chart_settings", {})),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _chat_values(
+    user_id: str,
+    role: str,
+    content: str,
+    skill: Optional[str],
+    agent_actions: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Bind one append to the chat log; ``agent_actions`` is JSON text."""
+    return {
+        "user_id": user_id,
+        "role": role,
+        "content": content,
+        "skill": skill,
+        "agent_actions": json.dumps(agent_actions) if agent_actions else None,
+    }
+
+
+def _algolab_values(user_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Bind one AlgoLab state upsert; files and contents are JSON text."""
+    return {
+        "user_id": user_id,
+        "open_files": json.dumps(state.get("open_files", [])),
+        "file_contents": json.dumps(state.get("file_contents", {})),
+        "active_file_path": state.get("active_file_path"),
+        "is_chat_open": _stored_flag(state.get("is_chat_open")),
+        "chat_width": state.get("chat_width", 350),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _broker_account_values(
+    *,
+    user_id: str,
+    platform: str,
+    account_id: str,
+    metadata: Dict[str, Any],
+    credential_blob: str,
+) -> Dict[str, Any]:
+    """Bind one account upsert; metadata is JSON text, the blob stays verbatim."""
+    now = datetime.now().isoformat()
+    return {
+        "user_id": user_id,
+        "platform": platform,
+        "account_id": account_id,
+        "metadata": json.dumps(metadata or {}),
+        "credential_blob": credential_blob or "",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 def _workspace_row(row: Dict[str, Any], *, detail: bool) -> Dict[str, Any]:
     panel_sizes = json.loads(row["panel_sizes"]) if row.get("panel_sizes") else {}
     workspace: Dict[str, Any] = {
@@ -431,14 +535,7 @@ class PostgresUserRepository:
         return _settings_row(row) if row else dict(_SETTINGS_DEFAULTS)
 
     def save_settings(self, user_id: str, data: Dict[str, Any]) -> bool:
-        current = self.get_settings(user_id)
-        values: Dict[str, Any] = {"user_id": user_id}
-        for column in SETTINGS_COLUMNS[1:]:
-            if column == "updated_at":
-                continue
-            value = data.get(column, current.get(column, _SETTINGS_DEFAULTS.get(column)))
-            values[column] = _stored_flag(value) if column in _BOOLEAN_SETTINGS else value
-        values["updated_at"] = datetime.now().isoformat()
+        values = _settings_values(user_id, data, self.get_settings(user_id))
         with self._cursor() as cursor:
             cursor.execute(_SETTINGS_UPSERT, values)
         return True
@@ -458,25 +555,7 @@ class PostgresUserRepository:
         return _workspace_row(row, detail=True) if row else None
 
     def save_workspace(self, user_id: str, session_name: str, data: Dict[str, Any]) -> bool:
-        values: Dict[str, Any] = {
-            "user_id": user_id,
-            "session_name": session_name,
-            "layout": data.get("layout", "single"),
-            "charts": json.dumps(data.get("charts", [])),
-            "active_chart_id": data.get("active_chart_id", 1),
-            "symbol": data.get("symbol", "MNQ"),
-            "timeframe": data.get("timeframe", "1m"),
-            "show_tape": _stored_flag(data.get("show_tape", True)),
-            "show_order_entry": _stored_flag(data.get("show_order_entry", True)),
-            "drawings": json.dumps(data.get("drawings", [])),
-            "panel_sizes": json.dumps(data.get("panel_sizes", {})),
-            "symbol_settings": json.dumps(data.get("symbol_settings", {})),
-            "indicator_settings": json.dumps(data.get("indicator_settings", {})),
-            "visibility_settings": json.dumps(data.get("visibility_settings", {})),
-            "show_dom": _stored_flag(data.get("show_dom", False) or data.get("showDom", False)),
-            "chart_settings": json.dumps(data.get("chart_settings", {})),
-            "updated_at": datetime.now().isoformat(),
-        }
+        values = _workspace_values(user_id, session_name, data)
         with self._cursor() as cursor:
             cursor.execute(_WORKSPACE_UPSERT, values)
         return True
@@ -558,13 +637,7 @@ class PostgresUserRepository:
         skill: Optional[str] = None,
         agent_actions: Optional[Dict[str, Any]] = None,
     ) -> None:
-        values = {
-            "user_id": user_id,
-            "role": role,
-            "content": content,
-            "skill": skill,
-            "agent_actions": json.dumps(agent_actions) if agent_actions else None,
-        }
+        values = _chat_values(user_id, role, content, skill, agent_actions)
         with self._cursor() as cursor:
             cursor.execute(_CHAT_INSERT, values)
 
@@ -601,15 +674,7 @@ class PostgresUserRepository:
         }
 
     def save_algolab_state(self, user_id: str, state: Dict[str, Any]) -> None:
-        values = {
-            "user_id": user_id,
-            "open_files": json.dumps(state.get("open_files", [])),
-            "file_contents": json.dumps(state.get("file_contents", {})),
-            "active_file_path": state.get("active_file_path"),
-            "is_chat_open": _stored_flag(state.get("is_chat_open")),
-            "chat_width": state.get("chat_width", 350),
-            "updated_at": datetime.now().isoformat(),
-        }
+        values = _algolab_values(user_id, state)
         with self._cursor() as cursor:
             cursor.execute(_ALGOLAB_UPSERT, values)
 
@@ -655,16 +720,13 @@ class PostgresUserRepository:
         credential_blob: str = "",
     ) -> bool:
         """Create or update one account of one tenant."""
-        now = datetime.now().isoformat()
-        values = {
-            "user_id": user_id,
-            "platform": platform,
-            "account_id": account_id,
-            "metadata": json.dumps(metadata or {}),
-            "credential_blob": credential_blob or "",
-            "created_at": now,
-            "updated_at": now,
-        }
+        values = _broker_account_values(
+            user_id=user_id,
+            platform=platform,
+            account_id=account_id,
+            metadata=metadata,
+            credential_blob=credential_blob,
+        )
         with self._cursor() as cursor:
             cursor.execute(_BROKER_ACCOUNT_UPSERT, values)
         return True
@@ -941,18 +1003,63 @@ def _read_legacy_rows(path: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
         connection.close()
 
 
-_repository: Optional[PostgresUserRepository] = None
+_repository: Optional["UserRepository"] = None
 
 
-def get_repository() -> PostgresUserRepository:
-    """Return the process repository, created from ``DATABASE_URL`` on first use."""
+STORAGE_ENV = "QLLAMA_STORAGE"
+SQLITE_PATH_ENV = "QLLAMA_SQLITE_PATH"
+STORAGE_POSTGRES = "postgres"
+STORAGE_SQLITE = "sqlite"
+
+UserRepository = Union[PostgresUserRepository, "SqliteUserRepository"]
+
+
+def storage_backend() -> str:
+    """Which store this process uses: PostgreSQL unless told otherwise.
+
+    Unset keeps the cloud deployment exactly as it is: PostgreSQL from
+    ``DATABASE_URL``, same failures when it is missing. Only an explicit
+    ``QLLAMA_STORAGE=sqlite`` moves the per-user tables to a local file.
+    """
+    raw = (os.environ.get(STORAGE_ENV) or "").strip().lower()
+    if not raw:
+        return STORAGE_POSTGRES
+    if raw in (STORAGE_POSTGRES, "postgresql"):
+        return STORAGE_POSTGRES
+    if raw == STORAGE_SQLITE:
+        return STORAGE_SQLITE
+    raise ValueError(
+        f"{STORAGE_ENV} must be '{STORAGE_POSTGRES}' or '{STORAGE_SQLITE}', got {raw!r}"
+    )
+
+
+def sqlite_path() -> str:
+    """File the local backend reads and writes; ``config/quantum_llama.db`` by default."""
+    raw = (os.environ.get(SQLITE_PATH_ENV) or "").strip()
+    if raw:
+        return raw
+    from src.services.sqlite_user_repository import default_sqlite_path
+
+    return default_sqlite_path()
+
+
+def _build_repository() -> "UserRepository":
+    if storage_backend() == STORAGE_SQLITE:
+        from src.services.sqlite_user_repository import SqliteUserRepository
+
+        return SqliteUserRepository(sqlite_path())
+    return PostgresUserRepository(database_url())
+
+
+def get_repository() -> "UserRepository":
+    """Return the process repository, built from the storage switch on first use."""
     global _repository
     if _repository is None:
-        _repository = PostgresUserRepository(database_url())
+        _repository = _build_repository()
     return _repository
 
 
-def set_repository(repository: Optional[PostgresUserRepository]) -> None:
+def set_repository(repository: Optional["UserRepository"]) -> None:
     """Install a repository (tests and operational overrides)."""
     global _repository
     _repository = repository

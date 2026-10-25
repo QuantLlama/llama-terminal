@@ -22,16 +22,46 @@ imported lazily, so a process that never touches storage does not need it loaded
 
 ### When `DATABASE_URL` is missing
 
-The app no longer falls back to SQLite. `db_get_settings`, workspace reads and
-writes, AlgoLab state and chat history raise `DatabaseNotConfigured`, and the API
-answers **503** with the reason instead of returning or storing shared data. Every
-`/api/accounts/*` route answers the same way: broker accounts are PostgreSQL rows
-now, so there is no JSON file to fall back to. Startup keeps running (the lifespan
+The cloud deployment has one source of truth: PostgreSQL. Without `DATABASE_URL`
+the app does not silently fall back to a file. `db_get_settings`, workspace reads
+and writes, AlgoLab state and chat history raise `DatabaseNotConfigured`, and the
+API answers **503** with the reason instead of returning or storing shared data.
+Every `/api/accounts/*` route answers the same way: broker accounts are PostgreSQL
+rows, so there is no JSON file to fall back to. Startup keeps running (the lifespan
 logs the error), so the failure is visible per request rather than as a silently
 degraded deployment with two sources of truth.
 
-SQLite at `config/quantum_llama.db` is therefore no longer a system of record. It
-is only read once by the compatibility import.
+### Local mode: an explicit SQLite switch
+
+A workstation can run entirely from a local SQLite file, which removes the network
+round trip that dominates every query when the database is remote:
+
+| Variable | Effect |
+| --- | --- |
+| `QLLAMA_STORAGE` | `sqlite` serves every per-user table from a file; `postgres` forces PostgreSQL; **unset keeps today's behaviour exactly** |
+| `QLLAMA_SQLITE_PATH` | SQLite file for local mode (default `config/quantum_llama.db`) |
+
+The switch is explicit on purpose. A deployment that says nothing keeps one source
+of truth in PostgreSQL, so the cloud can never fall back to a file by accident.
+Authentication is not part of this: the login still goes to Supabase in both modes.
+
+Measured on a workstation reading the cloud through an SSH tunnel: 202 ms per
+trivial query and ~2 s for a ten-query screen, against **0.56 ms** from the local
+SQLite file for the same call.
+
+`scripts/migrate_cloud_to_sqlite.py` copies the cloud rows into the local file,
+idempotently and with `credential_blob` verbatim (it is encrypted per user with the
+installation master key, so the same `QL_CREDENTIAL_MASTER_KEY` still decrypts it).
+Run it through the tunnel when you want a fresh snapshot:
+
+```bash
+python scripts/migrate_cloud_to_sqlite.py --sqlite-path config/quantum_llama.db
+```
+
+**The copy is a snapshot, not a sync.** Once local mode is on, a settings or
+workspace change made locally does not appear in the cloud, and the reverse is
+true. Re-running the migration brings the cloud rows over; it never pushes local
+rows back.
 
 ## Schema
 
