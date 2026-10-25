@@ -43,3 +43,26 @@ def test_leaves_symbols_yahoo_already_understands_alone(ticker):
 def test_is_idempotent():
     once = yahoo_symbol("BTCUSDT")
     assert yahoo_symbol(once) == once
+
+
+# ── per-request history limits ──────────────────────────────────────────────
+
+from src.data.loader import yahoo_period
+
+
+@pytest.mark.parametrize(
+    "period, interval, expected",
+    [
+        ("1y", "1m", "7d"),      # Yahoo serves 8 days of 1m at most
+        ("59d", "1m", "7d"),
+        ("5d", "1m", "5d"),      # asking for less than the cap is fine
+        ("1y", "5m", "59d"),     # 2m-1h are capped at 60 days
+        ("1y", "1h", "59d"),
+        ("1y", "1d", "1y"),      # daily history has no intraday cap
+        ("max", "1h", "59d"),
+        ("6mo", "1h", "59d"),    # 180 days requested, 60 served
+        ("1mo", "1h", "1mo"),    # 30 days fits under the cap
+    ],
+)
+def test_caps_intraday_periods_to_what_yahoo_serves(period, interval, expected):
+    assert yahoo_period(period, interval) == expected
