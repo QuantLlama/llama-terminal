@@ -63,8 +63,25 @@ def test_deploy_requirements_are_not_empty_and_stay_minimal():
 def test_image_ships_the_tools_offsite_backup_needs():
     """The nightly backup runs inside the container, so its tools must be in the image."""
     dockerfile = (ROOT / "Dockerfile").read_text()
-    for package in ("postgresql-client", "gzip"):
+    for package in ("postgresql-client-16", "gzip"):
         assert package in dockerfile, (
             f"{package} is required by scripts/backup_to_r2.py at runtime but is not "
             "installed in the image"
         )
+
+
+def test_backup_client_matches_the_server_major_version():
+    """`pg_dump` refuses to dump a server newer than itself.
+
+    The managed database is PostgreSQL 16; the Debian bookworm default client is
+    15 and aborts with "server version mismatch", which is how the first
+    encrypted dump silently produced no file.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "postgresql-client-16" in dockerfile
+    assert "bookworm-pgdg" in dockerfile, (
+        "the versioned client has to come from the PGDG repository"
+    )
+    assert re.search(r"^\s*postgresql-client \\\\$", dockerfile, re.M) is None, (
+        "the unversioned distro client (15) must not be installed instead"
+    )
