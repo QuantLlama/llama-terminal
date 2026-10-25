@@ -96,6 +96,13 @@ ATAS and comparable terminals look dense and technical, not decorative:
   are now asserted against the file that owns them (component renders the key, every language
   defines it). Never ship a change to these two components without running
   `python -m pytest tests/test_login_and_guide.py`.
+- **L9** — Evidence, second review (candidate: the six commits after `414399e`). Reached `approved`
+  through readability + reliability reviewers, one refuter and one targeted validator. The refuter
+  caught a CRITICAL finding I introduced: to satisfy the retargeted Python contract I had replaced
+  `(sin definir)` with the English `(unset)` in the Spanish dictionary and then written the test to
+  demand the English literal in every language, which hid the translation regression behind the very
+  test meant to protect it. Fixed in `17c89d0`; each language is now held to its own placeholder.
+  Lesson: a test written to satisfy CI can encode the defect it should catch.
 - **L7** — Delivery slices on `feat/login-redesign`: `4e01603` dictionaries (i18n only), `8c808f9`
-  login surface, `846a2b5` setup guide, `53669b0` review findings, `63b908d` contract tests. Each
+  login surface, `846a2b5` setup guide, `53669b0` review findings, `63b908d` contract tests, `17c89d0` review correction. Each
   slice carries its tests and its `?v=` bump, so every commit is loadable on its own.
