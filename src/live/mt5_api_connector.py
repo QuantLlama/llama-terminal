@@ -60,7 +60,11 @@ class MT5ApiConnector:
         self._client = httpx.Client(
             base_url=self.base_url,
             timeout=httpx.Timeout(10.0, connect=5.0),
-            headers=bridge_headers(),
+            # The token is attached per request, not frozen here: this connector is
+            # instantiated while src/live/connector.py is imported, which happens
+            # before load_dotenv() runs. Freezing the headers built a client with
+            # no X-Bridge-Token and every connect() answered 401.
+            event_hooks={"request": [self._attach_bridge_auth]},
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
         )
         if auto_launch_enabled():
@@ -68,6 +72,18 @@ class MT5ApiConnector:
         else:
             logger.info(f"MT5 bridge auto-launch disabled. Using {self.base_url}")
         self.initialized = True
+
+    def _attach_bridge_auth(self, request):
+        """Attach the shared bridge token as it exists for this request.
+
+        Reading the environment here keeps the token correct even when the client
+        was built before the configuration was loaded, and picks up a rotation
+        without rebuilding the connector.
+        """
+        headers = bridge_headers()
+        if headers:
+            for name, value in headers.items():
+                request.headers[name] = value
 
     def _is_server_up(self):
         import socket
