@@ -35,7 +35,7 @@
       env: [
         ['MT5_BRIDGE_BIND', '127.0.0.1', 'Interfaz donde escucha el bridge. Pon 0.0.0.0 para exponerlo en la red privada.'],
         ['MT5_BRIDGE_PORT', '8081', 'Puerto donde escucha el bridge. La URL de la plataforma tiene que usar el mismo puerto.'],
-        ['MT5_BRIDGE_TOKEN', '(sin definir)', 'Token compartido que se valida en cada pedido. Obligatorio en cuanto otra máquina pueda alcanzar el bridge.'],
+        ['MT5_BRIDGE_TOKEN', '(unset)', 'Token compartido que se valida en cada pedido. Obligatorio en cuanto otra máquina pueda alcanzar el bridge.'],
         ['MT5_BRIDGE_URL', 'http://127.0.0.1:8081', 'Dónde busca la plataforma el bridge cuando la variable no está definida.']
       ],
       stepsTitle: 'Pasos',
