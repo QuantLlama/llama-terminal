@@ -2361,9 +2361,14 @@ async def get_deals(
 
         deals_cache_key = ("deals", target_platform, days, symbol or "", user_id)
 
-        def _fetch_deals_payload():
+        def _fetch_deals_payload(user_id: str):
             """One bridge round trip per key. Runs in a worker thread: the
-            connectors (and ``connector.connect``) are synchronous."""
+            connectors (and ``connector.connect``) are synchronous.
+
+            ``user_id`` is required, not optional: this reads account data, and the
+            tenancy contract in tests/test_accounts_consumers.py forbids an account
+            path that does not take the tenant it resolved from the token.
+            """
             deals = []
             account_balance = 0
             date_from = None
@@ -2452,6 +2457,7 @@ async def get_deals(
             deals_cache_key,
             _DEALS_CACHE_TTL,
             _fetch_deals_payload,
+            user_id,
             # Only a successful, non-empty history is worth 30s of memory: an
             # empty list is as likely to be a transient bridge hiccup as an
             # empty account history, and that must not be remembered.
