@@ -112,20 +112,20 @@
     "@babel/parser": "^7.29.0",
     "@babel/preset-env": "^7.24.0",
     "@babel/preset-react": "^7.24.0",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/react": "^16.3.3",
     "babel-jest": "^29.7.0",
     "electron": "^45.0.0",
     "electron-builder": "^26.18.0",
     "jest": "^29.7.0",
-    "jest-environment-jsdom": "^30.4.1",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "jest-environment-jsdom": "^30.5.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "dependencies": {
-    "bytenode": "^1.5.7",
-    "monaco-editor": "^0.44.0",
+    "bytenode": "^1.7.0",
+    "monaco-editor": "^0.57.0",
     "tar": "^7.5.22",
     "tree-kill": "^1.2.2",
-    "wait-on": "^9.0.4"
+    "wait-on": "^9.5.1"
   }
 }
