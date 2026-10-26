@@ -42,13 +42,17 @@ if [[ ! -f "$MT5_EXE" ]]; then
     exit 1
 fi
 
-# Exit successfully when the terminal already runs: a second wine start would
-# compete for the same data profile and take the session away from the bridge,
-# which is already connected to the running terminal. Match the executable name
-# that is actually configured, not just the default one.
+# Wait when a terminal already runs instead of exiting: a second wine start
+# would compete for the same data profile, but exiting leaves this unit without
+# ownership — MT5 can exit with status 0 and nothing restarts it, which is how
+# the bridge ended up booting its own terminal. Waiting keeps the unit active and
+# starts the configured terminal as soon as the other instance goes away.
 if pgrep -f -- "$(basename "$MT5_EXE")" >/dev/null 2>&1; then
-    echo "MetaTrader 5 is already running; nothing to do"
-    exit 0
+    echo "MetaTrader 5 is already running; waiting for it to exit"
+    while pgrep -f -- "$(basename "$MT5_EXE")" >/dev/null 2>&1; do
+        sleep 5
+    done
+    echo "the other MetaTrader 5 instance exited; starting this one"
 fi
 
 exec wine "$MT5_EXE"
