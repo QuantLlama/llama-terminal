@@ -18,7 +18,7 @@ started at login, and never closed by the platform.
 | T1 | S1, S2, S4 | Bridge: demand lease, gate that withholds the terminal boot (never blocks a route), `/api/terminal/demand` and `/api/terminal/status`; tests | inline (contract author) | DONE: `d75ac4e`; 20 tests pass |
 | T2 | S1, S2, S4 | Platform: renew the lease only while browser sessions are connected; no renewal from polling or services startup; tests | inline | DONE: `29ee7b5`; 12 tests pass |
 | T3 | S1, S2, S3 | Delivery: terminal unit loses `Restart=always`, bridge unit no longer pulls it in, installer stops enabling it; docs | inline | DONE: this commit; 5 unit-contract tests pass |
-| T4 | S1-S4 | Verification: focused suites, full suite, then machine activation (needs operator authorization: systemd units live outside the repository) | inline | PARTIAL: full suite 784 passed / 1 skipped; docs links resolve; secret scan clean; machine activation pending operator authorization |
+| T4 | S1-S4 | Verification: focused suites, full suite, then machine activation (needs operator authorization: systemd units live outside the repository) | inline | PARTIAL: full suite 786 passed / 1 skipped; independent verifier all-MET; machine activated; native review blocked at the targeted-validator slot (unburned authority) |
 
 ## Log
 
@@ -84,3 +84,44 @@ is green afterwards (784 passed, 1 skipped).
 Machine activation is NOT done by these commits: the units and the installed
 runtime copy live outside the repository (`~/.config/systemd/user`,
 `~/.local/share/qllama/runtime`), so it needs explicit operator authorization.
+
+### L7 — native review and correction
+
+Lineage `review-5ec1c719957cc28a` (tier high, 4 lenses: risk, resilience, readability,
+reliability; 15 paths, 1060 original lines, correction budget 200). The four lens
+reviewers admitted their findings, and the refuter corroborated three
+candidate-caused CRITICAL findings, all in the delivery slice:
+
+| Finding | Claim | Correction |
+| --- | --- | --- |
+| R3-001, R4-001 | An on-demand terminal is a child of the bridge cgroup; with the terminal unit no longer pulled in, the routine bridge restart killed MT5, so the platform closed a terminal the operator did not close (violates S3) | `KillMode=process` on `qllama-mt5-bridge.service`; test asserts it |
+| R4-002 | The installer printed "autostart disabled" unconditionally after a silent `disable || true`, hiding a failed disable | installer reads `is-enabled`, disables only when needed, and reports a still-enabled failure |
+
+Correction committed as `2230745` (37 diff lines, inside the 200 budget). RED first:
+2 new assertions failed, then 7/7 in `tests/test_mt5_terminal_units.py`; full suite
+786 passed / 1 skipped. `corrected_candidate_unavailable` was resolved by committing
+the correction, as the review is `committed-only`.
+
+### L8 — review blocker and activation deviations
+
+- The targeted-validator slot (`provider_targeted_validator`, revision
+  `sha256:7ef10812…`, request `sha256:7cf1a927…`) was offered again by a fresh bound
+  STATUS after the correction, and its capture was rejected twice:
+  `capture-binding-rejected: collectBinding is missing or stale for current STATUS`
+  (once without `validationRequest`, once with the complete binding; the forecast for
+  the same binding was accepted and authorised one relayed run). No verdict was
+  invented and nothing further was submitted. Authority stays at `correction_required`
+  and is not burned, so this candidate has **no native approval**; delivery remains the
+  operator's decision.
+- Activation deviation, reported honestly: the earlier plan was
+  `systemctl --user disable --now qllama-mt5-terminal`. Between the question and the
+  execution the unit had become the owner of a live `terminal64.exe`, so `--now` would
+  have closed MT5 (against S3). Only `disable` was run. `install_bridge_runtime.sh`
+  installed the units and the runtime copy, and the bridge was restarted to load the
+  gate; that restart closed the terminal the bridge owned at the time, which is exactly
+  the defect R3-001/R4-001 describe and `2230745` fixes.
+- Live state after activation: `qllama-mt5-terminal` disabled and inactive,
+  `qllama-mt5-bridge` active, MT5 not running, and
+  `GET /api/terminal/status` returns `{"terminal_running": false, "session_alive":
+  false, "demand_active": false}` with no operator session open. That is S2 satisfied:
+  nothing boots the terminal until a platform session is connected.
