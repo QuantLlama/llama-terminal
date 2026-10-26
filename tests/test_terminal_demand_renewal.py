@@ -251,12 +251,8 @@ def test_release_never_runs_while_a_session_stays_open(monkeypatch, services):
 def test_release_uses_a_sequence_newer_than_any_renewal(monkeypatch, services):
     """Order independence: a late renewal must be older than the release."""
     seen = []
-    monkeypatch.setattr(
-        services, "_send_terminal_demand", lambda: seen.append(("renew", services._next_demand_seq()))
-    )
-    monkeypatch.setattr(
-        services, "_release_terminal_demand", lambda: seen.append(("release", services._next_demand_seq()))
-    )
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda: seen.append(("renew", services._next_demand_seq())))
+    monkeypatch.setattr(services, "_release_terminal_demand", lambda: seen.append(("release", services._next_demand_seq())))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -273,4 +269,38 @@ def test_release_uses_a_sequence_newer_than_any_renewal(monkeypatch, services):
     assert max(release_seqs) > max(renew_seqs), (
         "the release must carry the newest sequence, so a renewal still in flight "
         "cannot re-arm the lease after the last session closed"
+    )
+
+
+def test_production_deliveries_carry_a_monotonic_sequence(monkeypatch, services):
+    """The race fix only exists if the real deliveries send the sequence."""
+    module = importlib.import_module("src.live.mt5_api_connector")
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "request_terminal_demand",
+        lambda seq=None, timeout=3.0: calls.append(("renew", seq)),
+    )
+    monkeypatch.setattr(
+        module,
+        "release_terminal_demand",
+        lambda seq=None, timeout=3.0: calls.append(("release", seq)),
+    )
+
+    services._send_terminal_demand()
+    services._release_terminal_demand()
+
+    assert [kind for kind, _ in calls] == ["renew", "release"]
+    assert all(isinstance(seq, int) for _, seq in calls), calls
+    assert calls[1][1] > calls[0][1], "the release must outrank the renewal it follows"
+
+
+def test_sequence_survives_a_platform_restart(services):
+    """A restarted process must not reuse numbers the bridge already applied."""
+    import time as _time
+
+    first = services._next_demand_seq()
+
+    assert first > int(_time.time() * 1_000_000) - 60_000_000, (
+        "the counter is seeded from the wall clock so a restart jumps ahead"
     )

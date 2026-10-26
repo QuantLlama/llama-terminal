@@ -113,7 +113,10 @@ _demand_task = None
 #: independent background calls, so the bridge has to be able to tell which one
 #: is older: a renewal still in flight when the last session closes must not
 #: re-arm the lease, and a slow release must not revoke a newer session.
-_demand_seq = itertools.count(1)
+# Seeded from the wall clock so a restarted platform process cannot reuse sequence
+# numbers the bridge already applied: a lower number would be treated as stale
+# and its renewals ignored until the counter caught up.
+_demand_seq = itertools.count(int(time.time() * 1_000_000))
 
 
 def _next_demand_seq() -> int:
@@ -144,7 +147,7 @@ def _send_terminal_demand() -> None:
     """Renew the lease once; a failure only means the lease lapses."""
     try:
         from src.live.mt5_api_connector import request_terminal_demand
-        request_terminal_demand()
+        request_terminal_demand(_next_demand_seq())
     except Exception as exc:
         logger.debug(f"No se pudo renovar la demanda de terminal MT5: {exc}")
 
@@ -153,7 +156,7 @@ def _release_terminal_demand() -> None:
     """Drop the lease now that nobody is connected; failures only delay it."""
     try:
         from src.live.mt5_api_connector import release_terminal_demand
-        release_terminal_demand()
+        release_terminal_demand(_next_demand_seq())
     except Exception as exc:
         logger.debug(f"No se pudo liberar la demanda de terminal MT5: {exc}")
 
