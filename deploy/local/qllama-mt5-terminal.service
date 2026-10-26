@@ -1,0 +1,25 @@
+[Unit]
+Description=Quantum Llama MT5 terminal (Wine)
+# The terminal has to outlive the bridge: restarting the bridge kills its
+# cgroup, so a terminal booted through mt5.initialize() dies with it. Its own
+# unit also gives the terminal a restart policy after a reboot.
+After=graphical-session.target
+Wants=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Runs from the system disk on purpose: see qllama-mt5-bridge.service.
+WorkingDirectory=%h/.local/share/qllama/runtime
+# Wine's fixme spam is useless here and buries the bridge's own messages.
+Environment=WINEDEBUG=-all
+# The display is resolved by the script, not hardcoded here.
+ExecStart=/bin/bash -lc 'exec scripts/start_mt5_terminal.sh'
+# on-failure, not always: when the bridge already booted a terminal through
+# mt5.initialize(), a second wine start exits 0 and "always" builds a restart
+# loop that never owns the terminal.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -38,11 +38,22 @@ set MT5_BRIDGE_TOKEN=<your token>
 start_mt5_server.bat
 ```
 
-Linux with Wine (MT5 running under Wine, Python inside the same prefix):
+Linux with Wine (MT5 running under Wine, Python inside the same prefix). The
+two units from `deploy/local/` are the supported path: the terminal unit opens
+MetaTrader 5 inside the graphical session (Wine needs an X display) and its own
+unit is what keeps MT5 open across reboots, while the bridge starts after it.
+
+```bash
+./scripts/install_bridge_runtime.sh   # copies the runtime files and both units
+systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service
+```
+
+To run it by hand instead:
 
 ```bash
 export MT5_BRIDGE_BIND=0.0.0.0
 export MT5_BRIDGE_TOKEN=<your token>
+./scripts/start_mt5_terminal.sh    # resolves the X display, starts terminal64.exe
 wine python -m uvicorn mt5_server:app --host "$MT5_BRIDGE_BIND" --port 8081
 ```
 
@@ -153,15 +164,16 @@ encrypted removable volume, and a unit whose working directory is there fails
 with `status=200/CHDIR` until that volume is unlocked (`systemd` reports
 `Changing to the requested working directory failed: No such file or directory`).
 
-Install the six runtime files on the system disk first, then the units:
+Install the runtime files on the system disk first, then the units:
 
 ```bash
 ./scripts/install_bridge_runtime.sh            # copies to ~/.local/share/qllama/runtime
 ./scripts/install_bridge_runtime.sh --check    # exits 1 when the copy is stale
 mkdir -p ~/.config/systemd/user
-cp deploy/local/*.service ~/.config/systemd/user/
+# scripts/install_bridge_runtime.sh also copies the units:
+# cp deploy/local/*.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now qllama-mt5-bridge.service qllama-crypto-proxy.service
+systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service qllama-crypto-proxy.service
 sudo loginctl enable-linger "$USER"   # keep them running without an active login
 ```
 
