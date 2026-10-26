@@ -24,6 +24,11 @@ PassEnvironment=DISPLAY XAUTHORITY
 ExecStart=/bin/bash -lc 'exec scripts/start_mt5_bridge.sh'
 Restart=always
 RestartSec=5
+# The terminal this unit boots on demand is a child of this cgroup, so the default
+# control-group kill would close MT5 on every bridge restart (Restart=always makes
+# that routine). Kill only the bridge process: the platform never closes the
+# terminal, the operator does.
+KillMode=process
 
 [Install]
 WantedBy=default.target

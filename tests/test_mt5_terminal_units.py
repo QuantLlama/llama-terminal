@@ -66,3 +66,23 @@ def test_installer_disables_the_terminal_autostart():
     assert "stop qllama-mt5-terminal.service" not in script, (
         "stopping the unit would close a terminal the operator is using"
     )
+
+
+def test_bridge_unit_survives_a_restart_without_closing_the_terminal():
+    service = _unit(BRIDGE_UNIT)["Service"]
+
+    assert service.get("KillMode") == "process", (
+        "an on-demand terminal lives in the bridge cgroup; a bridge restart would "
+        "close it, and the platform must never close the terminal"
+    )
+
+
+def test_installer_reports_the_real_autostart_state():
+    script = INSTALLER.read_text(encoding="utf-8")
+
+    assert "is-enabled" in script, (
+        "the installer must check the state instead of claiming success blindly"
+    )
+    assert "still enabled" in script, (
+        "a failed disable has to be reported, not hidden behind a success message"
+    )

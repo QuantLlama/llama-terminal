@@ -95,15 +95,23 @@ if [[ "$MODE" == "check" ]]; then
     exit "$drift"
 fi
 
+autostart="not checked (systemctl unavailable)"
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || true
     # The bridge boots the terminal on demand now, so the terminal unit must stop
     # coming back at login. It is disabled, never stopped: stopping the unit would
     # close a terminal the operator may be using right now.
-    systemctl --user disable qllama-mt5-terminal.service >/dev/null 2>&1 || true
+    if ! systemctl --user is-enabled qllama-mt5-terminal.service >/dev/null 2>&1; then
+        autostart="already disabled"
+    elif systemctl --user disable qllama-mt5-terminal.service >/dev/null 2>&1; then
+        autostart="disabled: MT5 starts on demand from an open platform session."
+    else
+        # Never claim success here: an enabled unit means MT5 still opens at login.
+        autostart="autostart still enabled (disable failed; run: systemctl --user disable qllama-mt5-terminal.service)"
+    fi
 fi
 
 echo "bridge runtime installed in $TARGET_DIR"
 echo "systemd units installed in $UNIT_DIR"
-echo "qllama-mt5-terminal.service autostart disabled: MT5 starts on demand from an open platform session."
+echo "qllama-mt5-terminal.service autostart: $autostart"
 echo "Start the terminal by hand with: systemctl --user start qllama-mt5-terminal.service"
