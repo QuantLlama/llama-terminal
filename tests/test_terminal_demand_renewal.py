@@ -84,7 +84,7 @@ def test_request_terminal_demand_posts_to_the_bridge_with_the_token(monkeypatch)
     assert module.request_terminal_demand() is True
 
     assert seen["posts"] == [
-        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"}, {"seq": None})
+        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"}, {"seq": None, "sender": None})
     ]
 
 
@@ -207,7 +207,7 @@ def test_release_terminal_demand_deletes_the_lease_with_the_token(monkeypatch):
     assert module.release_terminal_demand() is True
 
     assert seen["deletes"] == [
-        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"}, {"seq": None})
+        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"}, {"seq": None, "sender": None})
     ]
     assert seen.get("posts") is None
 
@@ -280,18 +280,19 @@ def test_workers_forward_the_sequence_to_the_connector(monkeypatch, services):
     monkeypatch.setattr(
         module,
         "request_terminal_demand",
-        lambda seq=None, timeout=3.0: calls.append(("renew", seq)),
+        lambda seq=None, sender=None, timeout=3.0: calls.append(("renew", seq, sender)),
     )
     monkeypatch.setattr(
         module,
         "release_terminal_demand",
-        lambda seq=None, timeout=3.0: calls.append(("release", seq)),
+        lambda seq=None, sender=None, timeout=3.0: calls.append(("release", seq, sender)),
     )
 
     services._send_terminal_demand(41)
     services._release_terminal_demand(42)
 
-    assert calls == [("renew", 41), ("release", 42)]
+    assert [(kind, seq) for kind, seq, _ in calls] == [("renew", 41), ("release", 42)]
+    assert all(sender is None or isinstance(sender, str) for _, _, sender in calls)
 
 
 def test_sequence_survives_a_platform_restart(services):

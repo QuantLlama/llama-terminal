@@ -47,15 +47,22 @@ async def ensure_mt5_session(request: Request, call_next):
 
 
 class DemandRequest(BaseModel):
-    """Optional monotonic sequence so out-of-order deliveries cannot flip the lease."""
+    """Optional sequence and sender so out-of-order deliveries cannot flip the lease.
+
+    The sequence is scoped per sender: several platforms can drive one bridge, and
+    their counters are independent.
+    """
 
     seq: Optional[int] = None
+    sender: Optional[str] = None
 
 
 @app.post("/api/terminal/demand")
 def api_terminal_demand(payload: Optional[DemandRequest] = None):
     """A platform session is open: allow the terminal to be booted."""
-    remaining = terminal_demand.renew(payload.seq if payload else None)
+    remaining = terminal_demand.renew(
+        payload.seq if payload else None, payload.sender if payload else None
+    )
     if remaining is None:
         return {"active": terminal_demand.active(), "applied": False}
     return {"active": True, "expires_in": remaining, "applied": True}
@@ -69,7 +76,9 @@ def api_terminal_demand_release(payload: Optional[DemandRequest] = None):
     ``MT5_TERMINAL_DEMAND_TTL`` after the window closed, and a single background
     poll inside that window boots a terminal for nobody. Nothing is terminated.
     """
-    applied = terminal_demand.revoke(payload.seq if payload else None)
+    applied = terminal_demand.revoke(
+        payload.seq if payload else None, payload.sender if payload else None
+    )
     return {"active": terminal_demand.active(), "applied": applied}
 
 
