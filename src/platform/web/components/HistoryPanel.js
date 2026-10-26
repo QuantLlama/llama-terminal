@@ -120,9 +120,12 @@ const HistoryPanel = ({ activeSymbol }) => {
       const dealTime = Number(d.time);
       const matchesTime = Number.isFinite(dealTime) && dealTime >= startTime;
 
-      // Si es una transacción de balance, sólo incluir si no hay un símbolo activo (vista global de la cuenta)
+      // Los movimientos de balance (depósitos, retiros, ajustes) son eventos de la
+      // CUENTA, no del símbolo. Ocultarlos cuando hay un símbolo activo dejaba el
+      // panel vacío aunque existieran movimientos reales, y sin ninguna
+      // explicación: el usuario sólo veía "no hay operaciones".
       if (isBalanceTransaction(d)) {
-        return matchesTime && !activeSymbol;
+        return matchesTime;
       }
 
       let matchesSymbol = !activeSymbol;
