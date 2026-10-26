@@ -125,3 +125,48 @@ the correction, as the review is `committed-only`.
   `GET /api/terminal/status` returns `{"terminal_running": false, "session_alive":
   false, "demand_active": false}` with no operator session open. That is S2 satisfied:
   nothing boots the terminal until a platform session is connected.
+
+### L9 — second review lineage, second correction
+
+Lineage `review-4b9906f1a80227b7` (target `sha256:4e49ce6…`, tier high, same four
+lenses, 15 paths, 1134 original lines). The four lenses and the refuter ran; the
+refuter corroborated four candidate-caused CRITICAL findings, two of them defects
+in the previous correction:
+
+| Finding | Claim | Correction |
+| --- | --- | --- |
+| R3-001, R4-001 | `systemctl --user is-enabled` exits non-zero both for a disabled unit and for an unreachable user bus, so the installer read a broken probe as "already disabled" and could report success with the unit still enabled | the unit state is decided from the command's text; only an explicit disabled-family answer counts, unreadable is reported as unknown |
+| R4-002 | The lease outlived the last session by its full TTL, so one background poll inside that window booted a terminal for nobody | the last disconnect now sends `DELETE /api/terminal/demand`; the bridge revokes the lease immediately and terminates nothing |
+| R4-003 | `allow_terminal_boot` treated an unreadable process probe as authorisation, recreating the polling boot loop on a runtime without `psutil` | an unknown probe withholds the boot and logs it; `psutil` is a declared deploy dependency |
+
+Correction committed as `5afcbcc` (195 diff lines, inside the 200 budget), RED
+first (6 new or changed assertions failed), full suite afterwards: **791 passed,
+1 skipped**.
+
+Ordering note: the correction plan must be declared before the fixing commit,
+because a commit moves the candidate target and the plan slot then points at a
+target that no longer exists. The first attempt committed first and the slot was
+rejected. `git reset --soft HEAD~1` restored the served target, the plan was
+accepted at 195 lines, and the same content was committed again.
+
+### L10 — blocked: the targeted-validator slot cannot be captured
+
+`provider_targeted_validator` (request `sha256:4b09b6b7…`, correction target
+`sha256:94c416e0…`, expected revision `sha256:58fd287a…`) was offered by a fresh
+bound STATUS, its **forecast was accepted** (one relayed `review-validator` run
+authorised), and the acknowledged submission was then rejected with
+`capture-binding-rejected: collectBinding is missing or stale for current STATUS`.
+
+The same shape blocked lineage `review-5ec1c719957cc28a` earlier in this session,
+where the slot was re-offered by a fresh STATUS and rejected twice (once without
+`validationRequest`, once with the complete object). Two independent lineages, the
+same slot, the same rejection, a forecast accepted each time: this is a defect in
+the validator slot, not a binding this session can repair by retrying or by
+hand-writing provider tokens.
+
+Consequence, stated plainly: **neither lineage reached approval.** Both stopped at
+`correction_required` with their authority unburned, so this candidate carries no
+native review approval. A maintainer has to inspect the review authority, or the
+provider has to be fixed, before a review of this range can complete. Delivery
+(commit, push, PR, merge) remains the operator's decision and is not authorised by
+anything in this document.
