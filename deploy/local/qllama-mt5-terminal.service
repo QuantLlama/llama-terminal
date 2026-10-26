@@ -15,10 +15,11 @@ WorkingDirectory=%h/.local/share/qllama/runtime
 Environment=WINEDEBUG=-all
 # The display is resolved by the script, not hardcoded here.
 ExecStart=/bin/bash -lc 'exec scripts/start_mt5_terminal.sh'
-# on-failure, not always: when the bridge already booted a terminal through
-# mt5.initialize(), a second wine start exits 0 and "always" builds a restart
-# loop that never owns the terminal.
-Restart=on-failure
+# always, not on-failure: MT5 exits with status 0 on a clean shutdown and on its
+# own restarts, so on-failure left the unit dead and the bridge booting a
+# terminal of its own. The launcher waits while another instance runs instead of
+# exiting, so "always" cannot flap.
+Restart=always
 RestartSec=10
 
 [Install]
