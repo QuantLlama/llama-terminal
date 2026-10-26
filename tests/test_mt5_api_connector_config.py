@@ -11,7 +11,10 @@ import pytest
 
 
 def _fresh_connector(monkeypatch, environ):
-    for key in ("MT5_BRIDGE_URL", "MT5_AUTO_LAUNCH"):
+    # ``src.services.auth`` calls ``load_dotenv()`` at import, so a token from the
+    # developer's .env would leak in and the "when unset" contract below would
+    # silently test the opposite. Clear it unless this test sets it.
+    for key in ("MT5_BRIDGE_URL", "MT5_AUTO_LAUNCH", "MT5_BRIDGE_TOKEN"):
         monkeypatch.delenv(key, raising=False)
     for key, value in environ.items():
         monkeypatch.setenv(key, value)

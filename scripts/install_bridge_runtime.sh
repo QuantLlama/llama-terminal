@@ -37,6 +37,7 @@ RUNTIME_FILES=(
     "src/live/mt5_native_connector.py"
     "src/live/mt5_bridge_auth.py"
     "src/live/mt5_bridge_session.py"
+    "src/live/mt5_terminal_demand.py"
 )
 
 # The units are installed by this script so a fresh machine does not depend on
@@ -94,9 +95,34 @@ if [[ "$MODE" == "check" ]]; then
     exit "$drift"
 fi
 
+autostart="not checked (systemctl unavailable)"
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || true
+    # The bridge boots the terminal on demand now, so the unit must stop coming
+    # back at login. Disable only, never stop: stopping it would close a terminal
+    # the operator may be using. `is-enabled` exits non-zero both for a disabled
+    # unit and for a broken user bus, so its text decides: only an explicit
+    # disabled-family answer is success, anything unreadable is unknown.
+    state="$(systemctl --user is-enabled qllama-mt5-terminal.service 2>/dev/null || true)"
+    case "$state" in
+        disabled|disabled-runtime|masked|masked-runtime|static|indirect|generated|transient|not-found)
+            autostart="already disabled ($state)"
+            ;;
+        enabled|enabled-runtime|linked|linked-runtime|alias)
+            if systemctl --user disable qllama-mt5-terminal.service >/dev/null 2>&1; then
+                autostart="disabled: MT5 starts on demand from an open platform session."
+            else
+                # Never claim success here: an enabled unit means MT5 still opens at login.
+                autostart="autostart still enabled (disable failed; run: systemctl --user disable qllama-mt5-terminal.service)"
+            fi
+            ;;
+        *)
+            autostart="could not query the unit state (systemctl --user is-enabled qllama-mt5-terminal.service returned '${state:-no output}'); MT5 may still start at login"
+            ;;
+    esac
 fi
 
 echo "bridge runtime installed in $TARGET_DIR"
 echo "systemd units installed in $UNIT_DIR"
+echo "qllama-mt5-terminal.service autostart: $autostart"
+echo "Start the terminal by hand with: systemctl --user start qllama-mt5-terminal.service"

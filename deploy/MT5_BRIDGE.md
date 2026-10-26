@@ -38,14 +38,46 @@ set MT5_BRIDGE_TOKEN=<your token>
 start_mt5_server.bat
 ```
 
-Linux with Wine (MT5 running under Wine, Python inside the same prefix). The
-two units from `deploy/local/` are the supported path: the terminal unit opens
-MetaTrader 5 inside the graphical session (Wine needs an X display) and its own
-unit is what keeps MT5 open across reboots, while the bridge starts after it.
+Linux with Wine (MT5 running under Wine, Python inside the same prefix). The two
+units from `deploy/local/` are the supported path: the bridge must be running,
+and the terminal is **booted on demand** — see [When does MT5 open?](#when-does-mt5-open).
 
 ```bash
-./scripts/install_bridge_runtime.sh   # copies the runtime files and both units
-systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service
+./scripts/install_bridge_runtime.sh   # copies the runtime files and the units
+systemctl --user enable --now qllama-mt5-bridge.service
+```
+
+The installer disables `qllama-mt5-terminal.service`, so MT5 does not open at
+login. To open the terminal yourself, either launch MetaTrader 5 normally or:
+
+```bash
+systemctl --user start qllama-mt5-terminal.service
+```
+
+### When does MT5 open?
+
+`mt5.initialize()` is what launches `terminal64.exe` when nothing answers, so the
+bridge is the only component that can open a terminal by itself. That boot is
+authorised by a short **demand lease**, never by polling:
+
+| Signal | Effect |
+| --- | --- |
+| A browser or desktop session of the platform is connected | renews the lease every `MT5_TERMINAL_DEMAND_RENEW` seconds (default `30`) |
+| Market-data polling, a running algorithm, a container restart, login | never renews it |
+| The last session closes | the platform releases the lease immediately (`DELETE /api/terminal/demand`), so no background poll boots a terminal in the gap |
+| No session for `MT5_TERMINAL_DEMAND_TTL` seconds (default `120`) | the lease also lapses on its own if the release cannot be delivered |
+| A terminal you opened by hand | served exactly as before, with or without a lease |
+
+The gate answers "is a terminal already running?" from the process table via
+`psutil`. When that answer is unavailable it withholds the boot instead of failing
+open, because failing open is the polling loop this removes.
+
+The platform never closes the terminal: once it runs it stays until you close it.
+Inspect the state without booting anything:
+
+```bash
+curl -s -H "X-Bridge-Token: <your token>" http://127.0.0.1:8081/api/terminal/status
+# {"terminal_running": false, "session_alive": false, "demand_active": false, "demand_remaining_seconds": 0.0}
 ```
 
 To run it by hand instead:
@@ -173,15 +205,21 @@ mkdir -p ~/.config/systemd/user
 # scripts/install_bridge_runtime.sh also copies the units:
 # cp deploy/local/*.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service qllama-crypto-proxy.service
+systemctl --user enable --now qllama-mt5-bridge.service qllama-crypto-proxy.service
 sudo loginctl enable-linger "$USER"   # keep them running without an active login
 ```
 
+`qllama-mt5-terminal.service` is installed but deliberately **not enabled**: the
+bridge boots the terminal on demand while a platform session is open, and a
+terminal that comes back at login or after being closed is what made MT5 look
+like it started by itself. Start it by hand with
+`systemctl --user start qllama-mt5-terminal.service`.
+
 Re-run `install_bridge_runtime.sh` after changing `mt5_server.py`, the
-`src/live/mt5_bridge_*` modules or `scripts/local_crypto_proxy.py`; the units
-keep running the installed copy, not the repository. Both units retry forever
-(`StartLimitIntervalSec=0`) because they are the cloud deployment's only route
-to MT5 and the exchange.
+`src/live/mt5_bridge_*` modules (including `mt5_terminal_demand.py`) or
+`scripts/local_crypto_proxy.py`; the units keep running the installed copy, not
+the repository. The bridge retries forever (`StartLimitIntervalSec=0`) because it
+is the cloud deployment's only route to MT5 and the exchange.
 
 Check them with `systemctl --user status qllama-mt5-bridge qllama-crypto-proxy`
 and follow logs with `journalctl --user -u qllama-mt5-bridge -f`.

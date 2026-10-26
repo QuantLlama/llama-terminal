@@ -60,12 +60,16 @@ logged-in terminal the bridge answers `503` on every data route.
 
 ```bash
 ./scripts/install_bridge_runtime.sh   # copies the runtime files and both units
-systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service
+systemctl --user enable --now qllama-mt5-bridge.service
 ```
 
-`qllama-mt5-terminal.service` opens the terminal inside the graphical session,
-because Wine needs an X display and otherwise dies with `nodrv_CreateWindow`;
-the bridge starts after it, and both come back on their own after a reboot.
+The bridge boots MetaTrader 5 **on demand**, while a browser or desktop session of
+the platform is connected, and never closes it: `MT5_TERMINAL_DEMAND_TTL`
+(default `120` s) and `MT5_TERMINAL_DEMAND_RENEW` (default `30` s) tune that lease.
+Market-data polling, a running algorithm and login-time service start do not
+renew it, so MT5 no longer opens when you are not using the platform. The
+terminal unit is installed but not enabled; open it yourself with
+`systemctl --user start qllama-mt5-terminal.service` or by launching MT5.
 
 The token is generated on first run and stored in
 `~/.config/qllama/mt5_bridge_token`; the script prints it once so you can copy it
@@ -107,9 +111,13 @@ mounted. Install a small dependency-free copy on the system disk instead.
 # scripts/install_bridge_runtime.sh also copies the units:
 # cp deploy/local/*.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service qllama-crypto-proxy.service
+systemctl --user enable --now qllama-mt5-bridge.service qllama-crypto-proxy.service
 sudo loginctl enable-linger "$USER"           # start at boot, without logging in
 ```
+
+`qllama-mt5-terminal.service` stays installed but disabled: the bridge opens the
+terminal only while a platform session is connected. Enabling it would put MT5
+back on screen at every login.
 
 Re-run `install_bridge_runtime.sh` after changing `mt5_server.py`, the
 `src/live/mt5_bridge_*` modules or `scripts/local_crypto_proxy.py`. The units run

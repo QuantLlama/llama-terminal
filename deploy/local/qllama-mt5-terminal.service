@@ -1,11 +1,14 @@
 [Unit]
-Description=Quantum Llama MT5 terminal (Wine)
-# The terminal has to outlive the bridge: restarting the bridge kills its
-# cgroup, so a terminal booted through mt5.initialize() dies with it. Its own
-# unit also gives the terminal a restart policy after a reboot.
+Description=Quantum Llama MT5 terminal (Wine, manual start)
+# The bridge boots this terminal on demand while a platform session is open, so
+# the unit exists only for starting it by hand. It must not start at login and
+# must not restart itself: a terminal that reappears seconds after being closed
+# is exactly the "MT5 opens by itself" behaviour it used to cause.
+#
+# Manual start:
+#   systemctl --user start qllama-mt5-terminal.service
 After=graphical-session.target
 Wants=graphical-session.target
-StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -15,12 +18,10 @@ WorkingDirectory=%h/.local/share/qllama/runtime
 Environment=WINEDEBUG=-all
 # The display is resolved by the script, not hardcoded here.
 ExecStart=/bin/bash -lc 'exec scripts/start_mt5_terminal.sh'
-# always, not on-failure: MT5 exits with status 0 on a clean shutdown and on its
-# own restarts, so on-failure left the unit dead and the bridge booting a
-# terminal of its own. The launcher waits while another instance runs instead of
-# exiting, so "always" cannot flap.
-Restart=always
-RestartSec=10
+# No restart policy, deliberately. The bridge is what boots the terminal on
+# demand (POST /api/terminal/demand, renewed only by an open platform session),
+# and the operator closes it whenever they want.
+Restart=no
 
 [Install]
 WantedBy=default.target

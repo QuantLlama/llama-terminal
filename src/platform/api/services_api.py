@@ -1,5 +1,7 @@
 import asyncio
+import itertools
 import json
+import os
 import time
 import threading
 import logging
@@ -101,17 +103,133 @@ async def ensure_algo_engine():
     return _algo_engine
 _active_connections = 0
 _shutdown_task = None
+#: How often an open platform session renews the bridge's terminal-demand lease.
+#: The lease itself is short (MT5_TERMINAL_DEMAND_TTL on the bridge), so closing
+#: the UI stops the terminal from being booted within a minute or two.
+TERMINAL_DEMAND_RENEW_ENV = "MT5_TERMINAL_DEMAND_RENEW"
+DEFAULT_TERMINAL_DEMAND_RENEW = 30.0
+_demand_task = None
+#: Monotonic sequence for demand deliveries. Renewal and release travel as
+#: independent background calls, so the bridge has to be able to tell which one
+#: is older: a renewal still in flight when the last session closes must not
+#: re-arm the lease, and a slow release must not revoke a newer session.
+# Seeded from the wall clock so a restarted platform process cannot reuse sequence
+# numbers the bridge already applied: a lower number would be treated as stale
+# and its renewals ignored until the counter caught up.
+_demand_seq = itertools.count(int(time.time() * 1_000_000))
+
+
+def _next_demand_seq() -> int:
+    return next(_demand_seq)
+
+
+def terminal_demand_renew_seconds() -> float:
+    """Renewal period in seconds; unusable values fall back to the default."""
+    raw = os.getenv(TERMINAL_DEMAND_RENEW_ENV, "").strip()
+    if not raw:
+        return DEFAULT_TERMINAL_DEMAND_RENEW
+    try:
+        seconds = float(raw)
+    except ValueError:
+        logger.warning(
+            f"Valor inválido en {TERMINAL_DEMAND_RENEW_ENV}={raw!r}; usando {DEFAULT_TERMINAL_DEMAND_RENEW}"
+        )
+        return DEFAULT_TERMINAL_DEMAND_RENEW
+    if seconds <= 0:
+        logger.warning(
+            f"Valor no positivo en {TERMINAL_DEMAND_RENEW_ENV}={raw!r}; usando {DEFAULT_TERMINAL_DEMAND_RENEW}"
+        )
+        return DEFAULT_TERMINAL_DEMAND_RENEW
+    return seconds
+
+
+def _send_terminal_demand(seq: int) -> None:
+    """Renew the lease once; a failure only means the lease lapses."""
+    try:
+        from src.live.mt5_api_connector import request_terminal_demand
+        request_terminal_demand(seq)
+    except Exception as exc:
+        logger.debug(f"No se pudo renovar la demanda de terminal MT5: {exc}")
+
+
+def _release_terminal_demand(seq: int) -> None:
+    """Drop the lease now that nobody is connected; failures only delay it."""
+    try:
+        from src.live.mt5_api_connector import release_terminal_demand
+        release_terminal_demand(seq)
+    except Exception as exc:
+        logger.debug(f"No se pudo liberar la demanda de terminal MT5: {exc}")
+
+
+def _terminal_demand_applies() -> bool:
+    """Only an MT5 workspace needs a terminal; a crypto one never boots it.
+
+    The engine is built a moment after the first connection, so an engine that is
+    not there yet keeps the default platform (mt5) instead of skipping the first
+    renewal and delaying the boot by a whole interval.
+    """
+    engine = _market_data_engine
+    if engine is None:
+        return True
+    return getattr(engine, "_platform", "mt5") == "mt5"
+
+
+async def _renew_terminal_demand():
+    """Keep the bridge's lease alive for as long as a session stays connected."""
+    while _active_connections > 0:
+        if _terminal_demand_applies():
+            # The sequence describes the EVENT, so it is taken here and not inside
+            # the worker: a worker scheduled earlier can finish later, and its
+            # number must still say "this renewal happened before that release".
+            seq = _next_demand_seq()
+            await asyncio.to_thread(_send_terminal_demand, seq)
+        await asyncio.sleep(terminal_demand_renew_seconds())
+
+
+def _start_terminal_demand():
+    global _demand_task
+    if _demand_task is not None and not _demand_task.done():
+        return
+    try:
+        _demand_task = asyncio.get_event_loop().create_task(_renew_terminal_demand())
+    except Exception as e:
+        print(f"ERROR: No se pudo iniciar la renovación de demanda de MT5: {e}")
+
+
+def _stop_terminal_demand():
+    global _demand_task
+    task = _demand_task
+    _demand_task = None
+    if task is not None and not task.done():
+        task.cancel()
+
 def register_connection():
     global _active_connections, _shutdown_task
     _active_connections += 1
     if _shutdown_task:
         _shutdown_task.cancel()
         _shutdown_task = None
+    # A person is looking at the platform: the terminal may be booted again.
+    _start_terminal_demand()
     print(f"WS_STATUS: Nueva conexión detectada. Total activas: {_active_connections}")
 def unregister_connection():
     global _active_connections, _shutdown_task
     if _active_connections > 0:
         _active_connections -= 1
+    # Nobody is using the platform: stop renewing the lease and let it lapse.
+    if _active_connections == 0:
+        _stop_terminal_demand()
+        # Revoke instead of waiting for the TTL: otherwise one background poll
+        # inside the lease window boots a terminal for nobody. The sequence is
+        # taken now, so a release whose worker starts late still outranks the
+        # renewals that were already in flight when the last session closed.
+        release_seq = _next_demand_seq()
+        try:
+            asyncio.get_event_loop().create_task(
+                asyncio.to_thread(_release_terminal_demand, release_seq)
+            )
+        except Exception as e:
+            print(f"ERROR: No se pudo liberar la demanda de MT5: {e}")
     print(f"WS_STATUS: Conexión cerrada. Restantes: {_active_connections}")
     if _active_connections == 0:
         if _shutdown_task:

@@ -29,6 +29,48 @@ def bridge_headers():
     return {"X-Bridge-Token": token} if token else None
 
 
+#: Lease route the bridge uses to decide whether it may boot the terminal.
+TERMINAL_DEMAND_PATH = "/api/terminal/demand"
+
+
+def request_terminal_demand(seq=None, timeout=3.0):
+    """Renew the bridge's terminal-demand lease for one open platform session.
+
+    The bridge boots ``terminal64.exe`` through ``mt5.initialize()``, so it boots
+    one only while this lease is alive. Posting here is therefore reserved for a
+    connected browser/desktop session: background polling never renews it, and a
+    failure is only transport noise because the lease simply lapses.
+    """
+    return _terminal_demand_call("post", seq, timeout)
+
+
+def release_terminal_demand(seq=None, timeout=3.0):
+    """Drop the lease as soon as the last platform session closes.
+
+    Without this the lease outlives the session by ``MT5_TERMINAL_DEMAND_TTL``, and
+    one background poll inside that window boots a terminal for nobody.
+    """
+    return _terminal_demand_call("delete", seq, timeout)
+
+
+def _terminal_demand_call(method, seq, timeout):
+    url = f"{resolve_bridge_url().rstrip('/')}{TERMINAL_DEMAND_PATH}"
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            # ``request`` is used because ``Client.delete()`` has no ``json``
+            # parameter, and both deliveries need to carry their sequence.
+            response = client.request(
+                method.upper(), url, headers=bridge_headers() or {}, json={"seq": seq}
+            )
+    except Exception as exc:
+        logger.debug(f"MT5 terminal demand {method} failed: {exc}")
+        return False
+    if response.status_code >= 400:
+        logger.debug(f"MT5 terminal demand {method} rejected: HTTP {response.status_code}")
+        return False
+    return True
+
+
 class _BridgeCallContext:
     """``with`` block over the connector's shared client.
 
