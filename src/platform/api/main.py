@@ -2352,6 +2352,22 @@ async def get_deals(
             raise HTTPException(status_code=400, detail="Only MT5 and Crypto platforms are supported")
 
         sanitized_deals = sanitize_float(deals)
+        # An empty history and an unreadable bridge both render as "no deals",
+        # so say how many rows the connector returned and how many survived
+        # sanitising. Wrapped because observability must never break the call.
+        try:
+            raw_deals = len(deals) if deals is not None else 0
+            kept_deals = len(sanitized_deals) if sanitized_deals is not None else 0
+            if hasattr(date_from, "isoformat"):
+                date_from_text = date_from.isoformat()
+            else:
+                date_from_text = date_from
+            logger.info(
+                f"[DEALS_RESULT] platform={target_platform} raw={raw_deals} "
+                f"kept={kept_deals} days={days} date_from={date_from_text}"
+            )
+        except Exception:
+            pass
         response = {
             "status": "success",
             "platform": target_platform,
@@ -2414,16 +2430,24 @@ async def debug_mt5():
 async def debug_bridge_latency():
     """Round trip to the MT5 bridge, measured from inside this container.
 
-    Read-only diagnostic: it times the cheapest bridge call (/api/balance)
-    three times on the connector's pooled client, which is the same path every
-    polling cycle uses, so the socat relay and the tailnet tunnel are included.
-    It never raises: a dead bridge answers ``enabled: true`` plus ``error``.
+    Read-only diagnostic over the connector's pooled client, which is the same
+    path every polling cycle uses, so the socat relay and the tailnet tunnel are
+    included. It times two things: ``/api/balance`` (transport plus whatever MT5
+    work the far side does) and a path the bridge does not implement, whose 404
+    is the transport alone. ``interpretation`` names the side that dominates the
+    full call: ``network`` when the network median is at least half the median
+    of the complete call, otherwise ``mt5``. It never raises: a dead bridge
+    answers ``enabled: true`` plus ``error``.
     """
     payload = {
         "bridge_url": None,
         "samples_ms": [],
         "min_ms": None,
         "median_ms": None,
+        "network_samples_ms": [],
+        "network_min_ms": None,
+        "network_median_ms": None,
+        "interpretation": None,
         "enabled": False,
         "error": None,
     }
@@ -2435,11 +2459,9 @@ async def debug_bridge_latency():
     try:
         connector = get_mt5_connector()
         payload["bridge_url"] = getattr(connector, "base_url", None)
-        samples = await asyncio.to_thread(connector.probe_latency)
-        ordered = sorted(samples)
-        payload["samples_ms"] = [round(value, 2) for value in samples]
-        payload["min_ms"] = round(ordered[0], 2) if ordered else None
-        payload["median_ms"] = round(ordered[len(ordered) // 2], 2) if ordered else None
+        # The connector summarises both groups (samples, min, median, and the
+        # interpretation), so there is one rounding rule for every caller.
+        payload.update(await asyncio.to_thread(connector.probe_latency))
     except Exception as exc:
         payload["error"] = f"{type(exc).__name__}: {exc}"
     return payload

@@ -14,6 +14,7 @@ shared client is created.
 
 import sys
 import threading
+import time
 import types
 
 import pytest
@@ -228,18 +229,98 @@ def test_symbols_get_returns_the_catalogue(connector):
     assert pooled.requests[0][2]["timeout"] == 90.0
 
 
-def test_latency_probe_uses_the_pooled_socket_and_reports_samples(connector):
-    """``/debug/bridge-latency`` measures three samples on the pooled path."""
-    samples = connector.probe_latency(count=3)
+class FakeBridgeClient(FakeHttpClient):
+    """A fake bridge: known paths answer, every other path answers 404.
 
-    assert len(samples) == 3
+    The real bridge is a FastAPI app, so a path it does not implement comes
+    back as 404 from the router without MT5 being touched. ``delays`` per path
+    lets a test decide which side of the round trip dominates.
+    """
+
+    statuses = {}
+    delays = {}
+
+    def request(self, method, url, **kwargs):
+        self.requests.append((method, url, kwargs))
+        delay = FakeBridgeClient.delays.get(url)
+        if delay:
+            time.sleep(delay)
+        status = FakeBridgeClient.statuses.get(url, 404)
+        payload = FakeHttpClient.payload if status == 200 else {"detail": "Not Found"}
+        return FakeResponse(payload, status_code=status)
+
+
+@pytest.fixture
+def bridge(connector, monkeypatch):
+    """The connector, pointed at a fake bridge with per-path status and delay."""
+    import src.live.mt5_api_connector as module
+
+    FakeBridgeClient.statuses = {"/api/balance": 200}
+    FakeBridgeClient.delays = {}
+    FakeHttpClient.payload = {"balance": 1000.0}
+    monkeypatch.setattr(module.httpx, "Client", FakeBridgeClient)
+    return connector
+
+
+def _assert_latency_group(samples, min_ms, median_ms):
+    """One reported group: three samples plus min/median, all rounded."""
+    assert len(samples) == 3, samples
     assert all(isinstance(value, float) and value >= 0 for value in samples)
+    assert isinstance(min_ms, float) and isinstance(median_ms, float)
+    assert min_ms <= median_ms
+    assert min_ms == min(samples)
+
+
+def test_latency_probe_reports_the_transport_and_the_mt5_call_separately(bridge):
+    """A 404 path measures the tunnel; /api/balance adds MT5 work on top of it."""
+    FakeBridgeClient.delays = {"/api/balance": 0.02}
+
+    result = bridge.probe_latency(count=3)
+
     pooled = _pooled()
-    assert [call[1] for call in pooled.requests] == ["/api/balance"] * 3
+    assert [call[1] for call in pooled.requests] == [
+        "/api/balance"
+    ] * 3 + ["/__probe__"] * 3
+    _assert_latency_group(result["samples_ms"], result["min_ms"], result["median_ms"])
+    _assert_latency_group(
+        result["network_samples_ms"], result["network_min_ms"], result["network_median_ms"]
+    )
+    # 20 ms of extra far-side work dwarfs the (near-zero) fake transport.
+    assert result["median_ms"] > result["network_median_ms"]
+    assert result["interpretation"] == "mt5"
+
+
+def test_latency_probe_calls_network_dominant_when_the_tunnel_is_slow(bridge):
+    """``network_median_ms >= 50%`` of the full-call median means network."""
+    FakeBridgeClient.delays = {"/__probe__": 0.02}
+
+    result = bridge.probe_latency(count=3)
+
+    assert result["network_median_ms"] >= 0.5 * result["median_ms"]
+    assert result["interpretation"] == "network"
+
+
+def test_latency_probe_still_uses_the_pooled_socket(bridge):
+    """Both measurements ride the one shared client, not a fresh connection."""
+    bridge.probe_latency(count=1)
+
+    with bridge._bridge_client() as client:
+        client.get("/api/positions")
+
+    assert ["%s %s" % (call[0], call[1]) for call in _pooled().requests] == [
+        "GET /api/balance",
+        "GET /__probe__",
+        "GET /api/positions",
+    ]
 
 
 def test_latency_probe_surfaces_a_dead_bridge(connector, monkeypatch):
-    """A failing bridge must raise so the endpoint can report ``error``."""
+    """A failing bridge must raise so the endpoint can report ``error``.
+
+    ``/debug/bridge-latency`` catches this and still answers 200 with the
+    ``error`` field set (``src/platform/api/main.py``, which needs fastapi and
+    so is only byte-compiled here).
+    """
 
     class DeadClient(FakeHttpClient):
         def request(self, method, url, **kwargs):

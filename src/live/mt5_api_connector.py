@@ -244,22 +244,70 @@ class MT5ApiConnector:
             except Exception:
                 pass
 
-    def probe_latency(self, count=3, timeout=5.0):
-        """Round-trip samples in milliseconds for the cheapest bridge call.
+    #: A path the bridge does not implement. The bridge is a FastAPI app whose
+    #: router answers 404 for it, so timing this call measures the transport
+    #: (socat relay + tailnet tunnel) without any MT5 work behind it.
+    NETWORK_PROBE_PATH = "/__probe__"
 
-        ``/api/balance`` answers from memory on the bridge, so the samples
-        measure the transport (socat relay + tailnet tunnel) rather than MT5
-        work. Raises when the bridge is unreachable; callers report the error
-        instead of hiding it.
+    @staticmethod
+    def _latency_group(samples):
+        """Samples as reported: rounded values plus min and median."""
+        if not samples:
+            return {"samples_ms": [], "min_ms": None, "median_ms": None}
+        ordered = sorted(samples)
+        return {
+            "samples_ms": [round(value, 2) for value in samples],
+            "min_ms": round(ordered[0], 2),
+            "median_ms": round(ordered[len(ordered) // 2], 2),
+        }
+
+    def probe_latency(self, count=3, timeout=5.0):
+        """Round-trip samples in milliseconds, split by what they measure.
+
+        ``/api/balance`` is the cheapest bridge call, but its round trip also
+        contains the MT5 work the handler does on the far side, so it cannot
+        tell a slow tunnel from a slow terminal. ``NETWORK_PROBE_PATH`` is not
+        implemented by the bridge, so its answer is produced by the router
+        alone: those samples are the transport.
+
+        Returns the two groups plus the fields that summarise them and an
+        ``interpretation`` naming which side dominates the full call. Raises
+        when the bridge is unreachable; callers report the error instead of
+        hiding it.
         """
         samples = []
+        network_samples = []
+        repeats = max(1, int(count))
         with self._bridge_client(timeout=timeout) as client:
-            for _ in range(max(1, int(count))):
+            for _ in range(repeats):
                 started = time.perf_counter()
                 response = client.get("/api/balance")
                 response.raise_for_status()
                 samples.append((time.perf_counter() - started) * 1000.0)
-        return samples
+            for _ in range(repeats):
+                started = time.perf_counter()
+                # Deliberately no raise_for_status(): the 404 *is* the answer we
+                # are timing, and it is the cheapest thing the bridge can send.
+                client.get(self.NETWORK_PROBE_PATH)
+                network_samples.append((time.perf_counter() - started) * 1000.0)
+
+        full = self._latency_group(samples)
+        network = self._latency_group(network_samples)
+        interpretation = None
+        if full["median_ms"] is not None and network["median_ms"] is not None:
+            # The tunnel dominates when it accounts for at least half the call.
+            interpretation = (
+                "network" if network["median_ms"] >= 0.5 * full["median_ms"] else "mt5"
+            )
+        return {
+            "samples_ms": full["samples_ms"],
+            "min_ms": full["min_ms"],
+            "median_ms": full["median_ms"],
+            "network_samples_ms": network["samples_ms"],
+            "network_min_ms": network["min_ms"],
+            "network_median_ms": network["median_ms"],
+            "interpretation": interpretation,
+        }
 
     def connect(self, path=None):
         try:
