@@ -214,3 +214,31 @@ Lessons recorded because they cost a review cycle:
 State: lineage `escalated` on `targeted_validator_rejected`. The bounded correction
 for that lineage is spent, so the wiring fix in `3f7e227` is **unreviewed**, has no
 native approval, and delivery remains the operator's decision.
+
+### L12 — fourth lineage: approved
+
+Lineage `review-75b65cad81275be6` (target `sha256:519ef0e…`, 15 paths, 1534
+original lines, budget 200). Four lenses ran, the refuter corroborated two
+candidate-caused CRITICAL findings, and both were the same conceptual mistake in
+my previous correction:
+
+| Finding | Claim | Correction |
+| --- | --- | --- |
+| R2-001, R3-001 | the sequence was allocated **inside** the thread-pool worker, so it recorded when the worker ran, not when the renewal or last disconnect happened: a release scheduled earlier could execute later, take a higher number, and revoke a newer session's lease (and the mirror case re-armed the lease after the last session closed) | the number is taken at the event site — in the renewal loop before dispatching and synchronously in `unregister_connection` — and passed into the worker |
+
+Correction committed as `98707a2` (90 diff lines, inside the 200 budget), plan
+declared before the commit. Tests: the workers forward whatever they receive, and
+a renewal worker held awake for 150 ms can no longer outrank the release scheduled
+after it. Full suite: **798 passed, 1 skipped**.
+
+The targeted validator **approved** the correction and the review closed
+`approved`; the exact acknowledgement was executed and the authority is
+**burned** (`gentle-ai.review-acknowledged/v1`, target `sha256:7d2465c…`).
+
+Seven advisory findings came with the approval (`R2-002`, `R2-003`, `R3-002`,
+`R3-003`, `R4-001`, `R4-002`, `R4-003`), all informational and none reopening this
+review: they are later work, not reasons to re-run it.
+
+What this approval covers: the range `main..98707a2` (11 commits). It does not
+cover any commit that comes after it, and it does not authorise delivery — commit,
+push, PR and merge remain the operator's decisions.
