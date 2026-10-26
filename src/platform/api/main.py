@@ -2323,6 +2323,18 @@ async def get_deals(
             if not connector.connected:
                 await asyncio.to_thread(connector.connect)
             deals = await asyncio.to_thread(connector.get_deals, date_from=date_from)
+            # One shape line per request: the panel filters on type, time and
+            # symbol, so an empty panel needs to be distinguishable from an
+            # unreadable bridge by what actually arrived.
+            try:
+                first = deals[0] if deals else None
+                preview = None
+                if first is not None:
+                    getter = first.get if isinstance(first, dict) else (lambda k, d=first: getattr(d, k, None))
+                    preview = {k: getter(k) for k in ('type', 'entry', 'time', 'symbol', 'profit')}
+                logger.info(f"[DEALS_SHAPE] count={len(deals)} first={preview}")
+            except Exception as shape_err:
+                logger.warning(f"[DEALS_SHAPE] could not describe the payload: {shape_err}")
             acc_info = await asyncio.to_thread(connector.get_account_info)
             if acc_info:
                 account_balance = acc_info.get("balance", 0)
