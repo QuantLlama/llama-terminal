@@ -86,3 +86,15 @@ def test_installer_reports_the_real_autostart_state():
     assert "still enabled" in script, (
         "a failed disable has to be reported, not hidden behind a success message"
     )
+
+
+def test_installer_does_not_read_a_failed_probe_as_disabled():
+    script = INSTALLER.read_text(encoding="utf-8")
+
+    assert "! systemctl --user is-enabled" not in script, (
+        "is-enabled also fails when the user bus is unavailable, so a failure would "
+        "be reported as 'already disabled' while the unit stays enabled"
+    )
+    assert "could not query" in script, (
+        "an unreadable state has to be reported as unknown, never as success"
+    )

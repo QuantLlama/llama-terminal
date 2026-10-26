@@ -109,8 +109,13 @@ def allow_terminal_boot(connector, demand, probe=terminal_process_running) -> bo
 
     ``connect()`` is the boot trigger, so withholding it is enough to keep the
     terminal closed. A usable session needs no boot; an active lease authorises
-    one; a terminal that already runs is attached to; and an unreadable process
-    table fails open so a disarmed probe never strands the operator's terminal.
+    one; a terminal that already runs is attached to.
+
+    An unreadable process table withholds the boot on purpose. Failing open here
+    would recreate the exact loop this module exists to stop: on a runtime where
+    ``psutil`` is missing, every background poll would boot the terminal again.
+    ``psutil`` is a declared deploy dependency, so an unknown answer is a
+    transient probe failure and the next request retries.
     """
     from src.live.mt5_bridge_session import session_is_usable
 
@@ -118,4 +123,11 @@ def allow_terminal_boot(connector, demand, probe=terminal_process_running) -> bo
         return True
     if demand.active():
         return True
-    return probe() is not False
+    answer = probe()
+    if answer is True:
+        return True
+    if answer is None:
+        logger.warning(
+            "Could not read the process table; withholding the MT5 terminal boot"
+        )
+    return False

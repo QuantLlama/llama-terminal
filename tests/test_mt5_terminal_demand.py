@@ -175,11 +175,12 @@ def test_gate_allows_the_boot_when_the_terminal_already_runs():
     assert module.allow_terminal_boot(connector, _Demand(False), probe=lambda: True) is True
 
 
-def test_gate_fails_open_when_the_process_table_is_unreadable():
+def test_gate_withholds_the_boot_when_the_process_table_cannot_be_read():
     module = _demand_module()
     connector, _ = _connector(usable=False)
 
-    assert module.allow_terminal_boot(connector, _Demand(False), probe=lambda: None) is True
+    # Fail closed: a disarmed probe must not recreate the boot loop it exists to stop.
+    assert module.allow_terminal_boot(connector, _Demand(False), probe=lambda: None) is False
 
 
 def test_gate_skips_the_probe_when_the_session_is_already_usable():
@@ -309,3 +310,21 @@ def _recorder(calls):
         return False
 
     return connect
+
+
+def test_release_route_revokes_the_lease_without_touching_the_terminal(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    bridge = _bridge(monkeypatch)
+    demand, _ = _pin_demand(monkeypatch, bridge)
+    demand.renew()
+    calls = []
+    monkeypatch.setattr(bridge.connector, "connect", _recorder(calls))
+    monkeypatch.setattr(bridge.connector, "shutdown", lambda: None)
+
+    response = TestClient(bridge.app).delete("/api/terminal/demand")
+
+    assert response.status_code == 200
+    assert response.json() == {"active": False}
+    assert demand.active() is False, "a closed session must not keep the lease alive"
+    assert calls == [], "releasing the lease must never touch the terminal"

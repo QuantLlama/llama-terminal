@@ -139,6 +139,15 @@ def _send_terminal_demand() -> None:
         logger.debug(f"No se pudo renovar la demanda de terminal MT5: {exc}")
 
 
+def _release_terminal_demand() -> None:
+    """Drop the lease now that nobody is connected; failures only delay it."""
+    try:
+        from src.live.mt5_api_connector import release_terminal_demand
+        release_terminal_demand()
+    except Exception as exc:
+        logger.debug(f"No se pudo liberar la demanda de terminal MT5: {exc}")
+
+
 def _terminal_demand_applies() -> bool:
     """Only an MT5 workspace needs a terminal; a crypto one never boots it.
 
@@ -193,6 +202,14 @@ def unregister_connection():
     # Nobody is using the platform: stop renewing the lease and let it lapse.
     if _active_connections == 0:
         _stop_terminal_demand()
+        # Revoke instead of waiting for the TTL: otherwise one background poll
+        # inside the lease window boots a terminal for nobody.
+        try:
+            asyncio.get_event_loop().create_task(
+                asyncio.to_thread(_release_terminal_demand)
+            )
+        except Exception as e:
+            print(f"ERROR: No se pudo liberar la demanda de MT5: {e}")
     print(f"WS_STATUS: Conexión cerrada. Restantes: {_active_connections}")
     if _active_connections == 0:
         if _shutdown_task:

@@ -64,8 +64,13 @@ authorised by a short **demand lease**, never by polling:
 | --- | --- |
 | A browser or desktop session of the platform is connected | renews the lease every `MT5_TERMINAL_DEMAND_RENEW` seconds (default `30`) |
 | Market-data polling, a running algorithm, a container restart, login | never renews it |
-| No session for `MT5_TERMINAL_DEMAND_TTL` seconds (default `120`) | the lease lapses and polling stops booting a terminal |
+| The last session closes | the platform releases the lease immediately (`DELETE /api/terminal/demand`), so no background poll boots a terminal in the gap |
+| No session for `MT5_TERMINAL_DEMAND_TTL` seconds (default `120`) | the lease also lapses on its own if the release cannot be delivered |
 | A terminal you opened by hand | served exactly as before, with or without a lease |
+
+The gate answers "is a terminal already running?" from the process table via
+`psutil`. When that answer is unavailable it withholds the boot instead of failing
+open, because failing open is the polling loop this removes.
 
 The platform never closes the terminal: once it runs it stays until you close it.
 Inspect the state without booting anything:

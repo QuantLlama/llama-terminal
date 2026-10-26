@@ -53,6 +53,18 @@ def api_terminal_demand():
     return {"active": True, "expires_in": expires_in}
 
 
+@app.delete("/api/terminal/demand")
+def api_terminal_demand_release():
+    """The last platform session closed: stop authorising a boot right away.
+
+    Revoking here matters because the lease would otherwise stay valid for
+    ``MT5_TERMINAL_DEMAND_TTL`` after the window closed, and a single background
+    poll inside that window boots a terminal for nobody. Nothing is terminated.
+    """
+    terminal_demand.revoke()
+    return {"active": False}
+
+
 @app.get("/api/terminal/status")
 def api_terminal_status():
     """Why the terminal is or is not being served, without booting anything."""

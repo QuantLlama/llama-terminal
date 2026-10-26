@@ -98,17 +98,28 @@ fi
 autostart="not checked (systemctl unavailable)"
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || true
-    # The bridge boots the terminal on demand now, so the terminal unit must stop
-    # coming back at login. It is disabled, never stopped: stopping the unit would
-    # close a terminal the operator may be using right now.
-    if ! systemctl --user is-enabled qllama-mt5-terminal.service >/dev/null 2>&1; then
-        autostart="already disabled"
-    elif systemctl --user disable qllama-mt5-terminal.service >/dev/null 2>&1; then
-        autostart="disabled: MT5 starts on demand from an open platform session."
-    else
-        # Never claim success here: an enabled unit means MT5 still opens at login.
-        autostart="autostart still enabled (disable failed; run: systemctl --user disable qllama-mt5-terminal.service)"
-    fi
+    # The bridge boots the terminal on demand now, so the unit must stop coming
+    # back at login. Disable only, never stop: stopping it would close a terminal
+    # the operator may be using. `is-enabled` exits non-zero both for a disabled
+    # unit and for a broken user bus, so its text decides: only an explicit
+    # disabled-family answer is success, anything unreadable is unknown.
+    state="$(systemctl --user is-enabled qllama-mt5-terminal.service 2>/dev/null || true)"
+    case "$state" in
+        disabled|disabled-runtime|masked|masked-runtime|static|indirect|generated|transient|not-found)
+            autostart="already disabled ($state)"
+            ;;
+        enabled|enabled-runtime|linked|linked-runtime|alias)
+            if systemctl --user disable qllama-mt5-terminal.service >/dev/null 2>&1; then
+                autostart="disabled: MT5 starts on demand from an open platform session."
+            else
+                # Never claim success here: an enabled unit means MT5 still opens at login.
+                autostart="autostart still enabled (disable failed; run: systemctl --user disable qllama-mt5-terminal.service)"
+            fi
+            ;;
+        *)
+            autostart="could not query the unit state (systemctl --user is-enabled qllama-mt5-terminal.service returned '${state:-no output}'); MT5 may still start at login"
+            ;;
+    esac
 fi
 
 echo "bridge runtime installed in $TARGET_DIR"

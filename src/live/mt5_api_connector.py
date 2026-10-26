@@ -41,15 +41,28 @@ def request_terminal_demand(timeout=3.0):
     connected browser/desktop session: background polling never renews it, and a
     failure is only transport noise because the lease simply lapses.
     """
+    return _terminal_demand_call("post", timeout)
+
+
+def release_terminal_demand(timeout=3.0):
+    """Drop the lease as soon as the last platform session closes.
+
+    Without this the lease outlives the session by ``MT5_TERMINAL_DEMAND_TTL``, and
+    one background poll inside that window boots a terminal for nobody.
+    """
+    return _terminal_demand_call("delete", timeout)
+
+
+def _terminal_demand_call(method, timeout):
     url = f"{resolve_bridge_url().rstrip('/')}{TERMINAL_DEMAND_PATH}"
     try:
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(url, headers=bridge_headers() or {})
+            response = getattr(client, method)(url, headers=bridge_headers() or {})
     except Exception as exc:
-        logger.debug(f"MT5 terminal demand renewal failed: {exc}")
+        logger.debug(f"MT5 terminal demand {method} failed: {exc}")
         return False
     if response.status_code >= 400:
-        logger.debug(f"MT5 terminal demand rejected: HTTP {response.status_code}")
+        logger.debug(f"MT5 terminal demand {method} rejected: HTTP {response.status_code}")
         return False
     return True
 

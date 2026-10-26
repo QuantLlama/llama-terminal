@@ -59,6 +59,10 @@ def _install_fake_httpx(monkeypatch, module, seen, status_code=200):
             seen.setdefault("posts", []).append((url, kwargs.get("headers")))
             return _FakeResponse(status_code)
 
+        def delete(self, url, **kwargs):
+            seen.setdefault("deletes", []).append((url, kwargs.get("headers")))
+            return _FakeResponse(status_code)
+
     monkeypatch.setattr(module.httpx, "Client", FakeClient)
 
 
@@ -193,3 +197,53 @@ def test_renew_interval_reads_a_positive_value(monkeypatch, services):
     monkeypatch.setenv(services.TERMINAL_DEMAND_RENEW_ENV, "45")
 
     assert services.terminal_demand_renew_seconds() == 45.0
+
+
+def test_release_terminal_demand_deletes_the_lease_with_the_token(monkeypatch):
+    module = _api_connector(monkeypatch)
+    seen = {}
+    _install_fake_httpx(monkeypatch, module, seen)
+
+    assert module.release_terminal_demand() is True
+
+    assert seen["deletes"] == [
+        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"})
+    ]
+    assert seen.get("posts") is None
+
+
+def test_closing_the_last_session_releases_the_lease(monkeypatch, services):
+    events = []
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda: events.append("renew"))
+    monkeypatch.setattr(services, "_release_terminal_demand", lambda: events.append("release"))
+    monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
+
+    async def scenario():
+        services.register_connection()
+        await asyncio.sleep(0.04)
+        assert "renew" in events
+        services.unregister_connection()
+        await asyncio.sleep(0.05)
+        assert events[-1] == "release", (
+            "the bridge must stop being allowed to boot the terminal the moment the "
+            "last session closes, not after the lease expires"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_release_never_runs_while_a_session_stays_open(monkeypatch, services):
+    events = []
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda: events.append("renew"))
+    monkeypatch.setattr(services, "_release_terminal_demand", lambda: events.append("release"))
+    monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
+
+    async def scenario():
+        services.register_connection()
+        services.register_connection()
+        services.unregister_connection()
+        await asyncio.sleep(0.04)
+        assert "release" not in events
+        services.unregister_connection()
+
+    asyncio.run(scenario())
