@@ -555,8 +555,14 @@ class MT5Connector:
                 
                 # Fetch a huge window because the frontend expects UTC timestamps
                 # We will convert broker time to UTC so the frontend can filter accurately!
+                # A start of epoch zero is the trap here: days=9999 asks for
+                # 1999-06-10, and many brokers answer history_deals_get(0, now)
+                # with nothing at all, which is indistinguishable from an empty
+                # history. Clamp the query start to the same five-year floor the
+                # retry below already uses, keeping the two-day timezone buffer,
+                # so the first query always lands inside a window brokers serve.
                 five_years_ago = (datetime.now() - timedelta(days=365 * 5)).timestamp()
-                query_from = 0 if df_ts < five_years_ago else df_ts - 86400 * 2 # buffer for tz
+                query_from = max(df_ts, five_years_ago) - 86400 * 2 # buffer for tz
                 
                 deals = mt5.history_deals_get(int(query_from), int(dt_ts + 86400 * 2))
                 if deals is None or len(deals) == 0:
