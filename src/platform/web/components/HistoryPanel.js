@@ -23,7 +23,10 @@ const HistoryPanel = ({ activeSymbol }) => {
   const balanceSeriesRef = useRef();
   const drawdownSeriesRef = useRef();
   const formatDate = (timestamp) => {
-    const date = new Date(timestamp * 1000);
+    const seconds = Number(timestamp);
+    // Some payloads carry milliseconds; without this the panel would render 1970.
+    const safeSeconds = Number.isFinite(seconds) ? (seconds > 1e11 ? seconds / 1000 : seconds) : 0;
+    const date = new Date(safeSeconds * 1000);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
   useEffect(() => {
@@ -43,12 +46,18 @@ const HistoryPanel = ({ activeSymbol }) => {
     return 0;
   };
 
+  // The bridge serialises MT5 records, and a field that arrives as "0" instead of 0
+  // makes every strict comparison below fail silently: the deal is neither a trade
+  // nor a balance move, so it is filtered out and the panel looks empty.
+  const dealType = (d) => Number(d.type);
+
   const isTradingDeal = (d) => {
-    return d.type === 0 || d.type === 1;
+    const type = dealType(d);
+    return type === 0 || type === 1;
   };
 
   const isBalanceTransaction = (d) => {
-    return d.type === 2;
+    return dealType(d) === 2;
   };
 
   const isClosingTradingDeal = (d) => {
@@ -106,7 +115,10 @@ const HistoryPanel = ({ activeSymbol }) => {
 
     // 1. Filtrar los deals para el periodo y el símbolo actual
     const filtered = allDeals.filter((d) => {
-      const matchesTime = d.time >= startTime;
+      // Same trap as `type`, worse: a string timestamp compared against a number
+      // goes through a lexicographic comparison and quietly drops every deal.
+      const dealTime = Number(d.time);
+      const matchesTime = Number.isFinite(dealTime) && dealTime >= startTime;
 
       // Si es una transacción de balance, sólo incluir si no hay un símbolo activo (vista global de la cuenta)
       if (isBalanceTransaction(d)) {
