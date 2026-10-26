@@ -1,7 +1,7 @@
 [Unit]
 Description=Quantum Llama MT5 local bridge (Wine)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target graphical-session.target qllama-mt5-terminal.service
+Wants=network-online.target graphical-session.target qllama-mt5-terminal.service
 # The cloud app depends on this bridge for every MT5 request; keep retrying
 # instead of leaving the platform without MT5 until the next boot.
 StartLimitIntervalSec=0
@@ -13,6 +13,10 @@ Type=simple
 # unit starts. Install the runtime with scripts/install_bridge_runtime.sh.
 WorkingDirectory=%h/.local/share/qllama/runtime
 Environment=MT5_BRIDGE_BIND=0.0.0.0
+# Wine needs an X display only for the backstop path, where mt5.initialize()
+# boots a terminal because none is running. PassEnvironment takes the values the
+# desktop session imported, so nothing is hardcoded to :0.
+PassEnvironment=DISPLAY XAUTHORITY
 ExecStart=/bin/bash -lc 'exec scripts/start_mt5_bridge.sh'
 Restart=always
 RestartSec=5

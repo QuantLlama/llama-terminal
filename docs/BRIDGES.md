@@ -59,9 +59,13 @@ logged-in terminal the bridge answers `503` on every data route.
 ### Linux (MT5 under Wine)
 
 ```bash
-export MT5_BRIDGE_BIND=0.0.0.0
-./scripts/start_mt5_bridge.sh      # finds the Wine Python automatically
+./scripts/install_bridge_runtime.sh   # copies the runtime files and both units
+systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service
 ```
+
+`qllama-mt5-terminal.service` opens the terminal inside the graphical session,
+because Wine needs an X display and otherwise dies with `nodrv_CreateWindow`;
+the bridge starts after it, and both come back on their own after a reboot.
 
 The token is generated on first run and stored in
 `~/.config/qllama/mt5_bridge_token`; the script prints it once so you can copy it
@@ -100,9 +104,10 @@ mounted. Install a small dependency-free copy on the system disk instead.
 ```bash
 ./scripts/install_bridge_runtime.sh           # ~/.local/share/qllama/runtime
 ./scripts/install_bridge_runtime.sh --check   # exit 1 when the copy is stale
-cp deploy/local/*.service ~/.config/systemd/user/
+# scripts/install_bridge_runtime.sh also copies the units:
+# cp deploy/local/*.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now qllama-mt5-bridge.service qllama-crypto-proxy.service
+systemctl --user enable --now qllama-mt5-terminal.service qllama-mt5-bridge.service qllama-crypto-proxy.service
 sudo loginctl enable-linger "$USER"           # start at boot, without logging in
 ```
 
