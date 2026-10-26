@@ -4803,11 +4803,20 @@ async def serve_static(path: str):
     clean_path = path.lstrip("/")
     file_path = os.path.join(WEB_DIR, clean_path)
     
+    # The HTML is the page itself: it carries the inline component code and the
+    # script tags. Every asset below it is versioned with ?v=, but the document is
+    # not, so a cached copy keeps a browser on a build that no longer exists while
+    # the server happily serves the current one. That is exactly how a panel with
+    # text from an older release survived several deploys.
+    no_store = {"Cache-Control": "no-store, must-revalidate"}
+
     if os.path.exists(file_path) and os.path.isfile(file_path):
-        return FileResponse(file_path)
-    
+        return FileResponse(
+            file_path, headers=no_store if clean_path.endswith(".html") else None
+        )
+
     # Fallback to index.html for SPA routing
-    return FileResponse(os.path.join(WEB_DIR, "index.html"))
+    return FileResponse(os.path.join(WEB_DIR, "index.html"), headers=no_store)
 
 if __name__ == "__main__":
     import uvicorn
