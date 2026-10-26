@@ -143,20 +143,20 @@ def terminal_demand_renew_seconds() -> float:
     return seconds
 
 
-def _send_terminal_demand() -> None:
+def _send_terminal_demand(seq: int) -> None:
     """Renew the lease once; a failure only means the lease lapses."""
     try:
         from src.live.mt5_api_connector import request_terminal_demand
-        request_terminal_demand(_next_demand_seq())
+        request_terminal_demand(seq)
     except Exception as exc:
         logger.debug(f"No se pudo renovar la demanda de terminal MT5: {exc}")
 
 
-def _release_terminal_demand() -> None:
+def _release_terminal_demand(seq: int) -> None:
     """Drop the lease now that nobody is connected; failures only delay it."""
     try:
         from src.live.mt5_api_connector import release_terminal_demand
-        release_terminal_demand(_next_demand_seq())
+        release_terminal_demand(seq)
     except Exception as exc:
         logger.debug(f"No se pudo liberar la demanda de terminal MT5: {exc}")
 
@@ -178,7 +178,11 @@ async def _renew_terminal_demand():
     """Keep the bridge's lease alive for as long as a session stays connected."""
     while _active_connections > 0:
         if _terminal_demand_applies():
-            await asyncio.to_thread(_send_terminal_demand)
+            # The sequence describes the EVENT, so it is taken here and not inside
+            # the worker: a worker scheduled earlier can finish later, and its
+            # number must still say "this renewal happened before that release".
+            seq = _next_demand_seq()
+            await asyncio.to_thread(_send_terminal_demand, seq)
         await asyncio.sleep(terminal_demand_renew_seconds())
 
 
@@ -216,10 +220,13 @@ def unregister_connection():
     if _active_connections == 0:
         _stop_terminal_demand()
         # Revoke instead of waiting for the TTL: otherwise one background poll
-        # inside the lease window boots a terminal for nobody.
+        # inside the lease window boots a terminal for nobody. The sequence is
+        # taken now, so a release whose worker starts late still outranks the
+        # renewals that were already in flight when the last session closed.
+        release_seq = _next_demand_seq()
         try:
             asyncio.get_event_loop().create_task(
-                asyncio.to_thread(_release_terminal_demand)
+                asyncio.to_thread(_release_terminal_demand, release_seq)
             )
         except Exception as e:
             print(f"ERROR: No se pudo liberar la demanda de MT5: {e}")

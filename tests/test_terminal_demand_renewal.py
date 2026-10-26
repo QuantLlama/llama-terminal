@@ -8,6 +8,7 @@ polling, a running algorithm) is a person using the platform.
 
 import asyncio
 import importlib
+import time
 import pathlib
 import sys
 
@@ -120,7 +121,7 @@ def test_request_terminal_demand_survives_an_unreachable_bridge(monkeypatch):
 
 def test_open_session_renews_the_lease_and_stops_when_it_closes(monkeypatch, services):
     posts = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: posts.append(1))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: posts.append(seq))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -138,7 +139,7 @@ def test_open_session_renews_the_lease_and_stops_when_it_closes(monkeypatch, ser
 
 def test_second_session_does_not_start_a_second_renewal_loop(monkeypatch, services):
     posts = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: posts.append(1))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: posts.append(seq))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.05)
 
     async def scenario():
@@ -156,7 +157,7 @@ def test_second_session_does_not_start_a_second_renewal_loop(monkeypatch, servic
 
 def test_no_renewal_without_an_open_session(monkeypatch, services):
     posts = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: posts.append(1))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: posts.append(seq))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -173,7 +174,7 @@ def test_renewal_is_skipped_for_a_crypto_workspace(monkeypatch, services):
 
     monkeypatch.setattr(services, "_market_data_engine", _Engine(), raising=False)
     posts = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: posts.append(1))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: posts.append(seq))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -213,8 +214,8 @@ def test_release_terminal_demand_deletes_the_lease_with_the_token(monkeypatch):
 
 def test_closing_the_last_session_releases_the_lease(monkeypatch, services):
     events = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: events.append("renew"))
-    monkeypatch.setattr(services, "_release_terminal_demand", lambda: events.append("release"))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: events.append("renew"))
+    monkeypatch.setattr(services, "_release_terminal_demand", lambda seq: events.append("release"))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -233,8 +234,8 @@ def test_closing_the_last_session_releases_the_lease(monkeypatch, services):
 
 def test_release_never_runs_while_a_session_stays_open(monkeypatch, services):
     events = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: events.append("renew"))
-    monkeypatch.setattr(services, "_release_terminal_demand", lambda: events.append("release"))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: events.append("renew"))
+    monkeypatch.setattr(services, "_release_terminal_demand", lambda seq: events.append("release"))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -251,8 +252,8 @@ def test_release_never_runs_while_a_session_stays_open(monkeypatch, services):
 def test_release_uses_a_sequence_newer_than_any_renewal(monkeypatch, services):
     """Order independence: a late renewal must be older than the release."""
     seen = []
-    monkeypatch.setattr(services, "_send_terminal_demand", lambda: seen.append(("renew", services._next_demand_seq())))
-    monkeypatch.setattr(services, "_release_terminal_demand", lambda: seen.append(("release", services._next_demand_seq())))
+    monkeypatch.setattr(services, "_send_terminal_demand", lambda seq: seen.append(("renew", seq)))
+    monkeypatch.setattr(services, "_release_terminal_demand", lambda seq: seen.append(("release", seq)))
     monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
 
     async def scenario():
@@ -272,7 +273,7 @@ def test_release_uses_a_sequence_newer_than_any_renewal(monkeypatch, services):
     )
 
 
-def test_production_deliveries_carry_a_monotonic_sequence(monkeypatch, services):
+def test_workers_forward_the_sequence_to_the_connector(monkeypatch, services):
     """The race fix only exists if the real deliveries send the sequence."""
     module = importlib.import_module("src.live.mt5_api_connector")
     calls = []
@@ -287,12 +288,10 @@ def test_production_deliveries_carry_a_monotonic_sequence(monkeypatch, services)
         lambda seq=None, timeout=3.0: calls.append(("release", seq)),
     )
 
-    services._send_terminal_demand()
-    services._release_terminal_demand()
+    services._send_terminal_demand(41)
+    services._release_terminal_demand(42)
 
-    assert [kind for kind, _ in calls] == ["renew", "release"]
-    assert all(isinstance(seq, int) for _, seq in calls), calls
-    assert calls[1][1] > calls[0][1], "the release must outrank the renewal it follows"
+    assert calls == [("renew", 41), ("release", 42)]
 
 
 def test_sequence_survives_a_platform_restart(services):
@@ -303,4 +302,39 @@ def test_sequence_survives_a_platform_restart(services):
 
     assert first > int(_time.time() * 1_000_000) - 60_000_000, (
         "the counter is seeded from the wall clock so a restart jumps ahead"
+    )
+
+
+def test_sequences_follow_event_order_not_worker_order(monkeypatch, services):
+    """A release scheduled after a renewal outranks it, even if its worker is late.
+
+    This is the whole point of the sequence: `to_thread` workers finish whenever
+    the pool gets to them, so the number has to be taken when the event happens.
+    """
+    applied = []
+
+    def slow_renew(seq):
+        time.sleep(0.15)          # the event already happened; the worker is late
+        applied.append(("renew", seq))
+
+    def record_release(seq):
+        applied.append(("release", seq))
+
+    monkeypatch.setattr(services, "_send_terminal_demand", slow_renew)
+    monkeypatch.setattr(services, "_release_terminal_demand", record_release)
+    monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
+
+    async def scenario():
+        services.register_connection()
+        await asyncio.sleep(0.05)          # renewal dispatched, worker still asleep
+        services.unregister_connection()   # a later event, scheduled while it runs
+        await asyncio.sleep(0.4)
+
+    asyncio.run(scenario())
+
+    renews = [seq for kind, seq in applied if kind == "renew"]
+    releases = [seq for kind, seq in applied if kind == "release"]
+    assert renews and releases
+    assert releases[0] > renews[0], (
+        "the release happened after the renewal, so its sequence must outrank it"
     )

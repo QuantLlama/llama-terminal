@@ -39,6 +39,9 @@ def _install_stub_mt5(monkeypatch):
 
 def _bridge(monkeypatch):
     _install_stub_mt5(monkeypatch)
+    # ``src.services.auth`` runs load_dotenv() at import, so a token from the
+    # developer's .env would turn every bridge request below into a 401.
+    monkeypatch.delenv("MT5_BRIDGE_TOKEN", raising=False)
     return importlib.import_module("mt5_server")
 
 
