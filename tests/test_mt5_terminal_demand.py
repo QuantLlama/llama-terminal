@@ -504,3 +504,15 @@ def test_gate_reports_an_unreadable_probe_as_the_reason(monkeypatch, caplog):
     assert [r.message for r in caplog.records] == [
         "MT5 terminal boot withheld: process table unreadable"
     ]
+
+
+def test_bridge_keeps_the_gate_logger_visible(monkeypatch):
+    """uvicorn leaves the root logger at WARNING; the decision must still show."""
+    import logging
+
+    _bridge(monkeypatch)
+
+    logger = logging.getLogger("src.live.mt5_terminal_demand")
+    assert logger.level == logging.INFO
+    assert logger.handlers, "without a handler the decisions never reach the journal"
+    assert logger.propagate is False, "do not depend on the root logger uvicorn leaves bare"
