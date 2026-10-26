@@ -21,10 +21,35 @@ class MT5Connector:
         return cls._instance
     def __init__(self):
         pass
+    def is_alive(self):
+        """True only when the terminal still answers, not when the flag says so.
+
+        ``connected`` is never cleared by the terminal itself: it survives a
+        terminal restart, a logout and a broker disconnect. Trusting the flag
+        alone is what left the bridge serving a dead session, so the platform
+        showed an empty chart until someone restarted the service by hand.
+        """
+        with self._lock:
+            if not self.connected:
+                return False
+            try:
+                return mt5.terminal_info() is not None
+            except Exception:
+                return False
     def connect(self, path=None):
         with self._lock:
-            if self.connected:
+            if self.connected and self.is_alive():
                 return True
+            if self.connected:
+                logger.warning(
+                    "MT5_CONN: session flagged connected but the terminal is gone; "
+                    "reinitializing"
+                )
+                self.connected = False
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
             if path:
                 self.path = path
             if self.path:
