@@ -374,3 +374,57 @@ def test_demand_route_ignores_a_stale_sequence(monkeypatch):
     stale_renewal = client.post("/api/terminal/demand", json={"seq": 2}).json()
     assert stale_renewal["applied"] is False
     assert demand.active() is True, "a stale renewal must never re-arm the lease"
+
+
+def _make_psutil_unavailable(monkeypatch):
+    """Simulate a runtime where the process probe cannot be imported."""
+    module = _demand_module()
+    # The probe caches its last answer for a couple of seconds; a stale value
+    # would hide the case this test exists to cover.
+    monkeypatch.setattr(module, "_probe_cache", (0.0, None), raising=False)
+    # ``import psutil`` raises ImportError when the entry is None.
+    monkeypatch.setitem(sys.modules, "psutil", None)
+    return module
+
+
+def test_probe_reports_unknown_when_psutil_is_unavailable(monkeypatch):
+    module = _make_psutil_unavailable(monkeypatch)
+
+    assert module.terminal_process_running() is None
+
+
+def test_data_route_withholds_the_boot_when_psutil_is_unavailable(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    bridge = _bridge(monkeypatch)
+    _pin_demand(monkeypatch, bridge)  # nobody is using the platform
+    _make_psutil_unavailable(monkeypatch)
+
+    calls = []
+    monkeypatch.setattr(bridge.connector, "connect", _recorder(calls))
+    monkeypatch.setattr(bridge.connector, "symbols_get", lambda *a, **k: [{"name": "EURUSD"}])
+
+    response = TestClient(bridge.app).get("/api/symbols")
+
+    # The route contract is unchanged; only the boot trigger is withheld.
+    assert response.status_code == 200
+    assert response.json() == [{"name": "EURUSD"}]
+    assert calls == [], "an unreadable process table must never authorise a boot"
+
+
+def test_active_lease_still_boots_when_psutil_is_unavailable(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    bridge = _bridge(monkeypatch)
+    demand, _ = _pin_demand(monkeypatch, bridge)
+    demand.renew()  # a platform session is open, so a boot is authorised anyway
+    _make_psutil_unavailable(monkeypatch)
+
+    calls = []
+    monkeypatch.setattr(bridge.connector, "connect", _recorder(calls))
+    monkeypatch.setattr(bridge.connector, "symbols_get", lambda *a, **k: [{"name": "EURUSD"}])
+
+    response = TestClient(bridge.app).get("/api/symbols")
+
+    assert response.status_code == 200
+    assert calls == [None], "the lease, not the probe, is what authorises a boot"
