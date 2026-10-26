@@ -2451,13 +2451,18 @@ async def get_deals(
                 "account_balance": account_balance,
             }
 
+        # cached() takes a zero-argument producer. Binding the tenant here is what
+        # keeps the tenancy contract without passing it as a fifth positional,
+        # which raised TypeError on every request and made /api/deals a 500.
+        def _produce_deals_payload():
+            return _fetch_deals_payload(user_id)
+
         payload = await asyncio.to_thread(
             cached,
             _deals_cache,
             deals_cache_key,
             _DEALS_CACHE_TTL,
-            _fetch_deals_payload,
-            user_id,
+            _produce_deals_payload,
             # Only a successful, non-empty history is worth 30s of memory: an
             # empty list is as likely to be a transient bridge hiccup as an
             # empty account history, and that must not be remembered.
