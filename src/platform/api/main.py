@@ -106,6 +106,9 @@ from src.platform.api.backtesting_api import router as backtesting_router
 from src.platform.api.backtesting_api import router as backtesting_router
 from src.platform.api.seo_api import router as seo_router
 from src.platform.api.migration_api import router as migration_router
+# Small in-process TTL cache: symbols and deals barely change per poll, and
+# every bridge read costs ~418ms of transport.
+from src.platform.api.deals_cache import cached
 
 # Standard routers
 from src.platform.api.analysis_api import router as analysis_router
@@ -767,6 +770,41 @@ async def get_symbols(
     except Exception as e:
         logger.error(f"SYMBOL FETCH ERROR: {e}")
         return []
+
+# Symbol metadata (tick size, digits, volume min/max/step) is effectively
+# static, but the order path and /api/symbol_info both used to ask the bridge
+# for it on every call, paying ~418ms of transport to relearn rules they already
+# knew. Keyed by symbol; a None answer is never cached, so a symbol that failed
+# to resolve is retried on the next order.
+_symbol_info_cache: Dict[Any, Any] = {}
+_order_rules_cache: Dict[Any, Any] = {}
+_SYMBOL_META_CACHE_TTL = 300.0
+
+
+def _cached_symbol_info(symbol: str):
+    """``mt5_access.symbol_info`` with a 300s per-symbol TTL."""
+    return cached(
+        _symbol_info_cache,
+        symbol,
+        _SYMBOL_META_CACHE_TTL,
+        lambda: mt5_access.symbol_info(symbol),
+    )
+
+
+def _cached_order_size_rules(symbol: str):
+    """``mt5_access.order_size_rules`` with a 300s per-symbol TTL.
+
+    Cached separately from the symbol info so this module reuses the source of
+    truth for the volume limits instead of recomputing them here.
+    """
+    return cached(
+        _order_rules_cache,
+        symbol,
+        _SYMBOL_META_CACHE_TTL,
+        lambda: mt5_access.order_size_rules(symbol),
+    )
+
+
 @app.get("/api/symbol_info")
 async def get_symbol_info(
     symbol: str = Query(..., description="Symbol ticker"),
@@ -805,7 +843,7 @@ async def get_symbol_info(
         if details is not None:
             try:
                 rules = await asyncio.to_thread(
-                    mt5_access.order_size_rules, resolve_symbol(symbol)
+                    _cached_order_size_rules, resolve_symbol(symbol)
                 )
                 if rules:
                     details["order_size_rules"] = {
@@ -2300,6 +2338,15 @@ async def get_vix_live():
         logger.error(f"Error in get_vix_live: {e}")
         return {"vix": 0, "time": int(time.time()), "error": str(e)}
 
+# Deals history barely moves between polls: the panel asks for it every 10s
+# while the underlying history gains or loses a row at a time, and each miss
+# costs a full ~418ms bridge round trip. Keyed by platform + days + symbol (plus
+# the caller, because the crypto branch answers for that user's accounts, so one
+# tenant's deals must never be served to another).
+_deals_cache: Dict[Any, Any] = {}
+_DEALS_CACHE_TTL = 30.0
+
+
 @app.get("/api/deals")
 async def get_deals(
     days: int = Query(365),
@@ -2312,84 +2359,118 @@ async def get_deals(
         target_platform = platform or _connection_state.get("platform") or "mt5"
         logger.info(f"[DEALS_REQUEST] platform={target_platform}, days={days}")
 
-        deals = []
-        account_balance = 0
-        date_from = None
-        if days:
-            date_from = datetime.now() - pd.Timedelta(days=days)
+        deals_cache_key = ("deals", target_platform, days, symbol or "", user_id)
 
-        if target_platform == "mt5":
-            connector = GLOBAL_MT5_CONNECTOR
-            if not connector.connected:
-                await asyncio.to_thread(connector.connect)
-            deals = await asyncio.to_thread(connector.get_deals, date_from=date_from)
-            # One shape line per request: the panel filters on type, time and
-            # symbol, so an empty panel needs to be distinguishable from an
-            # unreadable bridge by what actually arrived.
-            try:
-                first = deals[0] if deals else None
-                preview = None
-                if first is not None:
-                    getter = first.get if isinstance(first, dict) else (lambda k, d=first: getattr(d, k, None))
-                    preview = {k: getter(k) for k in ('type', 'entry', 'time', 'symbol', 'profit')}
-                logger.info(f"[DEALS_SHAPE] count={len(deals)} first={preview}")
-            except Exception as shape_err:
-                logger.warning(f"[DEALS_SHAPE] could not describe the payload: {shape_err}")
-            acc_info = await asyncio.to_thread(connector.get_account_info)
-            if acc_info:
-                account_balance = acc_info.get("balance", 0)
-        elif target_platform == "crypto":
-            from src.services.crypto_manager import get_crypto_manager
-            from src.live.crypto_connector import get_connector
-            manager = get_crypto_manager()
-            accounts = manager.get_accounts(user_id=user_id)
-            master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or (accounts[0] if accounts else None)
-            
-            logger.info(f"[DEALS] Target Platform: crypto, Master Account: {master_acc['id'] if master_acc else 'None'}")
-            
-            if master_acc:
-                crypto_conn = get_connector(master_acc["id"], user_id=user_id)
-                if crypto_conn:
-                    date_from = None
-                    if days:
-                        date_from = datetime.now() - pd.Timedelta(days=days)
-                    deals = await asyncio.to_thread(crypto_conn.get_deals, date_from=date_from, symbol=symbol)
-                    account_balance = await asyncio.to_thread(crypto_conn.get_balance)
-                    logger.info(f"[DEALS] Fetched {len(deals)} deals for crypto")
+        def _fetch_deals_payload(user_id: str):
+            """One bridge round trip per key. Runs in a worker thread: the
+            connectors (and ``connector.connect``) are synchronous.
+
+            ``user_id`` is required, not optional: this reads account data, and the
+            tenancy contract in tests/test_accounts_consumers.py forbids an account
+            path that does not take the tenant it resolved from the token.
+            """
+            deals = []
+            account_balance = 0
+            date_from = None
+            if days:
+                date_from = datetime.now() - pd.Timedelta(days=days)
+
+            if target_platform == "mt5":
+                connector = GLOBAL_MT5_CONNECTOR
+                if not connector.connected:
+                    connector.connect()
+                deals = connector.get_deals(date_from=date_from)
+                # One shape line per bridge read: the panel filters on type,
+                # time and symbol, so an empty panel needs to be
+                # distinguishable from an unreadable bridge by what arrived.
+                try:
+                    first = deals[0] if deals else None
+                    preview = None
+                    if first is not None:
+                        getter = first.get if isinstance(first, dict) else (lambda k, d=first: getattr(d, k, None))
+                        preview = {k: getter(k) for k in ('type', 'entry', 'time', 'symbol', 'profit')}
+                    types = {}
+                    for deal in deals:
+                        key = deal.get('type') if isinstance(deal, dict) else getattr(deal, 'type', None)
+                        types[key] = types.get(key, 0) + 1
+                    logger.info(f"[DEALS_SHAPE] count={len(deals)} types={types} first={preview}")
+                except Exception as shape_err:
+                    logger.warning(f"[DEALS_SHAPE] could not describe the payload: {shape_err}")
+                acc_info = connector.get_account_info()
+                if acc_info:
+                    account_balance = acc_info.get("balance", 0)
+            elif target_platform == "crypto":
+                from src.services.crypto_manager import get_crypto_manager
+                from src.live.crypto_connector import get_connector
+                manager = get_crypto_manager()
+                accounts = manager.get_accounts(user_id=user_id)
+                master_acc = next((acc for acc in accounts if acc.get("is_master")), None) or (accounts[0] if accounts else None)
+
+                logger.info(f"[DEALS] Target Platform: crypto, Master Account: {master_acc['id'] if master_acc else 'None'}")
+
+                if master_acc:
+                    crypto_conn = get_connector(master_acc["id"], user_id=user_id)
+                    if crypto_conn:
+                        date_from = None
+                        if days:
+                            date_from = datetime.now() - pd.Timedelta(days=days)
+                        deals = crypto_conn.get_deals(date_from=date_from, symbol=symbol)
+                        account_balance = crypto_conn.get_balance()
+                        logger.info(f"[DEALS] Fetched {len(deals)} deals for crypto")
+                    else:
+                        logger.warning("[DEALS] No connector for master account")
                 else:
-                    logger.warning("[DEALS] No connector for master account")
+                    logger.warning("[DEALS] No master account found")
             else:
-                logger.warning("[DEALS] No master account found")
-        else:
-            raise HTTPException(status_code=400, detail="Only MT5 and Crypto platforms are supported")
+                raise HTTPException(status_code=400, detail="Only MT5 and Crypto platforms are supported")
 
-        sanitized_deals = sanitize_float(deals)
-        # An empty history and an unreadable bridge both render as "no deals",
-        # so say how many rows the connector returned and how many survived
-        # sanitising. Wrapped because observability must never break the call.
-        try:
-            raw_deals = len(deals) if deals is not None else 0
-            kept_deals = len(sanitized_deals) if sanitized_deals is not None else 0
-            if hasattr(date_from, "isoformat"):
-                date_from_text = date_from.isoformat()
-            else:
-                date_from_text = date_from
-            logger.info(
-                f"[DEALS_RESULT] platform={target_platform} raw={raw_deals} "
-                f"kept={kept_deals} days={days} date_from={date_from_text}"
-            )
-        except Exception:
-            pass
-        response = {
-            "status": "success",
-            "platform": target_platform,
-            "deals": sanitized_deals,
-            "count": len(deals),
-            "account_balance": account_balance,
-            "timestamp": datetime.now().timestamp()
-        }
+            sanitized_deals = sanitize_float(deals)
+            # An empty history and an unreadable bridge both render as "no
+            # deals", so say how many rows the connector returned and how many
+            # survived sanitising. Wrapped because observability must never
+            # break the call.
+            try:
+                raw_deals = len(deals) if deals is not None else 0
+                kept_deals = len(sanitized_deals) if sanitized_deals is not None else 0
+                if hasattr(date_from, "isoformat"):
+                    date_from_text = date_from.isoformat()
+                else:
+                    date_from_text = date_from
+                logger.info(
+                    f"[DEALS_RESULT] platform={target_platform} raw={raw_deals} "
+                    f"kept={kept_deals} days={days} date_from={date_from_text}"
+                )
+            except Exception:
+                pass
 
-        return response
+            return {
+                "status": "success",
+                "platform": target_platform,
+                "deals": sanitized_deals,
+                "count": len(deals),
+                "account_balance": account_balance,
+            }
+
+        payload = await asyncio.to_thread(
+            cached,
+            _deals_cache,
+            deals_cache_key,
+            _DEALS_CACHE_TTL,
+            _fetch_deals_payload,
+            user_id,
+            # Only a successful, non-empty history is worth 30s of memory: an
+            # empty list is as likely to be a transient bridge hiccup as an
+            # empty account history, and that must not be remembered.
+            cacheable=lambda result: bool(result.get("deals")),
+            on_hit=lambda: logger.info(
+                f"[DEALS_CACHE] hit platform={target_platform} days={days} "
+                f"symbol={symbol} age<{_DEALS_CACHE_TTL}s"
+            ),
+        )
+
+        # timestamp stays the moment this response was built, so a cached answer
+        # never looks newer or older than it is.
+        return {**payload, "timestamp": datetime.now().timestamp()}
     except Exception as e:
         import logging
         local_logger = logging.getLogger(__name__)
@@ -2667,9 +2748,14 @@ async def get_realtime_batch(
             if now - entry['ts'] < 1.0: # 1 second global throttle
                 return entry['data']
     
-    # 1. Fetch Account + Positions (once per batch, cached 1.5s for MT5, 5.0s for Crypto to avoid bans)
+    # 1. Fetch Account + Positions (once per batch, cached 3.0s for MT5, 5.0s for Crypto to avoid bans)
     acc_cache_key = f"acc_{target_platform}"
-    acc_ttl = 5.0 if target_platform == "crypto" else 1.5
+    # The tape is the ticks block below, not this account block, so a longer
+    # account TTL costs the tape no freshness and saves a bridge round trip
+    # (~418ms) per window. Do not "optimise" this back down to 1.5s: the
+    # frontend polls the batch continuously and account/positions do not move
+    # at tick speed.
+    acc_ttl = 5.0 if target_platform == "crypto" else 3.0
     if acc_cache_key in _account_cache and (now - _account_cache[acc_cache_key]["ts"] < acc_ttl):
         acc_data = _account_cache[acc_cache_key]["data"]
     else:
@@ -3193,7 +3279,9 @@ async def place_order(
                 "YM": 1.0,   "MYM": 1.0 
             }
             actual_base = normalize_symbol_for_comparison(actual_symbol)
-            symbol_info = mt5_access.symbol_info(actual_symbol)
+            # Static metadata read from the process cache instead of a fresh
+            # bridge round trip; placement below is unchanged.
+            symbol_info = _cached_symbol_info(actual_symbol)
             if symbol_info:
                 point = TICKS_MAP.get(actual_base, symbol_info["tick_size"] or symbol_info["point"])
 
