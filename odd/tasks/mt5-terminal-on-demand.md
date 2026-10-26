@@ -170,3 +170,47 @@ native review approval. A maintainer has to inspect the review authority, or the
 provider has to be fixed, before a review of this range can complete. Delivery
 (commit, push, PR, merge) remains the operator's decision and is not authorised by
 anything in this document.
+
+### L11 — third lineage: the validator caught a correction that was never wired
+
+Lineage `review-b9dff1eb05b1e1e1` (target `sha256:a9a5752…`, 15 paths, 1334
+original lines, budget 200). Four lenses ran, the refuter corroborated two
+candidate-caused CRITICAL findings, both about **ordering** between lease renewal
+and release:
+
+| Finding | Claim | Correction |
+| --- | --- | --- |
+| R3-001 | `unregister_connection` cancels the renewal task and schedules the release without synchronising with an in-flight `to_thread` renewal, so a late POST re-arms the lease with no session and a background poll can boot MT5 for nobody | both deliveries carry a monotonic sequence and the bridge ignores any delivery older than the last applied one |
+| R4-001 | the mirror race: a slow release revokes the lease of a session opened a moment later | same sequence, taken at delivery time, so the release outranks the renewals it follows |
+
+Plan declared at 177 lines, correction committed.
+
+**The targeted validator then rejected that correction, and it was right.** An
+earlier atomic edit had not applied, so `_send_terminal_demand` and
+`_release_terminal_demand` still called the connector with no sequence: the
+counter existed, the bridge could compare numbers, and nothing ever sent one. The
+supporting test also called `_next_demand_seq()` from its own monkeypatched
+stand-ins, so it proved the counter increments, not that production uses it.
+
+Fixed in `3f7e227`: both deliveries pass the sequence, the counter is seeded from
+wall-clock microseconds so a restarted platform cannot reuse numbers the bridge
+already applied, and the test replaces the two connector functions and calls the
+real `_send_terminal_demand`/`_release_terminal_demand`, asserting both carry an
+integer and the release outranks the renewal. Full suite: **797 passed, 1
+skipped**.
+
+Lessons recorded because they cost a review cycle:
+
+1. An atomic multi-edit that fails leaves earlier hunks unapplied; re-run the
+   grep after any batched edit instead of trusting the intent.
+2. A test that monkeypatches the unit under test's collaborators **and** supplies
+   the value being asserted proves nothing; assert through the function that
+   production calls.
+3. The validator slot works when the binding is passed as the exact serialized
+   provider string. Two earlier "stale binding" rejections came from
+   hand-reconstructed objects; the clean serialized submission ran and produced a
+   real verdict.
+
+State: lineage `escalated` on `targeted_validator_rejected`. The bounded correction
+for that lineage is spent, so the wiring fix in `3f7e227` is **unreviewed**, has no
+native approval, and delivery remains the operator's decision.
