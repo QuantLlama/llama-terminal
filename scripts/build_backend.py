@@ -47,7 +47,7 @@ FULL_HIDDEN_IMPORTS = [
     'src.services.order_gateway.gateway', 'src.services.order_gateway.models',
     'src.services.order_gateway.risk_validator', 'src.utils',
     'src.utils.cleaner', 'src.utils.config_manager', 'src.utils.dashboard_gen',
-    'src.utils.mt5_global_lock', 'src.utils.mt5_master_controller',
+    'src.utils.mt5_global_lock',
     'src.utils.visualizer', 'src.live', 'src.live.connector',
     'src.live.crypto_connector', 'src.features', 'src.features.indicators',
 ]
