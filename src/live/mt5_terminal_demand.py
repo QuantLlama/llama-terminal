@@ -29,6 +29,24 @@ PROBE_CACHE_SECONDS = 2.0
 _probe_lock = threading.Lock()
 _probe_cache = (0.0, None)
 
+#: Last decision reported, so the log carries one line per *change* instead of one
+#: per request: the bridge serves about one request a second, and a boot that
+#: happens without a session has to be findable in the journal, not buried in it.
+_last_decision = None
+_decision_lock = threading.Lock()
+
+
+def _log_decision(allowed: bool, reason: str) -> None:
+    global _last_decision
+    decision = (allowed, reason)
+    with _decision_lock:
+        if decision == _last_decision:
+            return
+        _last_decision = decision
+    logger.info(
+        "MT5 terminal boot %s: %s", "allowed" if allowed else "withheld", reason
+    )
+
 
 def demand_ttl() -> float:
     """Lease length in seconds; unusable values fall back to the default."""
@@ -161,14 +179,17 @@ def allow_terminal_boot(connector, demand, probe=terminal_process_running) -> bo
     from src.live.mt5_bridge_session import session_is_usable
 
     if session_is_usable(connector):
+        _log_decision(True, "session already usable")
         return True
     if demand.active():
+        _log_decision(True, "platform session lease is active")
         return True
     answer = probe()
     if answer is True:
+        _log_decision(True, "terminal already running")
         return True
     if answer is None:
-        logger.warning(
-            "Could not read the process table; withholding the MT5 terminal boot"
-        )
+        _log_decision(False, "process table unreadable")
+        return False
+    _log_decision(False, "no platform session and no terminal")
     return False

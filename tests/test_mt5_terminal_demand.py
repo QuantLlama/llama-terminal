@@ -459,3 +459,60 @@ def test_sender_scoping_survives_the_route(monkeypatch):
     stale = client.post("/api/terminal/demand", json={"seq": 2, "sender": "desktop"}).json()
     assert stale["applied"] is False
     assert demand.active() is True, "one platform must never invalidate the other's deliveries"
+
+
+def _capture_decisions(monkeypatch, caplog):
+    import logging
+
+    module = _demand_module()
+    monkeypatch.setattr(module, "_last_decision", None)  # module-level dedupe state
+    caplog.set_level(logging.INFO, logger="src.live.mt5_terminal_demand")
+    return module
+
+
+def test_gate_reports_why_it_withheld_the_boot(monkeypatch, caplog):
+    module = _capture_decisions(monkeypatch, caplog)
+    connector, _ = _connector(usable=False)
+
+    assert module.allow_terminal_boot(connector, _Demand(False), probe=lambda: False) is False
+
+    messages = [r.message for r in caplog.records]
+    assert messages == ["MT5 terminal boot withheld: no platform session and no terminal"]
+
+
+def test_gate_logs_once_per_change_not_per_request(monkeypatch, caplog):
+    module = _capture_decisions(monkeypatch, caplog)
+    connector, _ = _connector(usable=False)
+
+    for _ in range(5):  # the bridge polls about once a second
+        module.allow_terminal_boot(connector, _Demand(False), probe=lambda: False)
+    assert len([r for r in caplog.records if "withheld" in r.message]) == 1
+
+    # A real change is worth a new line.
+    assert module.allow_terminal_boot(connector, _Demand(True), probe=lambda: False) is True
+    assert [r.message for r in caplog.records][-1] == (
+        "MT5 terminal boot allowed: platform session lease is active"
+    )
+
+
+def test_gate_reports_an_unreadable_probe_as_the_reason(monkeypatch, caplog):
+    module = _capture_decisions(monkeypatch, caplog)
+    connector, _ = _connector(usable=False)
+
+    module.allow_terminal_boot(connector, _Demand(False), probe=lambda: None)
+
+    assert [r.message for r in caplog.records] == [
+        "MT5 terminal boot withheld: process table unreadable"
+    ]
+
+
+def test_bridge_keeps_the_gate_logger_visible(monkeypatch):
+    """uvicorn leaves the root logger at WARNING; the decision must still show."""
+    import logging
+
+    _bridge(monkeypatch)
+
+    logger = logging.getLogger("src.live.mt5_terminal_demand")
+    assert logger.level == logging.INFO
+    assert logger.handlers, "without a handler the decisions never reach the journal"
+    assert logger.propagate is False, "do not depend on the root logger uvicorn leaves bare"

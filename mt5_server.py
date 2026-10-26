@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, Union
+import logging
 import uvicorn
 import pandas as pd
 import json
@@ -14,6 +15,17 @@ from src.live.mt5_terminal_demand import (
     allow_terminal_boot,
     terminal_process_running,
 )
+
+# uvicorn configures its own loggers and leaves the root logger without a handler,
+# so the gate's decisions would be dropped. This logger owns its handler: an
+# unexplained terminal boot has to be visible in the journal.
+_gate_logger = logging.getLogger("src.live.mt5_terminal_demand")
+_gate_logger.setLevel(logging.INFO)
+if not _gate_logger.handlers:
+    _gate_handler = logging.StreamHandler()
+    _gate_handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+    _gate_logger.addHandler(_gate_handler)
+    _gate_logger.propagate = False
 
 app = FastAPI(title="MT5 Wine Server", version="1.0.0")
 # The symbol catalogue is ~1 MB of repetitive JSON; compress it for slow tunnels.
