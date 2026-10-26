@@ -20,7 +20,7 @@ seaborn==0.13.2
 mplfinance
 cryptography
 
-fastapi==0.159.1
+fastapi==0.161.1
 uvicorn==0.54.0
 
 rich==13.7.1
