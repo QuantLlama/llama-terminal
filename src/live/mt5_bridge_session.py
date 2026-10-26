@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _session_is_usable(connector) -> bool:
+def session_is_usable(connector) -> bool:
     """Trust ``connected`` only when the connector can prove it is still live.
 
     The native connector exposes ``is_alive()`` because its flag outlives the
@@ -32,7 +32,7 @@ def ensure_connected(connector) -> bool:
     """Return True when the connector has a live MT5 session."""
     if connector is None:
         return False
-    if _session_is_usable(connector):
+    if session_is_usable(connector):
         return True
     try:
         connected = bool(connector.connect())

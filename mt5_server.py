@@ -9,6 +9,11 @@ import json
 from src.live.mt5_native_connector import MT5Connector
 from src.live.mt5_bridge_auth import bridge_bind, require_bridge_token
 from src.live.mt5_bridge_session import ensure_connected
+from src.live.mt5_terminal_demand import (
+    TerminalDemand,
+    allow_terminal_boot,
+    terminal_process_running,
+)
 
 app = FastAPI(title="MT5 Wine Server", version="1.0.0")
 # The symbol catalogue is ~1 MB of repetitive JSON; compress it for slow tunnels.
@@ -16,15 +21,51 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.middleware("http")(require_bridge_token)
 connector = MT5Connector()
 
-_SESSION_EXEMPT_PATHS = {"/api/shutdown", "/docs", "/openapi.json"}
+#: Authorises the ONE action that opens a terminal window: ``mt5.initialize()``
+#: boots ``terminal64.exe`` when nothing answers, so background polling must not
+#: reach it. Renewed by connected browser sessions only.
+terminal_demand = TerminalDemand()
+
+_SESSION_EXEMPT_PATHS = {
+    "/api/shutdown",
+    "/docs",
+    "/openapi.json",
+    # Peer routes must answer immediately (the platform sets the lease BEFORE it
+    # starts polling) and must never boot the terminal themselves.
+    "/api/terminal/demand",
+    "/api/terminal/status",
+}
 
 
 @app.middleware("http")
 async def ensure_mt5_session(request: Request, call_next):
-    """Reconnect the shared MT5 session before serving data routes."""
+    """Reconnect the shared MT5 session, but only where a boot is authorised."""
     if request.url.path not in _SESSION_EXEMPT_PATHS:
-        ensure_connected(connector)
+        if allow_terminal_boot(connector, terminal_demand):
+            ensure_connected(connector)
     return await call_next(request)
+
+
+@app.post("/api/terminal/demand")
+def api_terminal_demand():
+    """A platform session is open: allow the terminal to be booted."""
+    expires_in = terminal_demand.renew()
+    return {"active": True, "expires_in": expires_in}
+
+
+@app.get("/api/terminal/status")
+def api_terminal_status():
+    """Why the terminal is or is not being served, without booting anything."""
+    try:
+        session_alive = bool(connector.is_alive())
+    except Exception:
+        session_alive = False
+    return {
+        "terminal_running": terminal_process_running(),
+        "session_alive": session_alive,
+        "demand_active": terminal_demand.active(),
+        "demand_remaining_seconds": terminal_demand.remaining(),
+    }
 
 class ConnectRequest(BaseModel):
     path: Optional[str] = None
