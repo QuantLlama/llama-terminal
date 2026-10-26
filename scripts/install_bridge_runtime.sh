@@ -37,6 +37,7 @@ RUNTIME_FILES=(
     "src/live/mt5_native_connector.py"
     "src/live/mt5_bridge_auth.py"
     "src/live/mt5_bridge_session.py"
+    "src/live/mt5_terminal_demand.py"
 )
 
 # The units are installed by this script so a fresh machine does not depend on
@@ -96,7 +97,13 @@ fi
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || true
+    # The bridge boots the terminal on demand now, so the terminal unit must stop
+    # coming back at login. It is disabled, never stopped: stopping the unit would
+    # close a terminal the operator may be using right now.
+    systemctl --user disable qllama-mt5-terminal.service >/dev/null 2>&1 || true
 fi
 
 echo "bridge runtime installed in $TARGET_DIR"
 echo "systemd units installed in $UNIT_DIR"
+echo "qllama-mt5-terminal.service autostart disabled: MT5 starts on demand from an open platform session."
+echo "Start the terminal by hand with: systemctl --user start qllama-mt5-terminal.service"
