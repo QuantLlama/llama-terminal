@@ -586,7 +586,15 @@ class MarketDataEngine:
         last_reconnect_attempt = 0
         while not self._should_stop.is_set():
             try:
-                if self._status in (FeedStatus.OFFLINE, FeedStatus.RECONNECTING):
+                # DEGRADED is recoverable: a transient poll error moves an ONLINE
+                # feed here and nothing else ever sets OFFLINE again, so leaving
+                # it out parked the feed until the process restarted. The delay
+                # and the attempt cap below already bound how often we retry.
+                if self._status in (
+                    FeedStatus.OFFLINE,
+                    FeedStatus.RECONNECTING,
+                    FeedStatus.DEGRADED,
+                ):
                     now = time.time()
                     if now - last_reconnect_attempt > self._reconnect_delay_s:
                         last_reconnect_attempt = now
@@ -1259,7 +1267,11 @@ class MarketDataEngine:
                     ck = {'path': self._mt5_connect_path} if self._mt5_connect_path else {}
                     if connector.connect(**ck): logger.info(f"Reconexión exitosa para {self._platform}"); return True
                 else: self._update_status(FeedStatus.ONLINE); self._metrics.connected_since = time.time(); return True
-            except: pass
+            except Exception as exc:
+                # A silent failure left DEGRADED with no trace: the operator only
+                # saw the status bounce. DEGRADED now retries, so this path runs
+                # routinely and has to say why.
+                logger.warning(f"Reconexión de {self._platform} falló: {exc}")
         return False
 
     def _update_status(self, new_status: FeedStatus) -> None:
