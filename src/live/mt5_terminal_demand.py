@@ -55,34 +55,41 @@ class TerminalDemand:
     revoke the lease of a session opened a moment later. Callers pass a monotonic
     ``seq``; a delivery older than the last applied one is ignored, which makes
     the outcome independent of arrival order.
+
+    The high-water mark is kept **per sender**. Two platforms can drive the same
+    bridge (a local desktop and the cloud app, for instance) and their counters
+    are independent: letting one platform's number decide the other's freshness
+    would freeze the one that happened to start earlier.
     """
 
     def __init__(self, ttl=demand_ttl, clock=time.monotonic):
         self._ttl = ttl
         self._clock = clock
         self._until = 0.0
-        self._applied_seq = None
+        self._applied_seq = {}
         self._lock = threading.Lock()
 
-    def _is_stale(self, seq) -> bool:
+    def _is_stale(self, seq, sender) -> bool:
         """True when this delivery lost the race to an already applied one."""
-        return (
-            seq is not None
-            and self._applied_seq is not None
-            and seq < self._applied_seq
-        )
+        if seq is None:
+            return False
+        applied = self._applied_seq.get(sender)
+        return applied is not None and seq < applied
 
-    def _mark(self, seq):
+    def _mark(self, seq, sender):
         if seq is not None:
-            self._applied_seq = seq
+            self._applied_seq[sender] = seq
 
-    def renew(self, seq=None):
+    def renew(self, seq=None, sender=None):
         """Extend the lease and return its seconds, or ``None`` when stale."""
         with self._lock:
-            if self._is_stale(seq):
-                logger.info("Ignoring a stale terminal demand renewal (seq %s)", seq)
+            if self._is_stale(seq, sender):
+                logger.info(
+                    "Ignoring a stale terminal demand renewal (seq %s from %s)",
+                    seq, sender,
+                )
                 return None
-            self._mark(seq)
+            self._mark(seq, sender)
             self._until = self._clock() + self._ttl()
             return max(0.0, self._until - self._clock())
 
@@ -93,13 +100,16 @@ class TerminalDemand:
     def active(self) -> bool:
         return self.remaining() > 0.0
 
-    def revoke(self, seq=None) -> bool:
+    def revoke(self, seq=None, sender=None) -> bool:
         """Drop the lease; returns False when the delivery was stale."""
         with self._lock:
-            if self._is_stale(seq):
-                logger.info("Ignoring a stale terminal demand release (seq %s)", seq)
+            if self._is_stale(seq, sender):
+                logger.info(
+                    "Ignoring a stale terminal demand release (seq %s from %s)",
+                    seq, sender,
+                )
                 return False
-            self._mark(seq)
+            self._mark(seq, sender)
             self._until = 0.0
             return True
 

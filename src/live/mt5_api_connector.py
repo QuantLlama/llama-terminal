@@ -33,7 +33,7 @@ def bridge_headers():
 TERMINAL_DEMAND_PATH = "/api/terminal/demand"
 
 
-def request_terminal_demand(seq=None, timeout=3.0):
+def request_terminal_demand(seq=None, sender=None, timeout=3.0):
     """Renew the bridge's terminal-demand lease for one open platform session.
 
     The bridge boots ``terminal64.exe`` through ``mt5.initialize()``, so it boots
@@ -41,26 +41,29 @@ def request_terminal_demand(seq=None, timeout=3.0):
     connected browser/desktop session: background polling never renews it, and a
     failure is only transport noise because the lease simply lapses.
     """
-    return _terminal_demand_call("post", seq, timeout)
+    return _terminal_demand_call("post", seq, sender, timeout)
 
 
-def release_terminal_demand(seq=None, timeout=3.0):
+def release_terminal_demand(seq=None, sender=None, timeout=3.0):
     """Drop the lease as soon as the last platform session closes.
 
     Without this the lease outlives the session by ``MT5_TERMINAL_DEMAND_TTL``, and
     one background poll inside that window boots a terminal for nobody.
     """
-    return _terminal_demand_call("delete", seq, timeout)
+    return _terminal_demand_call("delete", seq, sender, timeout)
 
 
-def _terminal_demand_call(method, seq, timeout):
+def _terminal_demand_call(method, seq, sender, timeout):
     url = f"{resolve_bridge_url().rstrip('/')}{TERMINAL_DEMAND_PATH}"
     try:
         with httpx.Client(timeout=timeout) as client:
             # ``request`` is used because ``Client.delete()`` has no ``json``
             # parameter, and both deliveries need to carry their sequence.
             response = client.request(
-                method.upper(), url, headers=bridge_headers() or {}, json={"seq": seq}
+                method.upper(),
+                url,
+                headers=bridge_headers() or {},
+                json={"seq": seq, "sender": sender},
             )
     except Exception as exc:
         logger.debug(f"MT5 terminal demand {method} failed: {exc}")

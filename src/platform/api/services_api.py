@@ -2,7 +2,9 @@ import asyncio
 import itertools
 import json
 import os
+import socket
 import time
+import uuid
 import threading
 import logging
 from datetime import datetime
@@ -117,6 +119,10 @@ _demand_task = None
 # numbers the bridge already applied: a lower number would be treated as stale
 # and its renewals ignored until the counter caught up.
 _demand_seq = itertools.count(int(time.time() * 1_000_000))
+#: Identifies this platform process to the bridge. Its high-water mark is per
+#: sender, so a local desktop and the cloud app can drive one bridge without one
+#: of them deciding the other's deliveries are stale.
+_demand_sender = f"{socket.gethostname()[:32]}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
 def _next_demand_seq() -> int:
@@ -147,7 +153,7 @@ def _send_terminal_demand(seq: int) -> None:
     """Renew the lease once; a failure only means the lease lapses."""
     try:
         from src.live.mt5_api_connector import request_terminal_demand
-        request_terminal_demand(seq)
+        request_terminal_demand(seq, _demand_sender)
     except Exception as exc:
         logger.debug(f"No se pudo renovar la demanda de terminal MT5: {exc}")
 
@@ -156,7 +162,7 @@ def _release_terminal_demand(seq: int) -> None:
     """Drop the lease now that nobody is connected; failures only delay it."""
     try:
         from src.live.mt5_api_connector import release_terminal_demand
-        release_terminal_demand(seq)
+        release_terminal_demand(seq, _demand_sender)
     except Exception as exc:
         logger.debug(f"No se pudo liberar la demanda de terminal MT5: {exc}")
 

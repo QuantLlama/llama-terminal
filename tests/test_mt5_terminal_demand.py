@@ -428,3 +428,34 @@ def test_active_lease_still_boots_when_psutil_is_unavailable(monkeypatch):
 
     assert response.status_code == 200
     assert calls == [None], "the lease, not the probe, is what authorises a boot"
+
+
+def test_two_platforms_do_not_invalidate_each_other(monkeypatch):
+    """Each platform keeps its own high-water mark on a shared bridge."""
+    module = _demand_module()
+    demand = module.TerminalDemand(ttl=lambda: 120.0, clock=_Clock())
+
+    demand.renew(seq=5_000_000, sender="cloud")
+    # A second platform with a much lower counter is not stale: it has its own.
+    assert demand.renew(seq=2, sender="desktop") is not None
+    assert demand.active() is True
+
+    # Its own late delivery is still ignored.
+    assert demand.renew(seq=1, sender="desktop") is None
+    assert demand.active() is True
+
+
+def test_sender_scoping_survives_the_route(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    bridge = _bridge(monkeypatch)
+    demand, _ = _pin_demand(monkeypatch, bridge)
+    client = TestClient(bridge.app)
+
+    assert client.post("/api/terminal/demand", json={"seq": 9_000, "sender": "cloud"}).json()["applied"] is True
+    assert client.post("/api/terminal/demand", json={"seq": 3, "sender": "desktop"}).json()["applied"] is True
+    assert demand.active() is True
+
+    stale = client.post("/api/terminal/demand", json={"seq": 2, "sender": "desktop"}).json()
+    assert stale["applied"] is False
+    assert demand.active() is True, "one platform must never invalidate the other's deliveries"
