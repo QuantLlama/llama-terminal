@@ -29,6 +29,31 @@ def bridge_headers():
     return {"X-Bridge-Token": token} if token else None
 
 
+#: Lease route the bridge uses to decide whether it may boot the terminal.
+TERMINAL_DEMAND_PATH = "/api/terminal/demand"
+
+
+def request_terminal_demand(timeout=3.0):
+    """Renew the bridge's terminal-demand lease for one open platform session.
+
+    The bridge boots ``terminal64.exe`` through ``mt5.initialize()``, so it boots
+    one only while this lease is alive. Posting here is therefore reserved for a
+    connected browser/desktop session: background polling never renews it, and a
+    failure is only transport noise because the lease simply lapses.
+    """
+    url = f"{resolve_bridge_url().rstrip('/')}{TERMINAL_DEMAND_PATH}"
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(url, headers=bridge_headers() or {})
+    except Exception as exc:
+        logger.debug(f"MT5 terminal demand renewal failed: {exc}")
+        return False
+    if response.status_code >= 400:
+        logger.debug(f"MT5 terminal demand rejected: HTTP {response.status_code}")
+        return False
+    return True
+
+
 class _BridgeCallContext:
     """``with`` block over the connector's shared client.
 
