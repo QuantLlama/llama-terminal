@@ -1,4 +1,3 @@
-import React from 'react';
 const HistoryPanel = ({ activeSymbol }) => {
   const { useState, useEffect, useRef, useMemo } = React;
   const calculateRoundTripCommission = (symbol, volume) => {
@@ -395,4 +394,8 @@ const HistoryPanel = ({ activeSymbol }) => {
     )
     ));
 };
-export default HistoryPanel;
+// Published like every other component in this project: the page loads
+// plain scripts that hang off window. It used ES module syntax, which the
+// in-browser loader cannot run, and that is why this file sat unused while a
+// poorer inline copy did the work.
+window.HistoryPanel = HistoryPanel;
