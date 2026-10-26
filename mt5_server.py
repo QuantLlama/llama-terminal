@@ -46,23 +46,31 @@ async def ensure_mt5_session(request: Request, call_next):
     return await call_next(request)
 
 
+class DemandRequest(BaseModel):
+    """Optional monotonic sequence so out-of-order deliveries cannot flip the lease."""
+
+    seq: Optional[int] = None
+
+
 @app.post("/api/terminal/demand")
-def api_terminal_demand():
+def api_terminal_demand(payload: Optional[DemandRequest] = None):
     """A platform session is open: allow the terminal to be booted."""
-    expires_in = terminal_demand.renew()
-    return {"active": True, "expires_in": expires_in}
+    remaining = terminal_demand.renew(payload.seq if payload else None)
+    if remaining is None:
+        return {"active": terminal_demand.active(), "applied": False}
+    return {"active": True, "expires_in": remaining, "applied": True}
 
 
 @app.delete("/api/terminal/demand")
-def api_terminal_demand_release():
+def api_terminal_demand_release(payload: Optional[DemandRequest] = None):
     """The last platform session closed: stop authorising a boot right away.
 
     Revoking here matters because the lease would otherwise stay valid for
     ``MT5_TERMINAL_DEMAND_TTL`` after the window closed, and a single background
     poll inside that window boots a terminal for nobody. Nothing is terminated.
     """
-    terminal_demand.revoke()
-    return {"active": False}
+    applied = terminal_demand.revoke(payload.seq if payload else None)
+    return {"active": terminal_demand.active(), "applied": applied}
 
 
 @app.get("/api/terminal/status")

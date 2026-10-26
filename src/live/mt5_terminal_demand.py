@@ -47,17 +47,42 @@ def demand_ttl() -> float:
 
 
 class TerminalDemand:
-    """A lease that says a person is using the platform right now."""
+    """A lease that says a person is using the platform right now.
+
+    Renewal and revocation travel over HTTP from another process, so they can
+    arrive out of order: a renewal still in flight when the last session closes
+    would otherwise re-arm the lease after its release, and a slow release would
+    revoke the lease of a session opened a moment later. Callers pass a monotonic
+    ``seq``; a delivery older than the last applied one is ignored, which makes
+    the outcome independent of arrival order.
+    """
 
     def __init__(self, ttl=demand_ttl, clock=time.monotonic):
         self._ttl = ttl
         self._clock = clock
         self._until = 0.0
+        self._applied_seq = None
         self._lock = threading.Lock()
 
-    def renew(self) -> float:
-        """Extend the lease and return how many seconds it now covers."""
+    def _is_stale(self, seq) -> bool:
+        """True when this delivery lost the race to an already applied one."""
+        return (
+            seq is not None
+            and self._applied_seq is not None
+            and seq < self._applied_seq
+        )
+
+    def _mark(self, seq):
+        if seq is not None:
+            self._applied_seq = seq
+
+    def renew(self, seq=None):
+        """Extend the lease and return its seconds, or ``None`` when stale."""
         with self._lock:
+            if self._is_stale(seq):
+                logger.info("Ignoring a stale terminal demand renewal (seq %s)", seq)
+                return None
+            self._mark(seq)
             self._until = self._clock() + self._ttl()
             return max(0.0, self._until - self._clock())
 
@@ -68,9 +93,15 @@ class TerminalDemand:
     def active(self) -> bool:
         return self.remaining() > 0.0
 
-    def revoke(self) -> None:
+    def revoke(self, seq=None) -> bool:
+        """Drop the lease; returns False when the delivery was stale."""
         with self._lock:
+            if self._is_stale(seq):
+                logger.info("Ignoring a stale terminal demand release (seq %s)", seq)
+                return False
+            self._mark(seq)
             self._until = 0.0
+            return True
 
 
 def terminal_process_running():

@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import json
 import os
 import time
@@ -108,6 +109,15 @@ _shutdown_task = None
 TERMINAL_DEMAND_RENEW_ENV = "MT5_TERMINAL_DEMAND_RENEW"
 DEFAULT_TERMINAL_DEMAND_RENEW = 30.0
 _demand_task = None
+#: Monotonic sequence for demand deliveries. Renewal and release travel as
+#: independent background calls, so the bridge has to be able to tell which one
+#: is older: a renewal still in flight when the last session closes must not
+#: re-arm the lease, and a slow release must not revoke a newer session.
+_demand_seq = itertools.count(1)
+
+
+def _next_demand_seq() -> int:
+    return next(_demand_seq)
 
 
 def terminal_demand_renew_seconds() -> float:

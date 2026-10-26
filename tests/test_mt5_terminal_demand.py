@@ -126,6 +126,28 @@ def test_renew_extends_an_already_active_lease():
     assert demand.remaining() == pytest.approx(20.0)
 
 
+def test_a_late_renewal_cannot_rearm_a_released_lease():
+    module = _demand_module()
+    demand = module.TerminalDemand(ttl=lambda: 120.0, clock=_Clock())
+
+    demand.renew(seq=5)
+    demand.revoke(seq=6)
+
+    # The POST that was in flight when the last session closed arrives late.
+    assert demand.renew(seq=5) is None
+    assert demand.active() is False, "a stale renewal must not re-arm the lease"
+
+
+def test_a_late_release_cannot_revoke_a_newer_lease():
+    module = _demand_module()
+    demand = module.TerminalDemand(ttl=lambda: 120.0, clock=_Clock())
+
+    demand.renew(seq=7)
+    demand.revoke(seq=6)
+
+    assert demand.active() is True, "a stale release must not revoke a newer session"
+
+
 def test_revoke_clears_an_active_lease():
     module = _demand_module()
     demand = module.TerminalDemand(ttl=lambda: 120.0, clock=_Clock())
@@ -213,7 +235,7 @@ def test_demand_route_extends_the_lease_and_reports_expiry(monkeypatch):
     response = TestClient(bridge.app).post("/api/terminal/demand")
 
     assert response.status_code == 200
-    assert response.json() == {"active": True, "expires_in": pytest.approx(120.0)}
+    assert response.json() == {"active": True, "expires_in": pytest.approx(120.0), "applied": True}
     assert demand.active() is True
 
 
@@ -325,6 +347,27 @@ def test_release_route_revokes_the_lease_without_touching_the_terminal(monkeypat
     response = TestClient(bridge.app).delete("/api/terminal/demand")
 
     assert response.status_code == 200
-    assert response.json() == {"active": False}
+    assert response.json() == {"active": False, "applied": True}
     assert demand.active() is False, "a closed session must not keep the lease alive"
     assert calls == [], "releasing the lease must never touch the terminal"
+
+
+def test_demand_route_ignores_a_stale_sequence(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    bridge = _bridge(monkeypatch)
+    demand, _ = _pin_demand(monkeypatch, bridge)
+    client = TestClient(bridge.app)
+
+    assert client.post("/api/terminal/demand", json={"seq": 3}).json()["applied"] is True
+    assert demand.active() is True
+
+    # The release of an older session arrives after the renewal: it must not win.
+    # ``TestClient.delete`` takes no json on this starlette version.
+    stale_release = client.request("DELETE", "/api/terminal/demand", json={"seq": 2})
+    assert stale_release.json()["applied"] is False
+    assert demand.active() is True
+
+    stale_renewal = client.post("/api/terminal/demand", json={"seq": 2}).json()
+    assert stale_renewal["applied"] is False
+    assert demand.active() is True, "a stale renewal must never re-arm the lease"

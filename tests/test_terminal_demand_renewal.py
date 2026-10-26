@@ -55,12 +55,9 @@ def _install_fake_httpx(monkeypatch, module, seen, status_code=200):
         def __exit__(self, *args):
             return False
 
-        def post(self, url, **kwargs):
-            seen.setdefault("posts", []).append((url, kwargs.get("headers")))
-            return _FakeResponse(status_code)
-
-        def delete(self, url, **kwargs):
-            seen.setdefault("deletes", []).append((url, kwargs.get("headers")))
+        def request(self, method, url, **kwargs):
+            key = {"POST": "posts", "DELETE": "deletes"}[method]
+            seen.setdefault(key, []).append((url, kwargs.get("headers"), kwargs.get("json")))
             return _FakeResponse(status_code)
 
     monkeypatch.setattr(module.httpx, "Client", FakeClient)
@@ -85,7 +82,9 @@ def test_request_terminal_demand_posts_to_the_bridge_with_the_token(monkeypatch)
 
     assert module.request_terminal_demand() is True
 
-    assert seen["posts"] == [("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"})]
+    assert seen["posts"] == [
+        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"}, {"seq": None})
+    ]
 
 
 def test_request_terminal_demand_reports_a_rejected_lease(monkeypatch):
@@ -110,7 +109,7 @@ def test_request_terminal_demand_survives_an_unreachable_bridge(monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def post(self, *args, **kwargs):
+        def request(self, *args, **kwargs):
             raise OSError("bridge unreachable")
 
     monkeypatch.setattr(module.httpx, "Client", FakeClient)
@@ -207,7 +206,7 @@ def test_release_terminal_demand_deletes_the_lease_with_the_token(monkeypatch):
     assert module.release_terminal_demand() is True
 
     assert seen["deletes"] == [
-        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"})
+        ("http://127.0.0.1:8081/api/terminal/demand", {"X-Bridge-Token": "s3cret"}, {"seq": None})
     ]
     assert seen.get("posts") is None
 
@@ -247,3 +246,31 @@ def test_release_never_runs_while_a_session_stays_open(monkeypatch, services):
         services.unregister_connection()
 
     asyncio.run(scenario())
+
+
+def test_release_uses_a_sequence_newer_than_any_renewal(monkeypatch, services):
+    """Order independence: a late renewal must be older than the release."""
+    seen = []
+    monkeypatch.setattr(
+        services, "_send_terminal_demand", lambda: seen.append(("renew", services._next_demand_seq()))
+    )
+    monkeypatch.setattr(
+        services, "_release_terminal_demand", lambda: seen.append(("release", services._next_demand_seq()))
+    )
+    monkeypatch.setattr(services, "terminal_demand_renew_seconds", lambda: 0.01)
+
+    async def scenario():
+        services.register_connection()
+        await asyncio.sleep(0.04)
+        services.unregister_connection()
+        await asyncio.sleep(0.05)
+
+    asyncio.run(scenario())
+
+    renew_seqs = [seq for kind, seq in seen if kind == "renew"]
+    release_seqs = [seq for kind, seq in seen if kind == "release"]
+    assert renew_seqs and release_seqs
+    assert max(release_seqs) > max(renew_seqs), (
+        "the release must carry the newest sequence, so a renewal still in flight "
+        "cannot re-arm the lease after the last session closed"
+    )
