@@ -94,3 +94,25 @@ def cached(
             return value
         cache[key] = {"value": value, "ts": time.monotonic()}
         return value
+
+def deals_as_dicts(rows):
+    """Return deal rows as plain dicts.
+
+    The MT5 path hands back namedtuples, and JSON serialises a namedtuple as an
+    ARRAY: the browser then reads d.time and gets undefined, so every client-side
+    filter silently drops every deal. The backend never noticed because it reads
+    the same rows through getattr. Converting here keeps the wire format honest.
+    """
+    if not rows:
+        return []
+    result = []
+    for row in rows:
+        if isinstance(row, dict):
+            result.append(row)
+        elif hasattr(row, "_asdict"):
+            result.append(dict(row._asdict()))
+        elif hasattr(row, "__dict__"):
+            result.append(dict(vars(row)))
+        else:
+            result.append(row)
+    return result

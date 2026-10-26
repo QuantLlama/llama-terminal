@@ -108,7 +108,7 @@ from src.platform.api.seo_api import router as seo_router
 from src.platform.api.migration_api import router as migration_router
 # Small in-process TTL cache: symbols and deals barely change per poll, and
 # every bridge read costs ~418ms of transport.
-from src.platform.api.deals_cache import cached
+from src.platform.api.deals_cache import cached, deals_as_dicts
 
 # Standard routers
 from src.platform.api.analysis_api import router as analysis_router
@@ -2446,7 +2446,7 @@ async def get_deals(
             return {
                 "status": "success",
                 "platform": target_platform,
-                "deals": sanitized_deals,
+                "deals": deals_as_dicts(sanitized_deals),
                 "count": len(deals),
                 "account_balance": account_balance,
             }
