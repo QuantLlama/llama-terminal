@@ -206,6 +206,7 @@
   <script type="text/babel" src="/components/useTradeStream.js?v=2.4.7"></script>
   <script type="text/babel" src="/components/TapeConfigModal.js?v=2.4.7"></script>
   <script type="text/babel" src="/components/TapePanel.js?v=2.4.7"></script>
+  <script type="text/babel" src="/components/HistoryPanel.js?v=3.0.0"></script>
   <script src="/lib/loginI18n.js?v=1.0.0"></script>
   <script src="/lib/setupGuideContent.js?v=1.0.0"></script>
   <script type="text/babel" src="/components/SetupGuide.js?v=2.0.0"></script>
@@ -2360,7 +2361,7 @@
               )
             ),
             React.createElement("div", { className: "flex-1 overflow-hidden" },
-              React.createElement(HistoryPanel, {
+              React.createElement(window.HistoryPanel || HistoryPanel, {
                 activeSymbol: activeSymbol,
                 accountBalance: accountBalance,
                 setAccountBalance: setAccountBalance,
@@ -2461,7 +2462,13 @@
             if (rDeals.ok) {
               const data = await rDeals.json();
               const fetchedDeals = Array.isArray(data) ? data : data.deals || [];
+              // TEMPORARY diagnostic: the backend returns 17 records and the table
+              // stays empty, so the loss happens between this response and the
+              // render. Remove once the panel is confirmed working.
+              console.log('[HISTORY-DIAG] ok', { platform: platformParam, isArray: Array.isArray(data), keys: data && typeof data === 'object' ? Object.keys(data) : null, fetched: fetchedDeals.length, first: fetchedDeals[0] || null });
               setAllDeals(fetchedDeals);
+            } else {
+              console.warn('[HISTORY-DIAG] response not ok', rDeals.status);
             }
           } catch (e) {
             console.error('[HISTORY] Fetch Error:', e);
@@ -2505,7 +2512,9 @@
         } else {
           startTime = Date.now() / 1000 - days * 24 * 3600;
         }
+        console.log('[HISTORY-DIAG] filter', { allDeals: allDeals.length, days: days, startTime: startTime, localSymbol: localSymbol });
         const filteredByTime = allDeals.filter((d) => d.time >= startTime);
+        console.log('[HISTORY-DIAG] after time filter', filteredByTime.length);
         const filtered = filteredByTime.filter((d) => {
           if (!localSymbol) return true;
           const s1 = localSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -2930,7 +2939,7 @@
             )
           ),
           activeTab === "history" ?
-            React.createElement(HistoryPanel, { 
+            React.createElement(window.HistoryPanel || HistoryPanel, { 
               activeSymbol: symbol,
               platform: currentPlatform
             }) :
