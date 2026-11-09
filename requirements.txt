@@ -3,24 +3,24 @@ pandas==2.2.2
 scikit-learn==1.9.1
 statsmodels==0.15.0
 
-torch==2.14.1
-torchvision==0.29.1
-pytest==9.1.1
+torch==2.15.0
+torchvision==0.29.2
+pytest==9.2.0
 pyarmor==8.2.33
 
 MetaTrader5==5.0.6231; sys_platform == 'win32'
-yfinance==1.7.0
-curl_cffi==0.16.3
+yfinance==1.8.0
+curl_cffi==0.17.0
 pytz==2024.1
 gym==0.26.2
-ta-lib==0.8.2
+ta-lib==0.8.3
 
 matplotlib==3.11.2
 seaborn==0.13.2
 mplfinance
 cryptography
 
-fastapi==0.159.1
+fastapi==0.162.0
 uvicorn==0.54.0
 
 rich==13.7.1
@@ -41,8 +41,8 @@ python-dotenv==1.2.4
 
 # Nota: SQLite3 viene incluido en Python (módulo estándar)
 # No requiere instalación adicional para persistencia de configuraciones
-ccxt==4.5.89
-supabase==2.33.0
+ccxt==4.5.92
+supabase==2.34.0
 # Per-user storage driver. Rows live in PostgreSQL behind DATABASE_URL; see
 # docs/DATA.md. Tests use a fake driver and never import this module.
 psycopg2-binary==2.9.13
