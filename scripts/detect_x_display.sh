@@ -63,10 +63,15 @@ probe_tool_available() {
     command -v python3 >/dev/null 2>&1 || command -v xdpyinfo >/dev/null 2>&1
 }
 
+# A display manager running as root owns the socket file even when the session
+# belongs to the operator (system X servers on Arch and Debian do exactly that),
+# so the file owner alone cannot decide who the display belongs to. Root is
+# therefore always acceptable, and the authenticated probe below is what proves
+# the session is really the operator's: Wine only gets in with their cookie.
 socket_owned_by_expected_uid() {
     local owner
     owner="$(stat -c '%u' "$1" 2>/dev/null || stat -f '%u' "$1" 2>/dev/null)" || return 1
-    [[ "$owner" == "$X11_EXPECTED_UID" ]]
+    [[ "$owner" == "$X11_EXPECTED_UID" || "$owner" == "0" ]]
 }
 
 warn_unverified_display() {
