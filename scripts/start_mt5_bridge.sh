@@ -46,6 +46,24 @@ fi
 
 cd "$ROOT_DIR"
 
+# The unit passes the desktop session's DISPLAY through PassEnvironment, but the
+# systemd user manager only knows what its own environment had when it started.
+# When that is empty, Wine boots the terminal with no driver
+# ("nodrv_CreateWindow") and mt5.initialize() fails with "IPC send failed", so
+# the bridge answers every request late or not at all. Fall back to the first
+# local X socket instead of hardcoding a display number.
+if [[ -z "${DISPLAY:-}" ]]; then
+    for socket in /tmp/.X11-unix/X*; do
+        [[ -e "$socket" ]] || continue
+        export DISPLAY=":${socket##*/X}"
+        break
+    done
+fi
+if [[ -z "${XAUTHORITY:-}" && -f "$HOME/.Xauthority" ]]; then
+    export XAUTHORITY="$HOME/.Xauthority"
+fi
+echo "Display: ${DISPLAY:-<none>}"
+
 # Prefer the Windows Python that lives inside the Wine prefix: it is the only
 # interpreter that can import the Windows-only MetaTrader5 package.
 find_wine_python() {
