@@ -29,6 +29,7 @@ fi
 RUNTIME_FILES=(
     "mt5_server.py"
     "scripts/start_mt5_bridge.sh"
+    "scripts/detect_x_display.sh"
     "scripts/start_mt5_terminal.sh"
     "scripts/local_crypto_proxy.py"
     "scripts/qllama-pg-tunnel.sh"

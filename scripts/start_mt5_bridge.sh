@@ -11,7 +11,9 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DISPLAY_HELPER="$SCRIPT_DIR/detect_x_display.sh"
 TOKEN_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/qllama/mt5_bridge_token"
 BIND="${MT5_BRIDGE_BIND:-127.0.0.1}"
 PORT="${MT5_BRIDGE_PORT:-8081}"
@@ -46,24 +48,6 @@ fi
 
 cd "$ROOT_DIR"
 
-# The unit passes the desktop session's DISPLAY through PassEnvironment, but the
-# systemd user manager only knows what its own environment had when it started.
-# When that is empty, Wine boots the terminal with no driver
-# ("nodrv_CreateWindow") and mt5.initialize() fails with "IPC send failed", so
-# the bridge answers every request late or not at all. Fall back to the first
-# local X socket instead of hardcoding a display number.
-if [[ -z "${DISPLAY:-}" ]]; then
-    for socket in /tmp/.X11-unix/X*; do
-        [[ -e "$socket" ]] || continue
-        export DISPLAY=":${socket##*/X}"
-        break
-    done
-fi
-if [[ -z "${XAUTHORITY:-}" && -f "$HOME/.Xauthority" ]]; then
-    export XAUTHORITY="$HOME/.Xauthority"
-fi
-echo "Display: ${DISPLAY:-<none>}"
-
 # Prefer the Windows Python that lives inside the Wine prefix: it is the only
 # interpreter that can import the Windows-only MetaTrader5 package.
 find_wine_python() {
@@ -84,6 +68,23 @@ find_wine_python() {
 
 if wine_python="$(find_wine_python)"; then
     echo "Using Wine Python: $wine_python"
+    # Wine cannot create a window without a display, so the display is resolved
+    # before the exec: the unit forwards the session's DISPLAY through
+    # PassEnvironment, but the user manager may not have known one, and falling
+    # back to the first /tmp/.X11-unix entry can point Wine at a dead socket or
+    # another session's display. The helper validates a live local socket and
+    # refuses to guess, so a failure here is explained instead of surfacing as
+    # "nodrv_CreateWindow" plus "IPC send failed" on every mt5.initialize().
+    if [[ ! -x "$DISPLAY_HELPER" ]]; then
+        echo "error: missing $DISPLAY_HELPER (stale runtime copy: run scripts/install_bridge_runtime.sh)" >&2
+        exit 1
+    fi
+    if ! display_env="$("$DISPLAY_HELPER" --export)"; then
+        echo "error: refusing to start Wine without a validated X display" >&2
+        exit 1
+    fi
+    eval "$display_env"
+    echo "Display: ${DISPLAY}${XAUTHORITY:+ (XAUTHORITY=${XAUTHORITY})}"
     exec wine "$wine_python" -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
 elif [[ -x "./venv_linux/bin/python" ]]; then
     exec ./venv_linux/bin/python -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
