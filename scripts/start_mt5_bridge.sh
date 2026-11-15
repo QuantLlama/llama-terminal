@@ -84,7 +84,7 @@ if wine_python="$(find_wine_python)"; then
         exit 1
     fi
     eval "$display_env"
-    echo "Display: ${DISPLAY}${XAUTHORITY:+ (XAUTHORITY=${XAUTHORITY})}"
+    echo "Display: ${DISPLAY:-<none>}"
     exec wine "$wine_python" -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
 elif [[ -x "./venv_linux/bin/python" ]]; then
     exec ./venv_linux/bin/python -m uvicorn mt5_server:app --host "$BIND" --port "$PORT"
