@@ -128,11 +128,18 @@ PROBE
     fi
     # No python3: fall back to the X client that ships with x11-utils.
     command -v xdpyinfo >/dev/null 2>&1 || return 1
+    local display_number=":${socket##*/X}"
     if [[ "$mode" == "auth" && -n "$authority" ]]; then
-        XAUTHORITY="$authority" xdpyinfo -display ":${socket##*/X}" >/dev/null 2>&1
-    else
-        XAUTHORITY=/dev/null xdpyinfo -display ":${socket##*/X}" >/dev/null 2>&1
+        XAUTHORITY="$authority" xdpyinfo -display "$display_number" >/dev/null 2>&1
+        return
     fi
+    # Liveness only, and xdpyinfo is just as affected by authentication as the
+    # python probe: forcing an empty authority reports an auth-required server as
+    # dead, which would kill the display before its cookie is ever tried. Try the
+    # ambient authority first, then retry without one for a server that needs no
+    # cookie at all.
+    XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" xdpyinfo -display "$display_number" >/dev/null 2>&1 && return 0
+    XAUTHORITY=/dev/null xdpyinfo -display "$display_number" >/dev/null 2>&1
 }
 
 resolve_display() {
